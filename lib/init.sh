@@ -19,6 +19,7 @@ rex_cmd_init(){
   [[ -f pyproject.toml ]] || cp "$REX_SRC/templates/pyproject.toml" pyproject.toml
   [[ -f mypy.ini ]] || cp "$REX_SRC/templates/mypy.ini" mypy.ini
   [[ -f conftest.py ]] || cp "$REX_SRC/templates/conftest.py" conftest.py
+  [[ -f .flake8 ]] || cp "$REX_SRC/templates/.flake8" .flake8
   [[ -f documents/feature_cards/README.md ]] || cp "$REX_SRC/templates/documents/feature_cards/README.md" documents/feature_cards/README.md
   cp -rn "$REX_SRC/templates/tests/enforcement/." tests/enforcement/ 2>/dev/null || true
 
