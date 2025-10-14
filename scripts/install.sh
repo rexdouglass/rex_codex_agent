@@ -20,7 +20,7 @@ if [[ ! -d "$SRC_DIR/.git" ]]; then
   git clone --depth 1 "$REPO_URL" "$SRC_DIR"
 else
   echo "[*] Existing agent found; fetching updates"
-  git -C "$SRC_DIR" fetch --all --tags --prune
+  git -C "$SRC_DIR" fetch --all --tags --prune --force
 fi
 
 case "$CHANNEL" in

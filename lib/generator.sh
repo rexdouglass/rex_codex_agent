@@ -23,7 +23,7 @@ rex_cmd_generator(){
       --status) shift || true; generator_set_statuses "${1:-proposed}" statuses ;;
       --statuses=*) generator_set_statuses "${1#*=}" statuses ;;
       --statuses) shift || true; generator_set_statuses "${1:-proposed}" statuses ;;
-      --each|--all) iterate_all=1 ;;
+      --each|--each-feature|--all) iterate_all=1 ;;
       --help) generator_usage; return 0 ;;
       --) shift || true; break ;;
       -* ) echo "[generator] Unknown option: $1" >&2; generator_usage >&2; return 2 ;;
@@ -81,7 +81,7 @@ Options:
   --include-accepted      Also consider Feature Cards marked status: accepted
   --status <name>         Only consider Feature Cards with the given status (comma separated allowed)
   --statuses <list>       Alias for --status
-  --each                  Process every matching Feature Card sequentially
+  --each, --each-feature  Process every matching Feature Card sequentially
 USAGE
 }
 
