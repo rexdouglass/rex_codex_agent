@@ -45,6 +45,9 @@ def build_parser() -> argparse.ArgumentParser:
     disc_mode = disc_parser.add_mutually_exclusive_group()
     disc_mode.add_argument("--feature-only", action="store_true", help="Run only the active feature shard")
     disc_mode.add_argument("--global", dest="global_only", action="store_true", help="Run the global sweep")
+    disc_llm = disc_parser.add_mutually_exclusive_group()
+    disc_llm.add_argument("--enable-llm", action="store_true", help="Allow guarded runtime edits via LLM")
+    disc_llm.add_argument("--disable-llm", action="store_true", help="Disable LLM runtime edits (default)")
     disc_parser.add_argument("--single-pass", action="store_true", help="Run one pass and stop")
     disc_parser.add_argument("--max-passes", type=int, default=None, help="Maximum passes before giving up")
     disc_parser.add_argument("--feature", dest="feature_slug", help="Override feature slug")
@@ -61,6 +64,11 @@ def build_parser() -> argparse.ArgumentParser:
     loop_parser.add_argument("--include-accepted", action="store_true")
     loop_parser.add_argument("--status", dest="statuses", default=None)
     loop_parser.add_argument("--each", action="store_true", help="Process each matching Feature Card sequentially")
+    loop_parser.add_argument("--no-self-update", action="store_true", help="Skip self-update before running")
+    loop_parser.add_argument("--explain", action="store_true", help="Describe planned actions and exit")
+    loop_llm = loop_parser.add_mutually_exclusive_group()
+    loop_llm.add_argument("--enable-llm", action="store_true", help="Allow guarded runtime edits via LLM")
+    loop_llm.add_argument("--disable-llm", action="store_true", help="Disable LLM runtime edits")
 
     # card commands
     card_parser = sub.add_parser("card", help="Feature Card helpers")
@@ -137,6 +145,10 @@ def main(argv: list[str] | None = None) -> int:
             options.max_passes = args.max_passes
         if args.feature_slug:
             options.slug = args.feature_slug
+        if args.enable_llm:
+            options.disable_llm = False
+        elif args.disable_llm:
+            options.disable_llm = True
         return run_discriminator(options, context=context)
 
     if args.command == "loop":
@@ -164,6 +176,12 @@ def main(argv: list[str] | None = None) -> int:
             if "accepted" not in statuses:
                 statuses.append("accepted")
         loop_opts.each_features = args.each
+        loop_opts.perform_self_update = not args.no_self_update
+        loop_opts.explain = args.explain
+        if args.enable_llm:
+            loop_opts.discriminator_options.disable_llm = False
+        elif args.disable_llm:
+            loop_opts.discriminator_options.disable_llm = True
         return run_loop(loop_opts, context=context)
 
     if args.command == "card":

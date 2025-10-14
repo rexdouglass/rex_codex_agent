@@ -15,7 +15,7 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
 
 ## Requirements
 
-- Linux (or WSL) with Bash 4+, `git`, `flock`, and GNU `timeout`.
+- Linux (or WSL) with Bash 4+, `git`, and GNU `timeout` (Python handles advisory locks via `fcntl`).
 - `python3` on PATH (the agent bootstraps a `.venv` with pytest/ruff/black/isort/flake8/mypy/pytest-cov).
 - `node` 18+ if you want LLM-assisted generator/discriminator flows (the discriminator runs offline by default via `DISABLE_LLM=1`).
 - Outbound network is optional: self-update now defaults **off** (`REX_AGENT_NO_UPDATE=1`). Flip to `0` to pull newer agent versions.
@@ -48,11 +48,13 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
    ```
    - **Generator** converts the card into deterministic pytest specs under `tests/feature_specs/<slug>/`.
    - **Discriminator** executes the staged ladder (health, smoke/unit, coverage ≥80%, optional pip-audit/bandit/build, style/type).
+   - Add `--explain` to preview the planned generator/discriminator phases before they run; `--no-self-update` skips the preflight update check.
+   - Need a targeted rerun? `./rex-codex discriminator --feature-only` handles the shard; `./rex-codex discriminator --global` runs the full ladder.
 
 5. **Implement runtime code until green**
    - Edit modules under `src/...` (or your package directories).
    - Re-run `./rex-codex loop --discriminator-only` for fast feedback.
-   - Set `DISABLE_LLM=0` to let the discriminator propose tiny guarded runtime patches (requires `node`).
+   - Set `DISABLE_LLM=0` or add `--enable-llm` to allow the discriminator to propose tiny guarded runtime patches (requires `node`).
 
 6. **Accept the feature**
    - When the discriminator is green, manually change the card to `status: accepted` and commit your work.
@@ -72,9 +74,9 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
 | Command | Purpose | Key Flags & Env |
 |---------|---------|-----------------|
 | `./rex-codex init` | Seed `.venv`, guardrails, Feature Card scaffolding, and `rex-agent.json`. | — |
-| `./rex-codex generator` | Generate deterministic pytest specs from the next `status: proposed` card. | `--single-pass`, `--max-passes`, `--status`, `--each` |
-| `./rex-codex discriminator` | Run the staged ladder (feature shard via `--feature-only`, full sweep by default). | `--global`, `--single-pass`, `DISCRIMINATOR_MAX_PASSES`, `DISABLE_LLM`, `COVERAGE_MIN`, `PIP_AUDIT`, `BANDIT`, `PACKAGE_CHECK` |
-| `./rex-codex loop` | Generator → feature shard → global sweep in one shot. | `--generator-only`, `--discriminator-only`, `--feature-only`, `--global-only`, `--each` |
+| `./rex-codex generator` | Generate deterministic pytest specs from the next `status: proposed` card. | `--single-pass`, `--max-passes`, `--focus`, `--status`, `--each` |
+| `./rex-codex discriminator` | Run the staged ladder (feature shard via `--feature-only`, full sweep by default). | `--feature-only`, `--global`, `--single-pass`, `--enable-llm`, `--disable-llm`, `DISCRIMINATOR_MAX_PASSES`, `COVERAGE_MIN`, `PIP_AUDIT`, `BANDIT`, `PACKAGE_CHECK`, `MYPY_TARGETS`, `MYPY_INCLUDE_TESTS` |
+| `./rex-codex loop` | Generator → feature shard → global sweep in one shot. | `--generator-only`, `--discriminator-only`, `--feature-only`, `--global-only`, `--each`, `--explain`, `--no-self-update`, `--enable-llm`, `--disable-llm` |
 | `./rex-codex card` | `new`, `list`, `validate` helpers for Feature Cards. | `--status`, `--acceptance` (for `new`) |
 | `./rex-codex status` | Show the active slug/card and last discriminator success. | — |
 | `./rex-codex logs` | Tail the latest generator/discriminator logs from `.codex_ci/`. | — |
@@ -82,6 +84,22 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
 | `./rex-codex burn` | Wipe the repo (keeps `.git`; optional `--purge-agent`; supports `--dry-run`). | `--yes`, `--purge-agent`, `--dry-run` |
 | `./rex-codex uninstall` | Remove `.rex_agent/` and optionally the wrapper. | `--yes`, `--keep-wrapper` |
 | `./rex-codex self-update` | Refresh the agent when `REX_AGENT_NO_UPDATE=0`. | `--channel`, `REX_AGENT_CHANNEL` |
+
+### Exit codes at a glance
+
+| Command | Exit | Meaning |
+|---------|------|---------|
+| `generator` | 0 | Specs updated successfully. |
+| `generator` | 1 | No matching Feature Card (or card path missing). |
+| `generator` | 2 | Codex CLI errored; inspect `.codex_ci/generator_response.log`. |
+| `generator` | 3 | Diff rejected (paths or patch-size budget). |
+| `generator` | 4 | Patch application failed; manual merge required. |
+| `generator` | 5 | Critic returned empty guidance. |
+| `generator` | 6 | Max passes reached without a `DONE`. |
+| `generator` | 7 | Guardrail rollback (card edit or hermetic failure). |
+| `discriminator` | 0 | Ladder passed. |
+| `discriminator` | 1 | Stage failed or max passes reached. |
+| `discriminator` | 2 | LLM disabled or runtime patch rejected (see latest log). |
 
 Artifacts land in `.codex_ci/`:
 - `latest_discriminator.log` / `.codex_ci_latest.log` – tail of the latest run.
@@ -97,7 +115,7 @@ The agent also tracks state in `rex-agent.json` (active slug/card, last discrimi
 - Before applying a diff it enforces:
   - Allowed-path filter.
   - Patch-size budget (`GENERATOR_MAX_FILES`, `GENERATOR_MAX_LINES`).
-  - Hermeticity scan blocking network/clock/entropy APIs (`requests`, `subprocess`, `time.sleep`, `uuid.uuid4`, `secrets`, `numpy.random…`, etc.).
+  - Hermeticity scan blocking network/clock/entropy/subprocess calls (e.g. `requests.get`, `subprocess.run`, `time.sleep`, `uuid.uuid4`, `secrets`, `numpy.random.*`).
   - Card guard: only appends in `## Links` / `## Spec Trace`, never mutates `status:`.
 - After each pass it runs pytest on the spec shard and feeds logs to a “critic” loop until the card is marked `DONE` or max passes hit.
 
@@ -134,13 +152,14 @@ Guardrails:
 ## Safety Rails & Defaults
 
 - **Tests-first**: generator only writes specs; runtime edits must happen manually (or via the tightly constrained discriminator LLM pass).
-- **Hermetic specs**: bans network/clock/entropy APIs, `skip`/`xfail`, and unseeded randomness.
+- **Hermetic specs**: bans network/clock/entropy/subprocess calls, `skip`/`xfail`, and unseeded randomness.
 - **Deterministic runs**: `PYTHONHASHSEED` defaults to `0`; pytest snapshots and discriminator stages honour configurable timeouts.
 - **Patch-size limits**: generator and discriminator reject oversized diffs (defaults 6 files / 300 lines).
 - **Protected paths**: tests, docs, configs, dependency manifests, CI, and the feature card are hashed before/after; unauthorized edits are reverted.
 - **Coverage-first**: 80% minimum out of the box, captured via `pytest-cov`.
 - **Optional gates**: enable `PIP_AUDIT=1`, `BANDIT=1`, `PACKAGE_CHECK=1` to bring security/build checks into the ladder.
-- **Concurrency-safe**: commands take out `.codex_ci/*.lock` via `flock`.
+- **Mypy scope**: type checking defaults to runtime targets (`MYPY_TARGETS` or `COVERAGE_TARGETS`); set `MYPY_INCLUDE_TESTS=1` to include spec shards when needed.
+- **Concurrency-safe**: commands take out `.codex_ci/*.lock` using Python advisory (`fcntl`) locks.
 - **Observability**: logs, JUnit XML, and recent state written to disk for CI ingestion and human review.
 
 ---

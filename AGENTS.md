@@ -33,7 +33,7 @@ Keep these expectations visible—both docs and templates must reinforce them so
    The generator:
    - Keeps diffs under `tests/feature_specs/<slug>/…` (tests only) and appends links/trace in the card.
    - Enforces patch-size limits (default 6 files / 300 lines).
-   - Runs an AST hermeticity scan that bans network calls, sleeps, entropy (`uuid.uuid4`, `os.urandom`, `secrets`, `numpy.random`…), and unconditional skip/xfail.
+   - Runs an AST hermeticity scan that bans network, subprocess, clock, and entropy **calls** (`requests.get`, `subprocess.run`, `time.sleep`, `uuid.uuid4`, `os.urandom`, `secrets`, `numpy.random`…), plus unconditional skip/xfail.
 5. **Run the discriminator ladder**
    ```bash
    ./rex-codex discriminator --feature-only   # smoke/unit on the spec shard (pytest -x --maxfail=1)
@@ -42,9 +42,10 @@ Keep these expectations visible—both docs and templates must reinforce them so
    Stages = health → tooling → smoke/unit → coverage → optional `pip-audit`/`bandit`/`build` → style/type (`black`, `isort`, `ruff`, `flake8`, `mypy`). Logs + JUnit land in `.codex_ci/`. Successful passes are recorded in `rex-agent.json`.
 6. **Iterate via the loop**
    ```bash
-   ./rex-codex loop                # generator → feature → global
-   ./rex-codex loop --discriminator-only   # implement runtime without re-triggering generator
-   DISABLE_LLM=0 ./rex-codex loop --discriminator-only   # allow guarded LLM runtime edits
+  ./rex-codex loop                # generator → feature → global
+  ./rex-codex loop --explain      # preview planned stages before execution
+  ./rex-codex loop --discriminator-only   # implement runtime without re-triggering generator
+  DISABLE_LLM=0 ./rex-codex loop --discriminator-only   # or add --enable-llm to discriminator/loop for guarded runtime edits
    ```
 7. **Promote the Feature Card**
    - When the repo is green, edit the card to `status: accepted` (generator never changes statuses). Commit your changes.
@@ -59,10 +60,11 @@ Keep these expectations visible—both docs and templates must reinforce them so
 - **Protected surfaces:** tests, Feature Cards, documents, CI configs, dependency manifests, tooling configs are hash-snapshotted before LLM edits—unauthorized changes are reverted.
 - **Runtime allow-list:** discriminator LLM patches may only touch runtime directories (`src/`, detected packages). Non-runtime paths are rejected.
 - **Patch-size budgets:** generator and discriminator enforce defaults of 6 files / 300 lines (override via `GENERATOR_MAX_FILES/LINES`, `DISCRIMINATOR_MAX_FILES/LINES`).
-- **Determinism:** hermetic specs ban network/entropy/time APIs; `PYTHONHASHSEED=0` is exported for generator snapshots and discriminator runs; pytest stages use configurable timeouts.
+- **Determinism:** hermetic specs ban network/entropy/time/subprocess calls; `PYTHONHASHSEED=0` is exported for generator snapshots and discriminator runs; pytest stages use configurable timeouts.
 - **Coverage-first:** `COVERAGE_MIN` defaults to 80%; targets default to `src/`. Optional gates activate with `PIP_AUDIT=1`, `BANDIT=1`, `PACKAGE_CHECK=1`.
 - **Auto-style:** mechanical `ruff/black/isort` runs only on runtime targets (never tests/docs).
-- **Concurrency:** generator, discriminator, and loop use `.codex_ci/*.lock` via `flock`.
+- **Mypy scope:** type checking defaults to runtime targets (`MYPY_TARGETS` or `COVERAGE_TARGETS`); set `MYPY_INCLUDE_TESTS=1` to include spec shards when required.
+- **Concurrency:** generator, discriminator, and loop take `.codex_ci/*.lock` with Python advisory (`fcntl`) locks.
 - **Telemetry:** `rex-agent.json` tracks active slug/card and discriminator success metadata for auditability.
 
 ---
@@ -90,7 +92,7 @@ Keep these expectations visible—both docs and templates must reinforce them so
 - `./rex-codex card new` – scaffold a Feature Card; `card list` / `card validate` keep hygiene tight.
 - `./rex-codex generator` – produce/iterate tests for the next Feature Card until the critic says DONE.
 - `./rex-codex discriminator --feature-only` / `--global` – run the shard or full ladder; use `./rex-codex logs` to inspect failures.
-- `./rex-codex loop` – generator → feature shard → global sweep (`--each`, `--status`, `--skip-*` flags mirror generator/discriminator knobs).
+- `./rex-codex loop` – generator → feature shard → global sweep (`--each`, `--status`, `--skip-*`, `--explain` mirror generator/discriminator knobs).
 - `./rex-codex status` – inspect the active slug/card and last discriminator success metadata.
 - `./rex-codex burn --yes` – reset the working tree (keeps `.git`; add `--purge-agent` to drop `.rex_agent`).
 

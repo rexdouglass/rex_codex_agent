@@ -10,7 +10,7 @@ This document captures the current architecture, the rationale for migrating orc
   - `init` bootstraps `.venv`, seeds templates, writes `rex-agent.json`, and enforces deterministic tool versions.
   - `generator` produces deterministic pytest specs in `tests/feature_specs/<slug>/`, appends to the Feature Card links/trace sections, and enforces hermetic AST checks and patch budgets (defaults: 6 files, 300 lines).
   - `discriminator` runs a staged ladder (health, tooling, smoke/unit shards, coverage >=80 percent, optional pip-audit/bandit/build, then style/type). Mechanical fixes are limited to runtime paths, and LLM runtime edits are off by default (`DISABLE_LLM=1`).
-  - `loop` orchestrates generator -> discriminator with flock-based locking, and mirrors flag passthrough from the underlying commands.
+  - `loop` orchestrates generator -> discriminator with Python advisory (`fcntl`) locking, and mirrors flag passthrough from the underlying commands.
   - `supervise` is a thin wrapper over `loop`.
   - `uninstall` requires typing "remove agent" and honors `--keep-wrapper`.
   - `self-update` is opt-in and respects release channels via environment flags.
@@ -27,7 +27,7 @@ Keep a thin Bash wrapper for installation ergonomics, but migrate orchestration 
 
 #### Bash (current)
 
-- ✅ Minimal bootstrap friction; ideal for `curl | bash` installers; current wrapper already leverages `flock` and `timeout`.
+- ✅ Minimal bootstrap friction; ideal for `curl | bash` installers; historical wrapper leveraged `flock`/`timeout`, while the Python CLI now owns locking via `fcntl`.
 - ❌ Complex parsing, state management, and error handling are brittle; unit-testing is limited.
 - ❌ The shell scripts already embed sizeable Python snippets (AST scanning, JSON edits), signalling that core logic wants a proper Python home.
 
@@ -61,7 +61,7 @@ Adopt the hybrid approach: retain `./rex-codex` as a shell shim, but keep genera
    ./rex-codex generator
    ```
    - Writes tests to `tests/feature_specs/<slug>/`.
-   - Enforces patch budgets (defaults: 6 files, 300 lines) and hermetic AST scan (blocks network/time/entropy APIs, unconditional skip/xfail).
+   - Enforces patch budgets (defaults: 6 files, 300 lines) and hermetic AST scan (blocks network/time/entropy/subprocess **calls**, yet allows deterministic imports; unconditional skip/xfail remain forbidden).
    - Appends references to the Feature Card but never modifies `status:`.
 
 ### Phase B: Implement Runtime and Pass the Ladder
@@ -75,7 +75,8 @@ Adopt the hybrid approach: retain `./rex-codex` as a shell shim, but keep genera
 5. **Iterate on runtime code**
    - Implement features inside runtime allowlists (`src/...` or detected packages).
    - Use `./rex-codex loop --discriminator-only` for tight feedback.
-   - Mechanical formatters can auto-fix runtime files; LLM runtime edits remain opt-in and heavily constrained.
+   - Mechanical formatters can auto-fix runtime files; LLM runtime edits remain opt-in (enable with `--enable-llm` or `DISABLE_LLM=0`) and heavily constrained.
+   - Type checking defaults to runtime targets via `MYPY_TARGETS` / `COVERAGE_TARGETS`; set `MYPY_INCLUDE_TESTS=1` when you need to type-check generated specs.
 
 ### Phase C: Changing Scope or Refining Requirements
 
@@ -98,7 +99,7 @@ The Python CLI enables ergonomics that were cumbersome in shell:
 2. **Single "do the right thing" command** via `loop`, showing a summary of the planned generator/discriminator stages.
 3. **Better observability** through `status` (renders `rex-agent.json`) and `logs` (tails `.codex_ci/` artifacts).
 4. **Explicit self-update controls** (`self-update --channel`, `REX_AGENT_NO_UPDATE`, `REX_AGENT_CHANNEL`).
-5. **Explain and dry-run modes** to preview guardrails, patch budgets, and protected paths before execution.
+5. **Explain mode** (`loop --explain`) to preview guardrails, patch budgets, and planned stages before execution.
 
 ## 5. Migration Plan
 
@@ -114,7 +115,7 @@ The Python CLI enables ergonomics that were cumbersome in shell:
 4. Implement runtime code, rerunning `loop --discriminator-only` until green on feature and global stages.
 5. Promote the card to `status: accepted` once the ladder passes.
 6. When requirements change, update the card, rerun the generator, and iterate through the discriminator ladder again.
-7. Optionally enable LLM runtime assistance by exporting `DISABLE_LLM=0`; guardrails still enforce runtime allowlists, patch budgets, and protected-path hashing. If Node is missing, the flow continues offline.
+7. Optionally enable LLM runtime assistance by passing `--enable-llm` (or exporting `DISABLE_LLM=0`); guardrails still enforce runtime allowlists, patch budgets, and protected-path hashing. If Node is missing, the flow continues offline.
 8. Use burn/uninstall flows to reset the environment or remove the agent entirely.
 
 ## 7. Final Recommendation
@@ -122,4 +123,3 @@ The Python CLI enables ergonomics that were cumbersome in shell:
 - Adopt the hybrid architecture (shell shim + Python CLI) to align with the Python-first ecosystem, improve testability, and simplify future evolution.
 - Preserve current guardrails and defaults: hermetic specs, protected paths, patch budgets, coverage >=80 percent, LLM disabled by default. These are the backbone of the tests-first, deterministic CI story and are reflected across README, AGENTS.md, and templates.
 - Continue updating documentation (`README.md`, `AGENTS.md`, templates) whenever behavior or defaults change so future audits remain frictionless.
-

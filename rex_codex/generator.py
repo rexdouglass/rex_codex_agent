@@ -16,6 +16,7 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 
 from .cards import FeatureCard, discover_cards, load_rex_agent, update_active_card
 from .config import (
+    AGENT_SRC,
     DEFAULT_GENERATOR_MAX_FILES,
     DEFAULT_GENERATOR_MAX_LINES,
     REPO_ROOT,
@@ -28,6 +29,7 @@ from .utils import (
     dump_json,
     ensure_dir,
     ensure_python,
+    ensure_requirements_installed,
     lock_file,
     load_json,
     print_header,
@@ -69,6 +71,8 @@ def run_generator(options: GeneratorOptions, *, context: RexContext | None = Non
     lock_path = context.codex_ci_dir / "rex_generator.lock"
     with lock_file(lock_path):
         ensure_python(context, quiet=True)
+        requirements_template = AGENT_SRC / "templates" / "requirements-dev.txt"
+        ensure_requirements_installed(context, requirements_template)
         cards: List[FeatureCard]
         if options.card_path:
             if not options.card_path.exists():
@@ -158,6 +162,14 @@ def _run_once(
     specs_dir = root / "tests" / "feature_specs" / slug
     specs_dir.mkdir(parents=True, exist_ok=True)
 
+    card_path = root / "documents" / "feature_cards" / f"{slug}.md"
+    baseline_card_text: Optional[str] = None
+    if card_path.exists():
+        try:
+            baseline_card_text = card_path.read_text(encoding="utf-8")
+        except OSError:
+            baseline_card_text = None
+
     prompt_path = context.codex_ci_dir / "generator_prompt.txt"
     response_path = context.codex_ci_dir / "generator_response.log"
     patch_path = context.codex_ci_dir / "generator_patch.diff"
@@ -206,7 +218,7 @@ def _run_once(
         print("[generator] Failed to apply Codex diff")
         return 4, None
 
-    if not _guard_card_edits(slug, root):
+    if not _guard_card_edits(slug, root, baseline_card_text):
         _revert_generated_files(slug, root)
         return 7, None
 
@@ -337,42 +349,35 @@ def _apply_patch(patch_path: Path, root: Path) -> bool:
     return False
 
 
-def _guard_card_edits(slug: str, root: Path) -> bool:
+def _guard_card_edits(slug: str, root: Path, baseline_text: Optional[str]) -> bool:
     card_path = root / "documents" / "feature_cards" / f"{slug}.md"
     if not card_path.exists():
         return True
-    diff_cached = run(
-        ["git", "diff", "--cached", "--unified=0", "--", str(card_path)],
-        cwd=root,
-        capture_output=True,
-        check=False,
-    ).stdout
-    if not diff_cached.strip():
-        diff_cached = run(
-            ["git", "diff", "--unified=0", "--", str(card_path)],
-            cwd=root,
-            capture_output=True,
-            check=False,
-        ).stdout
-    if not diff_cached.strip():
-        return True
-
-    if re.search(r"^[+-]\s*status\s*:", diff_cached, flags=re.IGNORECASE | re.MULTILINE):
-        print("[generator] Card edit touches status line; abort.")
-        return False
 
     try:
-        before = run(
-            ["git", "show", f"HEAD:{card_path.as_posix()}"],
-            capture_output=True,
-            check=True,
-        ).stdout
-    except subprocess.CalledProcessError:
-        before = ""
-    after = card_path.read_text(encoding="utf-8")
+        after = card_path.read_text(encoding="utf-8")
+    except OSError:
+        print(f"[generator] Unable to read Feature Card {card_path}")
+        return False
 
-    before_lines = before.splitlines()
+    if baseline_text is not None:
+        before_text = baseline_text
+    else:
+        try:
+            before_text = run(
+                ["git", "show", f"HEAD:{card_path.as_posix()}"],
+                capture_output=True,
+                check=True,
+            ).stdout
+        except subprocess.CalledProcessError:
+            before_text = ""
+
+    before_lines = before_text.splitlines()
     after_lines = after.splitlines()
+
+    if before_lines == after_lines:
+        return True
+
     allowed_headers = {"## Links", "## Spec Trace"}
 
     def nearest_header(idx: int) -> Optional[str]:
@@ -383,16 +388,18 @@ def _guard_card_edits(slug: str, root: Path) -> bool:
         return None
 
     sm = difflib.SequenceMatcher(a=before_lines, b=after_lines)
-    for tag, _i1, _i2, j1, j2 in sm.get_opcodes():
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            continue
+        removed = before_lines[i1:i2]
+        added = after_lines[j1:j2]
+        if any(re.search(r"\bstatus\s*:", line, flags=re.IGNORECASE) for line in removed + added):
+            print("[generator] Card edit touches status line; abort.")
+            return False
         if tag in {"delete", "replace"}:
             print("[generator] Card edits may only append new lines inside allowed sections.")
             return False
         if tag == "insert":
-            added = after_lines[j1:j2]
-            for line in added:
-                if re.search(r"\bstatus\s*:", line, flags=re.IGNORECASE):
-                    print("[generator] Card edit attempts to add a status line; abort.")
-                    return False
             header = nearest_header(j1)
             if header is None and added:
                 candidate = added[0].strip()
@@ -408,6 +415,7 @@ def _guard_card_edits(slug: str, root: Path) -> bool:
             if header_key is None:
                 print(f"[generator] Card edits under section '{header}' are not permitted.")
                 return False
+            # Inserted lines are otherwise free-form (links, trace entries, blank lines).
     return True
 
 

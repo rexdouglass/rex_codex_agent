@@ -22,17 +22,58 @@ class LoopOptions:
     run_feature: bool = True
     run_global: bool = True
     each_features: bool = False
+    perform_self_update: bool = True
+    explain: bool = False
 
 
 def run_loop(options: LoopOptions, *, context: RexContext | None = None) -> int:
     context = context or RexContext.discover()
-    self_update()
+    if options.explain:
+        for line in _describe_plan(options, context):
+            print(line)
+    if options.perform_self_update:
+        self_update()
     lock_path = context.codex_ci_dir / "rex.lock"
     with lock_file(lock_path):
         run_doctor()
         if options.each_features:
             return _run_each(options, context)
         return _run_single(options, context)
+
+
+def _describe_plan(options: LoopOptions, context: RexContext) -> List[str]:
+    lines: List[str] = []
+    statuses = options.generator_options.statuses or ["proposed"]
+    lines.append(
+        f"Self-update: {'enabled' if options.perform_self_update else 'disabled'} "
+        "(honours REX_AGENT_NO_UPDATE)"
+    )
+    lines.append(f"Generator phase: {'enabled' if options.run_generator else 'skipped'}")
+    if options.run_generator:
+        if options.generator_options.card_path:
+            target = str(options.generator_options.card_path)
+        else:
+            target = ", ".join(statuses)
+        lines.append(f"  target: {target}")
+        lines.append(f"  iterate-each: {'yes' if options.each_features else 'no'}")
+    lines.append(f"Discriminator phase: {'enabled' if options.run_discriminator else 'skipped'}")
+    if options.run_discriminator:
+        lines.append(f"  feature shard: {'yes' if options.run_feature else 'no'}")
+        lines.append(f"  global sweep: {'yes' if options.run_global else 'no'}")
+        lines.append(
+            f"  LLM runtime edits: "
+            f"{'disabled' if options.discriminator_options.disable_llm else 'enabled'}"
+        )
+    if options.each_features and options.run_generator:
+        cards = discover_cards(statuses=options.generator_options.statuses, context=context)
+        if cards:
+            preview = ", ".join(card.slug for card in cards[:5])
+            if len(cards) > 5:
+                preview += f", … (+{len(cards) - 5} more)"
+            lines.append(f"  queued cards: {preview}")
+        else:
+            lines.append("  queued cards: none")
+    return lines
 
 
 def _run_each(options: LoopOptions, context: RexContext) -> int:

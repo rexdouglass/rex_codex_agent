@@ -42,7 +42,6 @@ rex_cmd_init(){
 {
   "stages": ["sanity", "deps", "specs", "unit", "style"],
   "llm": { "bin": "npx --yes @openai/codex", "flags": "--yolo", "model": "" },
-  "update_on_run": true,
   "feature": {
     "active_card": null,
     "active_slug": null,

@@ -17,6 +17,7 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 
 from .cards import discover_cards, load_rex_agent
 from .config import (
+    AGENT_SRC,
     DEFAULT_COVERAGE_MIN,
     DEFAULT_DISCRIMINATOR_MAX_FILES,
     DEFAULT_DISCRIMINATOR_MAX_LINES,
@@ -32,6 +33,7 @@ from .utils import (
     dump_json,
     ensure_dir,
     ensure_python,
+    ensure_requirements_installed,
     load_json,
     lock_file,
     repo_root,
@@ -75,6 +77,8 @@ def run_discriminator(options: DiscriminatorOptions, *, context: RexContext | No
 
 def _run_locked(options: DiscriminatorOptions, context: RexContext) -> int:
     ensure_python(context, quiet=True)
+    requirements_template = AGENT_SRC / "templates" / "requirements-dev.txt"
+    ensure_requirements_installed(context, requirements_template)
     env = activate_venv(context)
     env.setdefault("PYTHONHASHSEED", "0")
     if "COVERAGE_TARGETS" not in env and (context.root / "src").exists():
@@ -258,6 +262,20 @@ def _build_stage_groups(
     specs_dir = f"tests/feature_specs/{slug}" if slug else ""
     coverage_min = env.get("COVERAGE_MIN")
     coverage_targets = env.get("COVERAGE_TARGETS", ".")
+
+    def _format_targets(raw: str) -> str:
+        tokens = [token for token in re.split(r"[,\s]+", raw.strip()) if token]
+        return " ".join(shlex.quote(token) for token in tokens) or "."
+
+    if env.get("MYPY_TARGETS"):
+        mypy_raw = env["MYPY_TARGETS"]
+    elif env.get("COVERAGE_TARGETS"):
+        mypy_raw = env["COVERAGE_TARGETS"]
+    elif (context.root / "src").exists():
+        mypy_raw = "src"
+    else:
+        mypy_raw = "."
+    mypy_targets = _format_targets(mypy_raw)
     groups: List[StageGroup] = []
 
     level00 = StageGroup(
@@ -397,16 +415,18 @@ def _build_stage_groups(
 
     if mode == "feature":
         target = shlex.quote(specs_dir)
+        feature_style_stages = [
+            Stage("06.1", "black --check (feature)", f"black {target} --check"),
+            Stage("06.2", "isort --check-only (feature)", f"isort {target} --check-only"),
+            Stage("06.3", "ruff check (feature)", f"ruff check {target}"),
+            Stage("06.4", "flake8 (feature)", f"flake8 {target}"),
+        ]
+        if env.get("MYPY_INCLUDE_TESTS") == "1":
+            feature_style_stages.append(Stage("06.5", "mypy (feature)", f"mypy {target}"))
         groups.append(
             StageGroup(
                 title=f"Level 06 - Feature Style & Type Gates ({slug})",
-                stages=[
-                    Stage("06.1", "black --check (feature)", f"black {target} --check"),
-                    Stage("06.2", "isort --check-only (feature)", f"isort {target} --check-only"),
-                    Stage("06.3", "ruff check (feature)", f"ruff check {target}"),
-                    Stage("06.4", "flake8 (feature)", f"flake8 {target}"),
-                    Stage("06.5", "mypy (feature)", f"mypy {target}"),
-                ],
+                stages=feature_style_stages,
             )
         )
     else:
@@ -418,7 +438,7 @@ def _build_stage_groups(
                     Stage("06.2", "isort --check-only", "isort . --check-only"),
                     Stage("06.3", "ruff check", "ruff check ."),
                     Stage("06.4", "flake8", "flake8 ."),
-                    Stage("06.5", "mypy", "mypy ."),
+                    Stage("06.5", "mypy", f"mypy {mypy_targets}"),
                 ],
             )
         )

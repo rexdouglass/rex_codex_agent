@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -95,10 +96,12 @@ def update_active_card(context: RexContext, *, card: FeatureCard | None) -> None
 
 
 def sanitise_slug(raw: str) -> str:
-    slug = re.sub(r"[^a-z0-9_-]+", "-", raw.lower()).strip("-")
+    slug = re.sub(r"[^a-z0-9_-]+", "-", raw.lower())
     slug = re.sub(r"-{2,}", "-", slug)
-    if slug and slug[0] not in "abcdefghijklmnopqrstuvwxyz0123456789":
-        slug = f"{slug[0].lower()}-{slug[1:]}"
+    slug = slug.strip("-_")
+    slug = re.sub(r"^[^a-z0-9]+", "", slug)
+    if not slug:
+        slug = f"feature-{datetime.now(UTC):%Y%m%d%H%M%S}"
     return slug
 
 

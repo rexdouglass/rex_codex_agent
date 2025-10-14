@@ -14,9 +14,7 @@ BANNED_IMPORT_MODULES = {
     "urllib3": "network access via urllib3",
     "aiohttp": "network access via aiohttp",
     "socket": "network access via socket",
-    "subprocess": "subprocess usage requires explicit stubbing",
     "secrets": "secrets module is non-deterministic; inject fixed values instead",
-    "numpy": "numpy.random requires fixed seeding; avoid in specs",
 }
 
 BANNED_CALL_PREFIXES = {
@@ -154,4 +152,3 @@ def ensure_hermetic(specs_dir: Path) -> bool:
             print(f"{location}: {detail}")
         return False
     return True
-

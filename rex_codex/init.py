@@ -76,7 +76,6 @@ def run_init(*, context: RexContext | None = None, perform_self_update: bool = T
             "style",
         ],
         "llm": {"bin": "npx --yes @openai/codex", "flags": "--yolo", "model": ""},
-        "update_on_run": True,
         "feature": {
             "active_card": None,
             "active_slug": None,
@@ -86,4 +85,3 @@ def run_init(*, context: RexContext | None = None, perform_self_update: bool = T
     }
     dump_json(context.rex_agent_file, agent_state)
     print("[✓] Project initialized. Try: ./rex-codex loop")
-
