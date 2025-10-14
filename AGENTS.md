@@ -13,9 +13,9 @@ This repository provides the Codex-friendly automation scaffold that target proj
    ./rex-codex init
    ```
 3. **Author a Feature Card** under `documents/feature_cards/<slug>.md` with a dedicated line `status: proposed`.
-4. **Generate enforcement specs**
+4. **Generate enforcement specs** (generator loops with a critic until it reports `DONE`)
    ```bash
-   ./rex-codex generator            # auto-selects the first proposed card
+   ./rex-codex generator            # auto-selects the first proposed card (use --single-pass to opt out)
    ```
 5. **Drive the staged tests and fixes**
    ```bash

@@ -18,9 +18,9 @@ case "$cmd" in
   help|*)        cat <<'H'
 Usage: rex-codex <command>
   init           Seed AGENTS.md, enforcement tests, Feature Cards, and .venv
-  generator      Convert the first `status: proposed` Feature Card (or path arg) into pytest specs
+  generator      Iterate on tests for the next `status: proposed` Feature Card (single-pass: --single-pass)
   discriminator  Run the staged automation ladder (mechanical fixes → Codex) until green
-  loop           Generator + discriminator in one go (pass generator args after `--`)
+  loop           Generator then discriminator (forward args to generator after `--`)
   burn           Delete repo contents (preserves .git, the wrapper, and by default .rex_agent)
   doctor         Print versions and environment status
   self-update    Pull latest agent into .rex_agent/src

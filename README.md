@@ -13,15 +13,15 @@ A portable Codex-first automation scaffold. Drop this repository into any Python
    ./rex-codex init
    ```
 3. Draft a Feature Card (`documents/feature_cards/<slug>.md`) with a line that reads exactly `status: proposed` — the Codex CLI is ideal for this.
-4. Turn the card into deterministic specs:
+4. Turn the card into deterministic specs (the generator keeps iterating with a built-in critic until it declares `DONE`):
    ```bash
-   ./rex-codex generator         # auto-selects the first proposed card
+   ./rex-codex generator         # auto-selects the first proposed card; add --single-pass to opt out
    ```
 5. Drive the staged ladder until it’s green:
    ```bash
-   ./rex-codex discriminator
+   ./rex-codex discriminator     # already loops until tests + style pass
    ```
-   (Use `./rex-codex loop` to execute steps 4 and 5 back-to-back.)
+   Use `./rex-codex loop` to execute steps 4 and 5 back-to-back (pass generator flags after `--`, e.g. `./rex-codex loop -- --single-pass`).
 
 ## Commands
 

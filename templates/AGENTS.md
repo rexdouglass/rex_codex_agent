@@ -42,7 +42,7 @@ Stages 04–05 (DB/UI) are optional packs you can enable per project by extendin
 
 ## Feature Cards Workflow
 1. Create cards in `documents/feature_cards/<slug>.md` with a dedicated line `status: proposed`.
-2. Run `./rex-codex generator <path>` (or omit `<path>` to auto-select the first proposed card) to generate enforcement-quality specs.
+2. Run `./rex-codex generator <path>` (or omit `<path>` to auto-select the first proposed card). The generator iterates with a critic until it returns `DONE` (use `--single-pass` to opt out).
 3. Use `./rex-codex discriminator`—or `./rex-codex loop` to chain both steps—to drive the staged ladder until green.
 4. Update the card to `status: accepted` once tests ship.
 5. Retire the card once behaviour is shipped and documented.
