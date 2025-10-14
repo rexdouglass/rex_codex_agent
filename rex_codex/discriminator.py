@@ -1,0 +1,805 @@
+"""Staged automation ladder (discriminator) implemented in Python."""
+
+from __future__ import annotations
+
+import glob
+import hashlib
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import textwrap
+import time
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Iterable, List, Optional, Sequence, Tuple
+
+from .cards import discover_cards, load_rex_agent
+from .config import (
+    DEFAULT_COVERAGE_MIN,
+    DEFAULT_DISCRIMINATOR_MAX_FILES,
+    DEFAULT_DISCRIMINATOR_MAX_LINES,
+    DEFAULT_PROTECTED_PATHS,
+    DEFAULT_RUNTIME_ALLOWLIST,
+)
+from .generator import _split_command
+from .self_update import self_update
+from .utils import (
+    RexContext,
+    RexError,
+    activate_venv,
+    dump_json,
+    ensure_dir,
+    ensure_python,
+    load_json,
+    lock_file,
+    repo_root,
+    run,
+)
+
+
+@dataclass
+class DiscriminatorOptions:
+    mode: str = "global"  # "feature" or "global"
+    slug: Optional[str] = None
+    continuous: bool = True
+    max_passes: int = int(os.environ.get("DISCRIMINATOR_MAX_PASSES", "25"))
+    disable_llm: bool = os.environ.get("DISABLE_LLM", "1") == "1"
+    codex_bin: str = os.environ.get("CODEX_BIN", "npx --yes @openai/codex")
+    codex_flags: str = os.environ.get("CODEX_FLAGS", "--yolo")
+    codex_model: str = os.environ.get("MODEL", "")
+
+
+@dataclass
+class Stage:
+    identifier: str
+    description: str
+    command: str
+
+
+@dataclass
+class StageGroup:
+    title: str
+    stages: List[Stage]
+
+
+def run_discriminator(options: DiscriminatorOptions, *, context: RexContext | None = None) -> int:
+    context = context or RexContext.discover()
+    self_update()
+    ensure_dir(context.codex_ci_dir)
+    lock_path = context.codex_ci_dir / "rex_discriminator.lock"
+    with lock_file(lock_path):
+        return _run_locked(options, context)
+
+
+def _run_locked(options: DiscriminatorOptions, context: RexContext) -> int:
+    ensure_python(context, quiet=True)
+    env = activate_venv(context)
+    env.setdefault("PYTHONHASHSEED", "0")
+    if "COVERAGE_TARGETS" not in env and (context.root / "src").exists():
+        env["COVERAGE_TARGETS"] = "src"
+    env.setdefault("COVERAGE_MIN", str(DEFAULT_COVERAGE_MIN))
+
+    slug = options.slug or _discover_active_slug(context)
+    mode = options.mode
+    if mode == "feature" and not slug:
+        print("[discriminator] No active feature slug; falling back to global sweep")
+        mode = "global"
+
+    log_path = context.codex_ci_dir / "latest_discriminator.log"
+    latest_log_path = context.root / ".codex_ci_latest.log"
+
+    passes = 0
+    while passes < options.max_passes:
+        passes += 1
+        print(f"=== rex-codex discriminator ({mode}) pass {passes}/{options.max_passes} ===")
+        log_path.write_text("", encoding="utf-8")
+        latest_log_path.write_text("", encoding="utf-8")
+
+        ok = _run_stage_plan(
+            mode=mode,
+            slug=slug,
+            env=env,
+            context=context,
+            log_path=log_path,
+            latest_log_path=latest_log_path,
+        )
+        if ok:
+            print(f"✅ Green: {mode} suite passed")
+            _record_success(mode, slug, context, env)
+            return 0
+
+        if not options.continuous:
+            print("[discriminator] Stopping after first failing pass (--single-pass).")
+            return 1
+
+        # Mechanical fixes
+        if _apply_mechanical_fixes(mode, slug, context, env):
+            if _run_stage_plan(
+                mode=mode,
+                slug=slug,
+                env=env,
+                context=context,
+                log_path=log_path,
+                latest_log_path=latest_log_path,
+            ):
+                print("✅ Green after mechanical fixes")
+                _record_success(mode, slug, context, env)
+                return 0
+
+        if options.disable_llm:
+            print("LLM disabled; stopping after mechanical fixes.")
+            return 2
+
+        if not _ensure_node_present():
+            print("[discriminator] Node.js not found; forcing DISABLE_LLM=1.")
+            return 2
+
+        test_count_before = _collect_test_count(mode, slug, context, env)
+        snapshot = _snapshot_protected_paths(context)
+        _invoke_llm_once(options, mode, slug, context, env, log_path, latest_log_path)
+
+        changed = _detect_protected_changes(snapshot, context)
+        if changed:
+            print("[discriminator] Aborting pass; LLM patch touched protected paths.")
+            _revert_paths(changed, context)
+            return 2
+
+        if not _reject_non_runtime_changes(context):
+            print("[discriminator] Aborting pass; LLM patch touched non-runtime paths.")
+            _revert_all_changes(context)
+            return 2
+
+        if _git_diff_is_empty(context):
+            print("No diff from LLM; aborting.")
+            return 2
+
+        test_count_after = _collect_test_count(mode, slug, context, env)
+        if (
+            test_count_before is not None
+            and test_count_after is not None
+            and test_count_after < test_count_before
+        ):
+            print(
+                f"[discriminator] Test collection decreased ({test_count_before} -> {test_count_after}); rejecting LLM patch."
+            )
+            _revert_all_changes(context)
+            return 2
+
+        if not _enforce_patch_size(context):
+            print("[discriminator] Aborting pass; LLM patch exceeded size limits.")
+            return 2
+
+        run(["git", "add", "-A"], cwd=context.root, check=False)
+        run(
+            ["git", "commit", "-m", f"chore(rex-codex): discriminator {mode} pass {passes}"],
+            cwd=context.root,
+            check=False,
+        )
+        _record_success(mode, slug, context, env)
+    print(f"Hit max passes ({options.max_passes}) without going green")
+    return 1
+
+
+def _discover_active_slug(context: RexContext) -> Optional[str]:
+    data = load_rex_agent(context)
+    feature = data.get("feature", {})
+    slug = feature.get("active_slug")
+    if slug:
+        return slug
+    cards = discover_cards(statuses=["proposed"], context=context)
+    return cards[0].slug if cards else None
+
+
+def _run_stage_plan(
+    *,
+    mode: str,
+    slug: Optional[str],
+    env: dict[str, str],
+    context: RexContext,
+    log_path: Path,
+    latest_log_path: Path,
+) -> bool:
+    pytest_flags = _configure_pytest_flags(mode, env, context)
+    specs_dir = context.root / "tests" / "feature_specs" / (slug or "")
+    if mode == "feature":
+        if not slug:
+            print("[discriminator] Feature mode requested but no slug provided.")
+            return False
+        if not specs_dir.is_dir():
+            msg = f"[discriminator] Feature specs directory {specs_dir} missing"
+            print(msg)
+            with open(latest_log_path, "a", encoding="utf-8") as fh:
+                fh.write(msg + "\n")
+            return False
+
+    groups = _build_stage_groups(mode, slug, pytest_flags, env, context)
+    overall_ok = True
+    for group in groups:
+        print("------------------------------------------------------------")
+        print(f"Stage: {group.title}")
+        for stage in group.stages:
+            if stage.command.strip() == "":
+                continue
+            ok = _execute_stage(stage, env, context, log_path, latest_log_path)
+            if not ok:
+                overall_ok = False
+    result = "PASS" if overall_ok else "FAIL"
+    print(f"  Result: [{result}]")
+    return overall_ok
+
+
+def _configure_pytest_flags(mode: str, env: dict[str, str], context: RexContext) -> List[str]:
+    flags = ["-q", "-ra"]
+    if mode == "feature":
+        flags += ["-x", "--maxfail=1"]
+        return flags
+    probe = run(
+        ["python", "-c", "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('xdist') else 1)"],
+        env=env,
+        cwd=context.root,
+        check=False,
+        capture_output=True,
+    )
+    if probe.returncode == 0:
+        flags += ["-n", "auto", "--dist", "loadscope"]
+    return flags
+
+
+def _build_stage_groups(
+    mode: str,
+    slug: Optional[str],
+    pytest_flags: Sequence[str],
+    env: dict[str, str],
+    context: RexContext,
+) -> List[StageGroup]:
+    pytest_flags_str = " ".join(shlex.quote(flag) for flag in pytest_flags)
+    specs_dir = f"tests/feature_specs/{slug}" if slug else ""
+    coverage_min = env.get("COVERAGE_MIN")
+    coverage_targets = env.get("COVERAGE_TARGETS", ".")
+    groups: List[StageGroup] = []
+
+    level00 = StageGroup(
+        title="Level 00 - Repo & System Health",
+        stages=[
+            Stage("00.1", "Git status", "git status -sb"),
+            Stage("00.2", "Python version", "python3 --version"),
+        ],
+    )
+    if (context.root / ".venv" / "bin" / "python").exists():
+        level00.stages.append(Stage("00.3", "Venv Python", ".venv/bin/python --version"))
+    groups.append(level00)
+
+    groups.append(
+        StageGroup(
+            title="Level 01 - Tooling & Dependencies",
+            stages=[
+                Stage("01.1", "pytest importable?", "python -c 'import pytest; print(pytest.__version__)'"),
+            ],
+        )
+    )
+
+    if mode == "feature":
+        groups.append(
+            StageGroup(
+                title=f"Level 02 - Feature Spec Smoke ({slug})",
+                stages=[
+                    Stage(
+                        "02.1",
+                        "Run feature specs",
+                        f"pytest {pytest_flags_str} {shlex.quote(specs_dir)} --junitxml .codex_ci/discriminator_feature_{slug}.xml",
+                    )
+                ],
+            )
+        )
+        groups.append(
+            StageGroup(
+                title=f"Level 03 - Feature Unit Grid ({slug})",
+                stages=[
+                    Stage(
+                        "03.1",
+                        "Run feature specs (no DB markers)",
+                        f"pytest {pytest_flags_str} {shlex.quote(specs_dir)} -m 'not django_db'",
+                    )
+                ],
+            )
+        )
+        if coverage_min:
+            groups.append(
+                StageGroup(
+                    title=f"Level 04 - Feature Coverage ({slug})",
+                    stages=[
+                        Stage(
+                            "04.1",
+                            "Coverage threshold",
+                            f"pytest {pytest_flags_str} {shlex.quote(specs_dir)} --cov={coverage_targets} --cov-report=term --cov-fail-under={coverage_min}",
+                        )
+                    ],
+                )
+            )
+    else:
+        groups.append(
+            StageGroup(
+                title="Level 02 - Inline Spec Smoke",
+                stages=[
+                    Stage(
+                        "02.1",
+                        "Do doctests/specs pass?",
+                        f"pytest {pytest_flags_str} -k 'spec or doctest' --junitxml .codex_ci/discriminator_global_smoke.xml",
+                    )
+                ],
+            )
+        )
+        groups.append(
+            StageGroup(
+                title="Level 03 - Unit Test Grid",
+                stages=[
+                    Stage(
+                        "03.1",
+                        "Run unit tests (no DB markers)",
+                        f"pytest {pytest_flags_str} -m 'not django_db' --junitxml .codex_ci/discriminator_global_unit.xml",
+                    )
+                ],
+            )
+        )
+        if coverage_min:
+            groups.append(
+                StageGroup(
+                    title="Level 04 - Coverage",
+                    stages=[
+                        Stage(
+                            "04.1",
+                            "Coverage threshold",
+                            f"pytest {pytest_flags_str} --cov={coverage_targets} --cov-report=term --cov-fail-under={coverage_min}",
+                        )
+                    ],
+                )
+            )
+
+    level05_stages: List[Stage] = []
+    if env.get("PIP_AUDIT") == "1":
+        level05_stages.append(
+            Stage(
+                "05.1",
+                "pip-audit (dependencies)",
+                "python -m pip install -q pip-audit >/dev/null 2>&1 && pip-audit",
+            )
+        )
+    if env.get("BANDIT") == "1":
+        bandit_targets = env.get("BANDIT_TARGETS") or env.get("COVERAGE_TARGETS") or "src"
+        if not (context.root / bandit_targets).exists():
+            bandit_targets = "."
+        level05_stages.append(
+            Stage(
+                "05.2",
+                "bandit (static security)",
+                f"python -m pip install -q bandit >/dev/null 2>&1 && bandit -q -r {bandit_targets}",
+            )
+        )
+    if env.get("PACKAGE_CHECK") == "1":
+        level05_stages.extend(
+            [
+                Stage(
+                    "05.3",
+                    "Build distribution artifacts",
+                    "python -m pip install -q build twine >/dev/null 2>&1 && python -m build",
+                ),
+                Stage(
+                    "05.4",
+                    "twine check dist/*",
+                    "python -m pip install -q build twine >/dev/null 2>&1 && twine check dist/*",
+                ),
+            ]
+        )
+    if level05_stages:
+        groups.append(StageGroup(title="Level 05 - Security & Build", stages=level05_stages))
+
+    if mode == "feature":
+        target = shlex.quote(specs_dir)
+        groups.append(
+            StageGroup(
+                title=f"Level 06 - Feature Style & Type Gates ({slug})",
+                stages=[
+                    Stage("06.1", "black --check (feature)", f"black {target} --check"),
+                    Stage("06.2", "isort --check-only (feature)", f"isort {target} --check-only"),
+                    Stage("06.3", "ruff check (feature)", f"ruff check {target}"),
+                    Stage("06.4", "flake8 (feature)", f"flake8 {target}"),
+                    Stage("06.5", "mypy (feature)", f"mypy {target}"),
+                ],
+            )
+        )
+    else:
+        groups.append(
+            StageGroup(
+                title="Level 06 - Style & Type Gates",
+                stages=[
+                    Stage("06.1", "black --check", "black . --check"),
+                    Stage("06.2", "isort --check-only", "isort . --check-only"),
+                    Stage("06.3", "ruff check", "ruff check ."),
+                    Stage("06.4", "flake8", "flake8 ."),
+                    Stage("06.5", "mypy", "mypy ."),
+                ],
+            )
+        )
+    return groups
+
+
+def _execute_stage(
+    stage: Stage,
+    env: dict[str, str],
+    context: RexContext,
+    log_path: Path,
+    latest_log_path: Path,
+) -> bool:
+    print(f"\n  Question {stage.identifier}: {stage.description}")
+    print(f"    Command: {stage.command}")
+    stage_timeout = int(os.environ.get("DISCRIMINATOR_STAGE_TIMEOUT", "0") or "0")
+    timeout_enabled = _has_timeout_utility()
+    cmd = ["bash", "-lc", stage.command]
+    try:
+        completed = subprocess.run(
+            cmd,
+            cwd=context.root,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=stage_timeout if (stage_timeout > 0 and timeout_enabled) else None,
+        )
+        output = (completed.stdout or "") + (completed.stderr or "")
+    except subprocess.TimeoutExpired:
+        message = f"[discriminator] Stage {stage.identifier} timed out after {stage_timeout}s"
+        output = message + "\n"
+        completed = subprocess.CompletedProcess(cmd, returncode=124, stdout="", stderr=message)
+    with open(log_path, "a", encoding="utf-8") as fh:
+        fh.write(f"\n[{stage.identifier}] {stage.description}\n")
+        fh.write(output)
+    with open(latest_log_path, "a", encoding="utf-8") as fh:
+        fh.write(output)
+    print(output, end="")
+    if completed.returncode == 0:
+        return True
+    if completed.returncode == 124:
+        print(f"[discriminator] Stage {stage.identifier} timed out after {stage_timeout}s")
+    return False
+
+
+_HAS_TIMEOUT: Optional[bool] = None
+
+
+def _has_timeout_utility() -> bool:
+    global _HAS_TIMEOUT
+    if _HAS_TIMEOUT is None:
+        _HAS_TIMEOUT = shutil_which("timeout") is not None
+    return _HAS_TIMEOUT
+
+
+def shutil_which(name: str) -> Optional[str]:
+    from shutil import which
+
+    return which(name)
+
+
+def _ensure_node_present() -> bool:
+    return shutil_which("node") is not None
+
+
+def _collect_test_count(
+    mode: str,
+    slug: Optional[str],
+    context: RexContext,
+    env: dict[str, str],
+) -> Optional[int]:
+    cmd = ["pytest", "--collect-only"]
+    if mode == "feature" and slug:
+        specs_dir = context.root / "tests" / "feature_specs" / slug
+        if specs_dir.is_dir():
+            cmd.append(str(specs_dir))
+    completed = run(cmd, cwd=context.root, env=env, capture_output=True, check=False)
+    text = (completed.stdout or "") + (completed.stderr or "")
+    match = re.search(r"collected (\d+) items?", text, re.IGNORECASE)
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except ValueError:
+        return None
+
+
+def _protected_patterns() -> List[str]:
+    raw = os.environ.get("DISCRIMINATOR_PROTECTED_PATHS")
+    if raw:
+        return [token for token in raw.split() if token.strip()]
+    return list(DEFAULT_PROTECTED_PATHS)
+
+
+def _snapshot_protected_paths(context: RexContext) -> dict[str, str]:
+    patterns = _protected_patterns()
+    root = context.root
+    files: set[Path] = set()
+
+    def record_path(path: Path) -> None:
+        if not path.exists():
+            return
+        if path.is_dir():
+            for child in path.rglob("*"):
+                if child.is_file():
+                    files.add(child)
+        elif path.is_file():
+            files.add(path)
+
+    for pattern in patterns:
+        if not pattern:
+            continue
+        full_pattern = root / pattern
+        matches = glob.glob(str(full_pattern), recursive=True)
+        if not matches and not any(ch in pattern for ch in "*?[]"):
+            candidate = root / pattern
+            if candidate.exists():
+                matches = [str(candidate)]
+        for match in matches:
+            record_path(Path(match))
+
+    snapshot: dict[str, str] = {}
+    for file_path in sorted(files):
+        try:
+            digest = hashlib.sha256(file_path.read_bytes()).hexdigest()
+        except OSError:
+            continue
+        snapshot[str(file_path.relative_to(root))] = digest
+    return snapshot
+
+
+def _detect_protected_changes(baseline: dict[str, str], context: RexContext) -> List[str]:
+    current = _snapshot_protected_paths(context)
+    changed: set[str] = set()
+    for path, digest in baseline.items():
+        if path not in current:
+            changed.add(path)
+        elif current[path] != digest:
+            changed.add(path)
+    for path in current:
+        if path not in baseline:
+            changed.add(path)
+    return sorted(changed)
+
+
+def _revert_paths(paths: Iterable[str], context: RexContext) -> None:
+    for path in paths:
+        target = context.root / path
+        result = run(
+            ["git", "ls-files", "--error-unmatch", path],
+            cwd=context.root,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            run(["git", "restore", "--staged", "--", path], cwd=context.root, check=False)
+            run(["git", "restore", "--worktree", "--", path], cwd=context.root, check=False)
+        elif target.exists():
+            if target.is_dir():
+                shutil.rmtree(target)
+            else:
+                target.unlink()
+
+
+def _revert_all_changes(context: RexContext) -> None:
+    result = run(
+        ["git", "restore", "--staged", "--worktree", "--source=HEAD", ":/"],
+        cwd=context.root,
+        check=False,
+    )
+    if result.returncode != 0:
+        run(["git", "reset", "--hard", "-q"], cwd=context.root, check=False)
+
+
+def _reject_non_runtime_changes(context: RexContext) -> bool:
+    runtime_targets = _detect_runtime_targets(context)
+    if not runtime_targets:
+        return True
+    changed = run(
+        ["bash", "-lc", "git diff --name-only; git ls-files --others --exclude-standard"],
+        cwd=context.root,
+        capture_output=True,
+        check=False,
+    ).stdout.splitlines()
+    rejects: List[str] = []
+    for path in sorted(set(changed)):
+        if not path or path.startswith(".codex_ci/"):
+            continue
+        allowed = any(path == target or path.startswith(f"{target}/") for target in runtime_targets)
+        if not allowed:
+            rejects.append(path)
+    if rejects:
+        print(f"[discriminator] LLM edits outside runtime allowlist: {' '.join(rejects)}")
+        _revert_paths(rejects, context)
+        return False
+    return True
+
+
+def _git_diff_is_empty(context: RexContext) -> bool:
+    result = run(["git", "diff", "--quiet"], cwd=context.root, check=False)
+    return result.returncode == 0
+
+
+def _enforce_patch_size(context: RexContext) -> bool:
+    max_files = int(os.environ.get("DISCRIMINATOR_MAX_FILES", DEFAULT_DISCRIMINATOR_MAX_FILES))
+    max_lines = int(os.environ.get("DISCRIMINATOR_MAX_LINES", DEFAULT_DISCRIMINATOR_MAX_LINES))
+    completed = run(["git", "diff", "--numstat"], cwd=context.root, capture_output=True, check=False)
+    files = 0
+    lines = 0
+    for line in completed.stdout.splitlines():
+        parts = line.split()
+        if len(parts) < 3:
+            continue
+        added, deleted = parts[0], parts[1]
+        if added == "-" or deleted == "-":
+            files += 1
+            lines += max_lines + 1
+            continue
+        try:
+            files += 1
+            lines += int(added) + int(deleted)
+        except ValueError:
+            continue
+    if files > max_files or lines > max_lines:
+        print(
+            f"[discriminator] LLM patch touched {files} files / {lines} lines "
+            f"(limits {max_files}/{max_lines})."
+        )
+        _revert_all_changes(context)
+        return False
+    return True
+
+
+def _apply_mechanical_fixes(
+    mode: str,
+    slug: Optional[str],
+    context: RexContext,
+    env: dict[str, str],
+) -> bool:
+    print("Mechanical fixes (ruff/black/isort)…")
+    if mode == "feature":
+        if not slug:
+            return False
+        target = context.root / "tests" / "feature_specs" / slug
+        if not target.is_dir():
+            print("[discriminator] No feature specs directory; skipping mechanical fixes.")
+            return False
+        targets = [str(target)]
+    else:
+        targets = _detect_runtime_targets(context)
+        if not targets:
+            print("[discriminator] No runtime targets detected for mechanical style; skipping.")
+            return False
+    run(["ruff", "check", *targets, "--fix"], cwd=context.root, env=env, check=False)
+    run(["black", *targets], cwd=context.root, env=env, check=False)
+    run(["isort", *targets], cwd=context.root, env=env, check=False)
+    if _git_diff_is_empty(context):
+        return False
+    run(["git", "add", "-A"], cwd=context.root, check=False)
+    label = "feature" if mode == "feature" else "global"
+    run(["git", "commit", "-m", f"style(rex-codex): apply ruff/black/isort ({label})"], cwd=context.root, check=False)
+    return True
+
+
+def _detect_runtime_targets(context: RexContext) -> List[str]:
+    overrides = os.environ.get("DISCRIMINATOR_RUNTIME_ALLOWLIST")
+    if overrides:
+        runtime = sorted({token.strip() for token in overrides.split() if token.strip()})
+        return runtime
+    root = context.root
+    targets: set[str] = set()
+    for default in DEFAULT_RUNTIME_ALLOWLIST:
+        candidate = root / default
+        if candidate.exists():
+            targets.add(default)
+    for pkg_init in root.glob("*/__init__.py"):
+        pkg_dir = pkg_init.parent
+        name = pkg_dir.name
+        if name in {"tests", "test", "documents", "docs", ".git", ".github"}:
+            continue
+        targets.add(name)
+    return sorted(targets)
+
+
+def _tail_text(path: Path, lines: int = 120) -> str:
+    if not path.exists():
+        return ""
+    content = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    return "\n".join(content[-lines:])
+
+
+def _invoke_llm_once(
+    options: DiscriminatorOptions,
+    mode: str,
+    slug: Optional[str],
+    context: RexContext,
+    env: dict[str, str],
+    log_path: Path,
+    latest_log_path: Path,
+) -> None:
+    runtime_allowlist = _detect_runtime_targets(context)
+    agents_path = context.root / "AGENTS.md"
+    agents_excerpt = ""
+    if agents_path.exists():
+        agents_excerpt = "\n".join(agents_path.read_text(encoding="utf-8", errors="replace").splitlines()[:300])
+    log_excerpt = _tail_text(log_path) or _tail_text(latest_log_path)
+
+    prompt_lines = [
+        "You are a coding agent for this repository.",
+        "Follow AGENTS.md guardrails (runtime vs tests, doc/spec/type, offline by default).",
+        "Make ONE minimal change that most reduces non-compliance or failures.",
+        "Do not weaken tests or remove functionality.",
+        "After edits, run relevant commands locally to validate.",
+        "",
+        f"Current discriminator mode: {mode}",
+    ]
+    if slug:
+        prompt_lines.append(f"Active feature slug: {slug}")
+    prompt_lines.extend([
+        "",
+        "Runtime directories permitted for edits:",
+    ])
+    if runtime_allowlist:
+        prompt_lines.extend([f" - {target}" for target in runtime_allowlist])
+    else:
+        prompt_lines.append(" - (none discovered; edits outside protected files likely to be rejected)")
+    prompt_lines.extend([
+        "",
+        "--- BEGIN AGENTS.md EXCERPT ---",
+        agents_excerpt,
+        "--- END AGENTS.md EXCERPT ---",
+    ])
+    if log_excerpt:
+        prompt_lines.extend([
+            "",
+            "Latest log excerpt:",
+            "```",
+            log_excerpt,
+            "```",
+        ])
+    prompt_text = "\n".join(prompt_lines)
+    prompt_file = context.codex_ci_dir / "discriminator_prompt.txt"
+    prompt_file.write_text(prompt_text + "\n", encoding="utf-8")
+
+    cmd = (
+        _split_command(options.codex_bin)
+        + ["exec"]
+        + _split_command(options.codex_flags)
+    )
+    if options.codex_model:
+        cmd += ["--model", options.codex_model]
+    cmd += ["--cd", str(context.root), "--", prompt_text]
+
+    print(f"[*] Invoking Codex with: {' '.join(cmd)}")
+    completed = subprocess.run(
+        cmd,
+        cwd=context.root,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    log_file = context.codex_ci_dir / "discriminator_llm_response.log"
+    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    with open(log_file, "a", encoding="utf-8") as fh:
+        fh.write(f"=== {timestamp} ===\n")
+        fh.write((completed.stdout or "") + (completed.stderr or ""))
+        fh.write("\n")
+
+
+def _record_success(
+    mode: str,
+    slug: Optional[str],
+    context: RexContext,
+    env: dict[str, str],
+) -> None:
+    data = load_json(context.rex_agent_file)
+    disc = data.setdefault("discriminator", {})
+    disc["last_mode"] = mode
+    disc["last_slug"] = slug
+    disc["last_green_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    test_count = _collect_test_count(mode, slug, context, env)
+    if test_count is not None:
+        disc["last_test_count"] = test_count
+    dump_json(context.rex_agent_file, data)

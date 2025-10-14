@@ -1,5 +1,18 @@
 rex_repo_root(){ git rev-parse --show-toplevel 2>/dev/null || pwd; }
-rex_repo_doctor(){ command -v python3 && python3 --version || true; command -v node && node --version || true; command -v docker && docker --version || true; }
+rex_repo_doctor(){
+  local tool
+  for tool in python3 node docker; do
+    if command -v "$tool" >/dev/null 2>&1; then
+      local path
+      path="$(command -v "$tool")"
+      echo "[doctor] $tool available at: $path"
+      "$tool" --version || true
+    else
+      echo "[doctor] $tool: missing (install or add to PATH)"
+    fi
+  done
+}
+rex_cmd_doctor(){ rex_repo_doctor; }
 rex_json_get(){ python3 - "$1" "$2" <<'PY'
 import json,sys; d=json.load(open(sys.argv[1])); v=d
 for p in sys.argv[2].split("."): v=v[p]

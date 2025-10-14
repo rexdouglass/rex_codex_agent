@@ -1,29 +1,17 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
-: "${REX_SRC:?missing REX_SRC}"
-source "$REX_SRC/lib/util.sh"
-source "$REX_SRC/lib/updater.sh"
-cmd="${1:-help}"; shift || true
 
-case "$cmd" in
-  init)          rex_self_update; source "$REX_SRC/lib/init.sh";          rex_cmd_init "$@" ;;
-  generator)     rex_self_update; source "$REX_SRC/lib/generator.sh";     rex_cmd_generator "$@" ;;
-  discriminator) rex_self_update; source "$REX_SRC/lib/discriminator.sh"; rex_cmd_discriminator "$@" ;;
-  loop)          rex_self_update; source "$REX_SRC/lib/loop.sh";          rex_cmd_loop "$@" ;;
-  feature)       rex_self_update; source "$REX_SRC/lib/generator.sh";     echo "[info] 'feature' is deprecated; use 'generator'"; rex_cmd_generator "$@" ;;
-  supervise)     rex_self_update; source "$REX_SRC/lib/loop.sh";          rex_cmd_loop "$@" ;;
-  burn)          rex_self_update; source "$REX_SRC/lib/burn.sh";          rex_cmd_burn "$@" ;;
-  self-update)   rex_self_update ;;
-  doctor)        rex_repo_doctor ;;
-  help|*)        cat <<'H'
-Usage: rex-codex <command>
-  init           Seed AGENTS.md, enforcement tests, Feature Cards, and .venv
-  generator      Iterate on tests for the next `status: proposed` Feature Card (single-pass: --single-pass)
-  discriminator  Run the staged automation ladder (use --feature-only / --global / --single-pass)
-  loop           Generator → feature shard → global sweep (pass generator flags after `--`)
-  burn           Delete repo contents (preserves .git, the wrapper, and by default .rex_agent)
-  doctor         Print versions and environment status
-  self-update    Pull latest agent into .rex_agent/src
-H
-  ;;
-esac
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+REX_HOME="${REX_HOME:-$ROOT/.rex_agent}"
+REX_SRC="${REX_SRC:-$REX_HOME/src}"
+PYTHON_BIN="${PYTHON:-python3}"
+
+if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
+  echo "[rex-codex] python3 is required to launch the CLI" >&2
+  exit 127
+fi
+
+export ROOT REX_HOME REX_SRC
+export PYTHONPATH="$REX_SRC${PYTHONPATH:+:$PYTHONPATH}"
+
+exec "$PYTHON_BIN" -m rex_codex "$@"

@@ -42,16 +42,19 @@ Stages 04–05 (DB/UI) are optional packs you can enable per project by extendin
 
 ## Feature Cards Workflow
 1. Create cards in `documents/feature_cards/<slug>.md` with a dedicated line `status: proposed`.
-2. Run `./rex-codex generator <path>` (or omit `<path>` to auto-select the first proposed card). The generator iterates with a critic until it returns `DONE` (use `--single-pass` to opt out).
+2. Prefer `./rex-codex card new` to scaffold cards; if you hand-edit, leave `## Links` / `## Spec Trace` blank so the generator can append references.
+3. Run `./rex-codex generator <path>` (or omit `<path>` to auto-select the first proposed card). The generator iterates with a critic until it returns `DONE` (use `--single-pass` to opt out).
 3. Use `./rex-codex discriminator --feature-only` to verify the feature shard (pytest `-x --maxfail=1`), then `./rex-codex discriminator --global` (pytest `-n auto` when xdist is present)—or `./rex-codex loop` to chain generator → feature → global.
 4. Update the card to `status: accepted` once tests ship.
 5. Retire the card once behaviour is shipped and documented.
 
 ### Command Cheatsheet
 - `./rex-codex init` – seed guardrails and tooling.
+- `./rex-codex card new` – scaffold Feature Cards; `card list` / `card validate` keep hygiene tidy.
 - `./rex-codex generator` – produce/iterate tests for the next Feature Card until the critic says DONE.
-- `./rex-codex discriminator --feature-only` / `--global` – run the shard (fail-fast) or full ladder (xdist auto) respectively; logs live in `.codex_ci/latest_discriminator.log`.
-- `./rex-codex loop` – generator → feature shard → global sweep (use `--each-feature`, `--status accepted`, `--skip-feature`, or `--skip-global` to tweak).
+- `./rex-codex discriminator --feature-only` / `--global` – run the shard (fail-fast) or full ladder (xdist auto); inspect failures with `./rex-codex logs`.
+- `./rex-codex loop` – generator → feature shard → global sweep (use `--each`, `--status accepted`, `--skip-feature`, or `--skip-global` to tweak).
+- `./rex-codex status` – inspect the active slug/card and last discriminator success metadata.
 - `./rex-codex burn --yes` – reset the working tree (keeps `.git` and, by default, `.rex_agent`).
 
 Keep this document updated when expectations shift. The automation loop assumes these guardrails are authoritative.

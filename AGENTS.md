@@ -1,43 +1,111 @@
 # rex_codex_agent · Operations Guide
 
-This repository provides the Codex-friendly automation scaffold that target projects install via `./rex-codex`. Keep these guardrails in mind when modifying the agent or composing release notes.
+This repository ships the **Codex-first automation scaffold** that installs via `./rex-codex`. It is deliberately opinionated:
 
-## Golden Path (fresh practice repo)
+- **Platform:** Linux shells (Bash 4+) or WSL.
+- **Language/tooling:** Python projects (pytest, mypy, ruff, black, isort, flake8) with coverage ≥80% by default.
+- **LLM:** OpenAI Codex invoked through `npx @openai/codex` (Node 18+). Discriminator LLM edits are opt-in (`DISABLE_LLM=1` by default).
 
-1. **Install the agent wrapper**
+The Bash wrapper is now a shim; all orchestration lives in the Python package `rex_codex` so we can unit-test and extend behaviour without shell metaprogramming.
+
+Keep these expectations visible—both docs and templates must reinforce them so future LLM audits stay aligned.
+
+---
+
+## Golden Path (from empty repo to green)
+
+1. **Install wrapper (inside the target repo)**
    ```bash
    curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/scripts/install.sh | bash
    ```
-2. **Initialize guardrails and tooling**
+2. **Bootstrap guardrails and tooling**
    ```bash
    ./rex-codex init
+   ./rex-codex doctor      # verify python/node/docker availability
    ```
-3. **Author a Feature Card** under `documents/feature_cards/<slug>.md` with a dedicated line `status: proposed`.
-4. **Generate enforcement specs** (generator loops with a critic until it reports `DONE`)
+3. **Author a Feature Card**
+   - Use `./rex-codex card new` for a guided prompt (writes `documents/feature_cards/<slug>.md` with `status: proposed`).
+   - If you hand-edit, keep the `status:` line intact and leave `## Links` / `## Spec Trace` empty—the generator appends to them.
+4. **Generate deterministic specs**
    ```bash
-   ./rex-codex generator            # auto-selects the first proposed card (use --single-pass to opt out)
+   ./rex-codex generator            # loops with a critic until DONE (use --single-pass to exit early)
    ```
-5. **Drive the staged tests and fixes** (first the feature shard, then the global sweep)
-  ```bash
-  ./rex-codex discriminator --feature-only   # quick shard (fail-fast: pytest -x --maxfail=1)
-  ./rex-codex discriminator --global          # full ladder (pytest -n auto when xdist is present)
-  ```
-  Run `./rex-codex loop` to execute generator → feature shard → global sweep in one command (add `--each-feature` to re-evaluate accepted cards, `--status accepted` to focus on completed work, etc.).
-6. **Iterate** until the discriminator reports a PASS, then update the card to `status: accepted`.
+   The generator:
+   - Keeps diffs under `tests/feature_specs/<slug>/…` (tests only) and appends links/trace in the card.
+   - Enforces patch-size limits (default 6 files / 300 lines).
+   - Runs an AST hermeticity scan that bans network calls, sleeps, entropy (`uuid.uuid4`, `os.urandom`, `secrets`, `numpy.random`…), and unconditional skip/xfail.
+5. **Run the discriminator ladder**
+   ```bash
+   ./rex-codex discriminator --feature-only   # smoke/unit on the spec shard (pytest -x --maxfail=1)
+   ./rex-codex discriminator --global         # full ladder (xdist auto, coverage ≥80%)
+   ```
+   Stages = health → tooling → smoke/unit → coverage → optional `pip-audit`/`bandit`/`build` → style/type (`black`, `isort`, `ruff`, `flake8`, `mypy`). Logs + JUnit land in `.codex_ci/`. Successful passes are recorded in `rex-agent.json`.
+6. **Iterate via the loop**
+   ```bash
+   ./rex-codex loop                # generator → feature → global
+   ./rex-codex loop --discriminator-only   # implement runtime without re-triggering generator
+   DISABLE_LLM=0 ./rex-codex loop --discriminator-only   # allow guarded LLM runtime edits
+   ```
+7. **Promote the Feature Card**
+   - When the repo is green, edit the card to `status: accepted` (generator never changes statuses). Commit your changes.
 
-For a clean slate in a practice sandbox:
-```bash
-./rex-codex burn --yes      # keeps .git and .rex_agent by default
-./rex-codex init            # reseed guardrails
-```
+> Reset sandbox? `./rex-codex burn --dry-run` → `./rex-codex burn -y` → `./rex-codex init`.
 
-## Repository Conventions
+---
 
-- **Versioning** – bump `VERSION` and retag (`vX.Y.Z`) for every behavioral or template change.
-- **Command help** – keep `bin/rex-codex` help text synchronized with docs and template guidance.
-- **Templates** – update `templates/AGENTS.md` and `templates/documents/feature_cards/README.md` whenever command names change.
-- **Logging** – generator/discriminator/loop should emit clear stage banners so end users can trace progress. Discriminator logs live in `.codex_ci/latest_discriminator.log` (compat tail: `.codex_ci_latest.log`).
-- Prefer feature shards to fail fast and global runs to use xdist auto balancing when available.
-- **Compatibility** – avoid breaking shell portability (Bash 4+), and keep dependencies limited to the Python stdlib plus the dev tools installed during `init`.
+## Guardrails & Defaults
 
-When introducing a new workflow, document it here, in `README.md`, and in the relevant templates before cutting a release.
+- **Tests-first:** generator only writes specs; runtime changes must be manual or pass the discriminator’s guarded LLM step.
+- **Protected surfaces:** tests, Feature Cards, documents, CI configs, dependency manifests, tooling configs are hash-snapshotted before LLM edits—unauthorized changes are reverted.
+- **Runtime allow-list:** discriminator LLM patches may only touch runtime directories (`src/`, detected packages). Non-runtime paths are rejected.
+- **Patch-size budgets:** generator and discriminator enforce defaults of 6 files / 300 lines (override via `GENERATOR_MAX_FILES/LINES`, `DISCRIMINATOR_MAX_FILES/LINES`).
+- **Determinism:** hermetic specs ban network/entropy/time APIs; `PYTHONHASHSEED=0` is exported for generator snapshots and discriminator runs; pytest stages use configurable timeouts.
+- **Coverage-first:** `COVERAGE_MIN` defaults to 80%; targets default to `src/`. Optional gates activate with `PIP_AUDIT=1`, `BANDIT=1`, `PACKAGE_CHECK=1`.
+- **Auto-style:** mechanical `ruff/black/isort` runs only on runtime targets (never tests/docs).
+- **Concurrency:** generator, discriminator, and loop use `.codex_ci/*.lock` via `flock`.
+- **Telemetry:** `rex-agent.json` tracks active slug/card and discriminator success metadata for auditability.
+
+---
+
+## Command Reference (internal expectations)
+
+| Command | Notes for maintainers |
+|---------|----------------------|
+| `init` | Must remain idempotent. Seeds templates, enforces deterministic tool versions (see `templates/requirements-dev.txt`). |
+| `generator` | Keep prompt guardrails aligned with code filters. Never relax hermetic checks without updating docs/templates. |
+| `discriminator` | Maintain stage banners, logging, and optional gate envs. Default LLM usage must stay disabled (`DISABLE_LLM=1`). |
+| `loop` | Orchestrates generator → discriminator. Ensure flag passthrough stays consistent with docs. |
+| `card` | CLI helper for card creation/listing/validation—keep prompts aligned with template README. |
+| `status` / `logs` | Surface rex-agent.json metadata and `.codex_ci` tails; keep output concise and automation-friendly. |
+| `doctor` | Emit versions/paths for python/node/docker; add tooling here before relying on it elsewhere. |
+| `burn` | Preserve `.git`, warn loudly, honour `--dry-run` / `--purge-agent`. |
+| `uninstall` | Typed confirmation (“remove agent”) and `--keep-wrapper` option are required UX. |
+| `self-update` | Default is **offline** (`REX_AGENT_NO_UPDATE=1`). Respect release tags (`VERSION`) when enabling `stable`. |
+
+---
+
+## Quick Command Cheatsheet
+
+- `./rex-codex init` – seed guardrails and tooling (idempotent).
+- `./rex-codex card new` – scaffold a Feature Card; `card list` / `card validate` keep hygiene tight.
+- `./rex-codex generator` – produce/iterate tests for the next Feature Card until the critic says DONE.
+- `./rex-codex discriminator --feature-only` / `--global` – run the shard or full ladder; use `./rex-codex logs` to inspect failures.
+- `./rex-codex loop` – generator → feature shard → global sweep (`--each`, `--status`, `--skip-*` flags mirror generator/discriminator knobs).
+- `./rex-codex status` – inspect the active slug/card and last discriminator success metadata.
+- `./rex-codex burn --yes` – reset the working tree (keeps `.git`; add `--purge-agent` to drop `.rex_agent`).
+
+## Documentation Duties
+
+- Update this file, `README.md`, and templates in `templates/` whenever behaviour, defaults, or guardrails change.
+- Keep the docs explicit that the agent is Python/Linux/Codex-specific—LLMs reviewing the repo should never infer cross-language support.
+
+---
+
+## Release Conventions
+
+- Bump `VERSION` and tag (`vX.Y.Z`) for every behavioural/template change.
+- Ensure `bin/rex-codex --help` matches documented commands.
+- Include `.codex_ci/` logs (or summaries) in PRs/notes for traceability.
+- Verify templates (`templates/AGENTS.md`, `templates/documents/feature_cards/README.md`, enforcement tests) reflect new behaviour before cutting a release.
+
+Keep the guardrails tight, prefer explicit documentation, and remember every change should reduce ambiguity for future Codex audits.***

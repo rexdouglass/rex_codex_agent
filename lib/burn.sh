@@ -4,12 +4,13 @@ set -Eeuo pipefail
 
 rex_cmd_burn(){
   local ROOT; ROOT="$(rex_repo_root)"; cd "$ROOT"
-  local FORCE=0 KEEP_AGENT=1
+  local FORCE=0 KEEP_AGENT=1 DRY=0
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --yes|-y) FORCE=1 ;;
       --purge-agent) KEEP_AGENT=0 ;;
+      --dry-run) DRY=1 ;;
       *) echo "Unknown option: $1" >&2; return 2 ;;
     esac
     shift
@@ -23,7 +24,9 @@ rex_cmd_burn(){
   fi
   echo "  - .git directory is always preserved"
 
-  if [[ "$FORCE" -ne 1 ]]; then
+  if [[ "$DRY" -eq 1 ]]; then
+    echo "[burn] Dry-run mode: no files will be deleted."
+  elif [[ "$FORCE" -ne 1 ]]; then
     echo -n "Type 'burn it down' to continue: "
     read -r confirmation
     [[ "$confirmation" == "burn it down" ]] || { echo "Aborted."; return 3; }
@@ -40,9 +43,18 @@ rex_cmd_burn(){
         [[ "$KEEP_AGENT" -eq 1 ]] && continue
         ;;
     esac
+    if [[ "$DRY" -eq 1 ]]; then
+      echo "[dry-run] would remove: $entry"
+      continue
+    fi
     rm -rf "$entry"
   done
   shopt -u dotglob
+
+  if [[ "$DRY" -eq 1 ]]; then
+    echo "[✓] Dry-run complete. No files were removed."
+    return 0
+  fi
 
   mkdir -p "$ROOT"
   echo "[✓] Repository reset. Re-run ./rex-codex init to seed fresh scaffolding."

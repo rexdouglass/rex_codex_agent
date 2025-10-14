@@ -4,6 +4,9 @@ set -Eeuo pipefail
 shopt -s lastpipe
 
 rex_cmd_generator(){
+  if type rex_self_update >/dev/null 2>&1; then
+    rex_self_update || true
+  fi
   local continuous=1
   local max_passes="${GENERATOR_MAX_PASSES:-5}"
   local focus_override=""
@@ -39,6 +42,13 @@ rex_cmd_generator(){
 
   local ROOT; ROOT="$(rex_repo_root)"; cd "$ROOT"
   mkdir -p .codex_ci
+  if command -v flock >/dev/null 2>&1; then
+    exec 7>.codex_ci/rex_generator.lock
+    if ! flock -n 7; then
+      echo "[generator] Another generator process is running. Exiting."
+      return 2
+    fi
+  fi
   local cards=()
   if [[ -n "$card_arg" ]]; then
     if [[ ! -f "$card_arg" ]]; then
@@ -278,6 +288,11 @@ HDR
     return 3
   fi
 
+  if ! generator_enforce_patch_size "$patch"; then
+    echo "[generator] Generated diff exceeds safety limits; rejecting."
+    return 3
+  fi
+
   if ! git apply --index "$patch"; then
     echo "[generator] git apply --index failed; retrying without --index"
     if ! git apply "$patch"; then
@@ -285,6 +300,18 @@ HDR
       return 4
     fi
     git add tests documents/feature_cards || true
+  fi
+
+  if ! generator_guard_card_edits "$slug"; then
+    echo "[generator] Card edit policy violated; rejecting diff."
+    generator_revert_generated_files "$slug"
+    return 7
+  fi
+
+  if ! generator_enforce_hermetic_tests "$slug"; then
+    echo "[generator] Non-hermetic patterns detected in generated specs; rejecting diff."
+    generator_revert_generated_files "$slug"
+    return 7
   fi
 
   if [[ "$status" == "proposed" ]]; then
@@ -344,6 +371,301 @@ Path(patch_path).write_text("\n\n".join(segments), encoding="utf-8")
 PY
 }
 
+generator_enforce_hermetic_tests(){
+  local slug="$1"
+  local specs_dir="tests/feature_specs/$slug"
+  if [[ ! -d "$specs_dir" ]]; then
+    return 0
+  fi
+  python3 - "$specs_dir" <<'PY'
+import ast
+import sys
+from pathlib import Path
+
+specs_dir = Path(sys.argv[1])
+if not specs_dir.exists():
+    sys.exit(0)
+
+banned_import_modules = {
+    "requests": "network access via requests",
+    "httpx": "network access via httpx",
+    "urllib": "network access via urllib",
+    "urllib3": "network access via urllib3",
+    "aiohttp": "network access via aiohttp",
+    "socket": "network access via socket",
+    "subprocess": "subprocess usage requires explicit stubbing",
+    "secrets": "secrets module is non-deterministic; inject fixed values instead",
+    "numpy": "numpy.random requires fixed seeding; avoid in specs",
+}
+banned_call_prefixes = {
+    "requests.": "network access via requests",
+    "httpx.": "network access via httpx",
+    "urllib.": "network access via urllib",
+    "urllib3.": "network access via urllib3",
+    "aiohttp.": "network access via aiohttp",
+    "socket.": "network access via socket",
+    "secrets.": "secrets module is non-deterministic; inject fixed values instead",
+    "numpy.random.": "numpy.random must be seeded deterministically; avoid direct usage",
+    "random.SystemRandom.": "SystemRandom uses system entropy; avoid in specs",
+}
+banned_call_exact = {
+    "time.sleep": "time.sleep introduces nondeterministic delays",
+    "asyncio.sleep": "asyncio.sleep introduces nondeterministic delays",
+    "subprocess.run": "subprocess usage requires explicit stubbing",
+    "subprocess.Popen": "subprocess usage requires explicit stubbing",
+    "subprocess.call": "subprocess usage requires explicit stubbing",
+    "os.system": "os.system usage should be avoided in specs",
+    "time.time": "use a deterministic clock stub instead of time.time",
+    "time.perf_counter": "use a deterministic clock stub instead of time.perf_counter",
+    "time.monotonic": "use a deterministic clock stub instead of time.monotonic",
+    "datetime.datetime.now": "use a frozen datetime or dependency injection",
+    "datetime.datetime.utcnow": "use a frozen datetime or dependency injection",
+    "datetime.datetime.today": "use a frozen datetime or dependency injection",
+    "datetime.date.today": "use a frozen date or dependency injection",
+    "pytest.skip": "skipping generated specs is not allowed",
+    "pytest.xfail": "xfailing generated specs is not allowed",
+    "os.urandom": "use deterministic stubs instead of os.urandom",
+    "uuid.uuid4": "use a fixed UUID in specs instead of uuid.uuid4",
+    "uuid.uuid1": "use a fixed UUID in specs instead of uuid.uuid1",
+}
+random_prefixes = ("random.", "numpy.random.")
+random_allowed = {"random.seed", "numpy.random.seed"}
+
+class HermeticVisitor(ast.NodeVisitor):
+    def __init__(self, path):
+        self.path = path
+        self.aliases = {}
+        self.violations = []
+
+    def add_violation(self, lineno, detail):
+        self.violations.append((self.path, lineno, detail))
+
+    def visit_Import(self, node):
+        for alias in node.names:
+            name = alias.asname or alias.name.split(".")[-1]
+            self.aliases[name] = alias.name
+            root = alias.name.split(".")[0]
+            if root in banned_import_modules:
+                self.add_violation(node.lineno, f"import {alias.name} ({banned_import_modules[root]})")
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node):
+        module = node.module or ""
+        root = module.split(".")[0] if module else ""
+        if root in banned_import_modules:
+            self.add_violation(node.lineno, f"from {module} import ... ({banned_import_modules[root]})")
+        for alias in node.names:
+            target = f"{module}.{alias.name}" if module else alias.name
+            name = alias.asname or alias.name
+            self.aliases[name] = target
+        self.generic_visit(node)
+
+    def resolve(self, node):
+        if isinstance(node, ast.Name):
+            return self.aliases.get(node.id, node.id)
+        if isinstance(node, ast.Attribute):
+            base = self.resolve(node.value)
+            if base:
+                return f"{base}.{node.attr}"
+            return node.attr
+        return None
+
+    def visit_Call(self, node):
+        call_name = self.resolve(node.func)
+        if call_name:
+            if call_name in banned_call_exact:
+                self.add_violation(node.lineno, f"{call_name} ({banned_call_exact[call_name]})")
+            elif any(call_name.startswith(prefix) for prefix in random_prefixes) and call_name not in random_allowed:
+                self.add_violation(node.lineno, f"{call_name} (set a deterministic seed or avoid randomness)")
+            else:
+                for prefix, reason in banned_call_prefixes.items():
+                    if call_name.startswith(prefix):
+                        self.add_violation(node.lineno, f"{call_name} ({reason})")
+                        break
+        self.generic_visit(node)
+
+    def visit_FunctionDef(self, node):
+        for dec in node.decorator_list:
+            name = self.resolve(dec)
+            if not name:
+                continue
+            lname = name.lower()
+            if lname.startswith("pytest.mark.skip") or lname.startswith("pytest.mark.xfail"):
+                self.add_violation(getattr(dec, "lineno", node.lineno), f"{name} (skipping/xfailing specs is forbidden)")
+            elif lname.startswith("pytest.mark.skipif"):
+                args = getattr(dec, "args", [])
+                if args:
+                    first = args[0]
+                    value = getattr(first, "value", None)
+                    if value is True:
+                        self.add_violation(getattr(dec, "lineno", node.lineno), "pytest.mark.skipif(True, ...) is forbidden")
+        self.generic_visit(node)
+
+violations = []
+for path in specs_dir.rglob("*.py"):
+    try:
+        source = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        violations.append((path, 0, "file is not UTF-8 decodable"))
+        continue
+    try:
+        tree = ast.parse(source, filename=str(path))
+    except SyntaxError as exc:
+        violations.append((path, exc.lineno or 0, f"syntax error: {exc}"))
+        continue
+    visitor = HermeticVisitor(path)
+    visitor.visit(tree)
+    violations.extend(visitor.violations)
+
+if violations:
+    for path, lineno, detail in violations:
+        location = f"{path}:{lineno}" if lineno else str(path)
+        print(f"{location}: {detail}")
+    sys.exit(1)
+
+sys.exit(0)
+PY
+  return $?
+}
+
+generator_revert_generated_files(){
+  local slug="$1"
+  local specs_dir="tests/feature_specs/$slug"
+  if [[ -d "$specs_dir" ]]; then
+    while IFS= read -r tracked; do
+      [[ -z "$tracked" ]] && continue
+      git restore --worktree -- "$tracked" || true
+    done < <(git ls-files "$specs_dir")
+    git clean -fd -- "$specs_dir" >/dev/null 2>&1 || true
+  fi
+  local card="documents/feature_cards/${slug}.md"
+  if git ls-files --error-unmatch "$card" >/dev/null 2>&1; then
+    git restore --staged --worktree -- "$card" >/dev/null 2>&1 || true
+  elif [[ -f "$card" ]]; then
+    rm -f -- "$card"
+  fi
+}
+
+generator_guard_card_edits(){
+  local slug="$1"
+  local card="documents/feature_cards/${slug}.md"
+  [[ -f "$card" ]] || return 0
+  local diff_cached
+  diff_cached="$(git diff --cached --unified=0 -- "$card")"
+  if [[ -z "$diff_cached" ]]; then
+    diff_cached="$(git diff --unified=0 -- "$card")"
+  fi
+  [[ -z "$diff_cached" ]] && return 0
+  if printf '%s\n' "$diff_cached" | python3 - "$card" <<'PY'
+import difflib
+import subprocess
+import sys
+from pathlib import Path
+import re
+
+card_path = Path(sys.argv[1])
+diff_text = sys.stdin.read()
+if not diff_text.strip():
+    sys.exit(0)
+
+if re.search(r'^[+-]\s*status\s*:', diff_text, flags=re.IGNORECASE | re.MULTILINE):
+    print("[generator] Card edit touches status line; abort.")
+    sys.exit(1)
+
+try:
+    before = subprocess.check_output(
+        ["git", "show", f"HEAD:{card_path.as_posix()}"],
+        stderr=subprocess.DEVNULL,
+    ).decode("utf-8")
+except subprocess.CalledProcessError:
+    before = ""
+
+after = card_path.read_text(encoding="utf-8")
+
+before_lines = before.splitlines()
+after_lines = after.splitlines()
+
+allowed_headers = {"## Links", "## Spec Trace"}
+
+def nearest_header(idx):
+    for pos in range(idx - 1, -1, -1):
+        stripped = after_lines[pos].strip()
+        if stripped.startswith("## "):
+            return stripped
+    return None
+
+sm = difflib.SequenceMatcher(a=before_lines, b=after_lines)
+for tag, i1, i2, j1, j2 in sm.get_opcodes():
+    if tag in ("delete", "replace"):
+        print("[generator] Card edits may only append new lines inside allowed sections.")
+        sys.exit(1)
+    if tag == "insert":
+        added = after_lines[j1:j2]
+        for line in added:
+            if re.search(r'\bstatus\s*:', line, flags=re.IGNORECASE):
+                print("[generator] Card edit attempts to add a status line; abort.")
+                sys.exit(1)
+        header = nearest_header(j1)
+        if header is None and added:
+            candidate = added[0].strip()
+            if candidate.startswith("## "):
+                header = candidate
+        if header is None:
+            print("[generator] Card edits must appear under an allowed section.")
+            sys.exit(1)
+        header_normalized = header.strip()
+        header_key = next((h for h in allowed_headers if header_normalized.lower().startswith(h.lower())), None)
+        if header_key is None:
+            print(f"[generator] Card edits under section '{header_normalized}' are not permitted.")
+            sys.exit(1)
+
+sys.exit(0)
+PY
+  then
+    return 0
+  else
+    return 1
+  fi
+}
+
+generator_enforce_patch_size(){
+  local patch_path="$1"
+  local max_files="${GENERATOR_MAX_FILES:-6}"
+  local max_lines="${GENERATOR_MAX_LINES:-300}"
+  python3 - "$patch_path" "$max_files" "$max_lines" <<'PY'
+import sys
+from pathlib import Path
+
+patch_path, max_files, max_lines = sys.argv[1:]
+max_files = int(max_files)
+max_lines = int(max_lines)
+files = 0
+lines = 0
+for line in Path(patch_path).read_text(encoding="utf-8", errors="replace").splitlines():
+    if line.startswith("diff --git "):
+        files += 1
+    elif line.startswith(("+", "-")) and not line.startswith(("+++", "---")):
+        lines += 1
+if files > max_files or lines > max_lines:
+    print(f"[generator] diff touches {files} files / {lines} lines (limits {max_files}/{max_lines})")
+    sys.exit(1)
+sys.exit(0)
+PY
+}
+
+generator_ensure_pytest(){
+  command -v python3 >/dev/null || return 0
+  [[ -d .venv ]] || python3 -m venv .venv
+  (
+    . .venv/bin/activate
+    python - <<'PY' >/dev/null 2>&1 || python -m pip install -U pip pytest >/dev/null
+import importlib
+import sys
+importlib.import_module("pytest")
+PY
+  )
+}
+
 generator_run_tests_log(){
   local slug="$1"
   local ROOT; ROOT="$(rex_repo_root)"; cd "$ROOT"
@@ -354,10 +676,24 @@ generator_run_tests_log(){
     : > "$log"
     return 0
   fi
+  generator_ensure_pytest || true
   if [[ -f .venv/bin/activate ]]; then
     . .venv/bin/activate
   fi
-  pytest "$specs_dir" -q -x --maxfail=1 > "$log" 2>&1 || true
+  export PYTHONHASHSEED="${PYTHONHASHSEED:-0}"
+  local snapshot_timeout="${GENERATOR_SNAPSHOT_TIMEOUT:-300}"
+  if command -v timeout >/dev/null 2>&1; then
+    if timeout --preserve-status "$snapshot_timeout" pytest "$specs_dir" -q -x --maxfail=1 > "$log" 2>&1; then
+      :
+    else
+      local status=$?
+      if [[ $status -eq 124 ]]; then
+        echo "[generator] Pytest snapshot timed out after ${snapshot_timeout}s" >> "$log"
+      fi
+    fi
+  else
+    pytest "$specs_dir" -q -x --maxfail=1 > "$log" 2>&1 || true
+  fi
 }
 
 generator_run_critic(){

@@ -6,7 +6,21 @@ source "$REX_SRC/lib/generator.sh"
 source "$REX_SRC/lib/discriminator.sh"
 
 rex_cmd_loop(){
+  if type rex_self_update >/dev/null 2>&1; then
+    rex_self_update || true
+  fi
   local ROOT; ROOT="$(rex_repo_root)"; cd "$ROOT"
+  mkdir -p .codex_ci
+  if command -v flock >/dev/null 2>&1; then
+    exec 9>.codex_ci/rex.lock
+    if ! flock -n 9; then
+      echo "[loop] Another rex-codex process is running. Exiting."
+      return 2
+    fi
+  else
+    echo "[loop] Warning: 'flock' not available; concurrency guard disabled."
+  fi
+  rex_repo_doctor || true
   local run_generator=1
   local run_discriminator=1
   local run_feature=1
