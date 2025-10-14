@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+: "${REX_SRC:?missing REX_SRC}"
+source "$REX_SRC/lib/util.sh"
+source "$REX_SRC/lib/updater.sh"
+cmd="${1:-help}"; shift || true
+
+case "$cmd" in
+  init)        rex_self_update; source "$REX_SRC/lib/init.sh";        rex_cmd_init "$@" ;;
+  loop)        rex_self_update; source "$REX_SRC/lib/loop.sh";        rex_cmd_loop "$@" ;;
+  feature)     rex_self_update; source "$REX_SRC/lib/feature_creator.sh"; rex_cmd_feature "$@" ;;
+  supervise)   rex_self_update; source "$REX_SRC/lib/supervisor.sh";  rex_cmd_supervise "$@" ;;
+  self-update) rex_self_update ;;
+  doctor)      rex_repo_doctor ;;
+  help|*)      cat <<'H'
+Usage: rex-codex <command>
+  init         Seed AGENTS.md, enforcement tests, Feature Cards, and .venv
+  loop         Run staged compliance pipeline with Codex autofix when needed
+  feature      Turn a Feature Card into deterministic pytest specs
+  supervise    Run feature+loop with concise Codex summaries
+  doctor       Print versions and environment status
+  self-update  Pull latest agent into .rex_agent/src
+H
+  ;;
+esac
