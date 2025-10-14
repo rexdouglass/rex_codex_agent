@@ -42,8 +42,16 @@ Stages 04–05 (DB/UI) are optional packs you can enable per project by extendin
 
 ## Feature Cards Workflow
 1. Create cards in `documents/feature_cards/<slug>.md` with `status: proposed`.
-2. Run `./rex-codex generator <path>` to generate enforcement-quality specs.
-3. Use `./rex-codex discriminator` (or `./rex-codex loop`) to drive the staged ladder until green.
+2. Run `./rex-codex generator <path>` (or omit `<path>` to auto-select the first proposed card) to generate enforcement-quality specs.
+3. Use `./rex-codex discriminator`—or `./rex-codex loop` to chain both steps—to drive the staged ladder until green.
 4. Update the card to `status: accepted` once tests ship.
+5. Retire the card once behaviour is shipped and documented.
+
+### Command Cheatsheet
+- `./rex-codex init` – seed guardrails and tooling.
+- `./rex-codex generator` – produce deterministic tests from the next Feature Card.
+- `./rex-codex discriminator` – run the staged ladder to make the repo green.
+- `./rex-codex loop` – generator followed by discriminator in one command.
+- `./rex-codex burn --yes` – reset the working tree (keeps `.git` and, by default, `.rex_agent`).
 
 Keep this document updated when expectations shift. The automation loop assumes these guardrails are authoritative.

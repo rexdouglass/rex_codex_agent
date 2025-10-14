@@ -4,22 +4,24 @@ A portable Codex-first automation scaffold. Drop this repository into any Python
 
 ## Quick Start
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/scripts/install.sh | bash
-./rex-codex init
-./rex-codex loop
-
-# Before running the generator, create at least one Feature Card with `status: proposed`
-```
-
-In a second terminal use the Codex CLI to draft documentation/specs. When a Feature Card is ready:
-
-```bash
-./rex-codex generator      # turn the next proposed card into enforcement tests
-./rex-codex discriminator  # drive the staged ladder until the repo is green
-# or
-./rex-codex loop           # generator → discriminator in one shot
-```
+1. Install the wrapper (inside the target repo):
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/scripts/install.sh | bash
+   ```
+2. Seed guardrails and tooling:
+   ```bash
+   ./rex-codex init
+   ```
+3. Draft a Feature Card (`documents/feature_cards/<slug>.md`) with `status: proposed` — the Codex CLI is ideal for this.
+4. Turn the card into deterministic specs:
+   ```bash
+   ./rex-codex generator         # auto-selects the first proposed card
+   ```
+5. Drive the staged ladder until it’s green:
+   ```bash
+   ./rex-codex discriminator
+   ```
+   (Use `./rex-codex loop` to execute steps 4 and 5 back-to-back.)
 
 ## Commands
 
