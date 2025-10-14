@@ -10,18 +10,21 @@ curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/sc
 ./rex-codex loop
 ```
 
-In a second terminal use the Codex CLI to draft documentation/specs, then run:
+In a second terminal use the Codex CLI to draft documentation/specs. When a Feature Card is ready:
 
 ```bash
-./rex-codex feature --no-review --run-loop
+./rex-codex generator      # turn the next proposed card into enforcement tests
+./rex-codex discriminator  # drive the staged ladder until the repo is green
+# or
+./rex-codex loop           # generator → discriminator in one shot
 ```
 
 ## Commands
 
 - `./rex-codex init` – bootstrap `.venv`, guardrails, enforcement tests, Feature Cards.
-- `./rex-codex loop` – run the staged automation ladder (questions → commands → PASS/FAIL).
-- `./rex-codex feature` – convert a Feature Card into deterministic pytest specs.
-- `./rex-codex supervise` – orchestrate feature creation followed by the loop.
+- `./rex-codex generator` – convert a Feature Card into deterministic pytest specs.
+- `./rex-codex discriminator` – run the staged automation ladder (questions → commands → PASS/FAIL).
+- `./rex-codex loop` – invoke generator and then discriminator until the repository is green.
 - `./rex-codex burn --yes` – wipe the working tree (keeps `.git`, the `rex-codex` wrapper, and by default `.rex_agent`).
 - `./rex-codex doctor` – print environment diagnostics.
 

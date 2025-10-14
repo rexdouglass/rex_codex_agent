@@ -42,8 +42,8 @@ Stages 04–05 (DB/UI) are optional packs you can enable per project by extendin
 
 ## Feature Cards Workflow
 1. Create cards in `documents/feature_cards/<slug>.md` with `status: proposed`.
-2. Run `./rex-codex feature <path>` to generate enforcement-quality specs.
-3. Update the card to `status: accepted` once tests ship.
-4. Use `./rex-codex loop` to drive the staged ladder until green.
+2. Run `./rex-codex generator <path>` to generate enforcement-quality specs.
+3. Use `./rex-codex discriminator` (or `./rex-codex loop`) to drive the staged ladder until green.
+4. Update the card to `status: accepted` once tests ship.
 
 Keep this document updated when expectations shift. The automation loop assumes these guardrails are authoritative.

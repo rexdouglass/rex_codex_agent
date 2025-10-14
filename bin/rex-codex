@@ -6,22 +6,24 @@ source "$REX_SRC/lib/updater.sh"
 cmd="${1:-help}"; shift || true
 
 case "$cmd" in
-  init)        rex_self_update; source "$REX_SRC/lib/init.sh";        rex_cmd_init "$@" ;;
-  loop)        rex_self_update; source "$REX_SRC/lib/loop.sh";        rex_cmd_loop "$@" ;;
-  feature)     rex_self_update; source "$REX_SRC/lib/feature_creator.sh"; rex_cmd_feature "$@" ;;
-  supervise)   rex_self_update; source "$REX_SRC/lib/supervisor.sh";  rex_cmd_supervise "$@" ;;
-  burn)        rex_self_update; source "$REX_SRC/lib/burn.sh";        rex_cmd_burn "$@" ;;
-  self-update) rex_self_update ;;
-  doctor)      rex_repo_doctor ;;
-  help|*)      cat <<'H'
+  init)          rex_self_update; source "$REX_SRC/lib/init.sh";          rex_cmd_init "$@" ;;
+  generator)     rex_self_update; source "$REX_SRC/lib/generator.sh";     rex_cmd_generator "$@" ;;
+  discriminator) rex_self_update; source "$REX_SRC/lib/discriminator.sh"; rex_cmd_discriminator "$@" ;;
+  loop)          rex_self_update; source "$REX_SRC/lib/loop.sh";          rex_cmd_loop "$@" ;;
+  feature)       rex_self_update; source "$REX_SRC/lib/generator.sh";     echo "[info] 'feature' is deprecated; use 'generator'"; rex_cmd_generator "$@" ;;
+  supervise)     rex_self_update; source "$REX_SRC/lib/loop.sh";          rex_cmd_loop "$@" ;;
+  burn)          rex_self_update; source "$REX_SRC/lib/burn.sh";          rex_cmd_burn "$@" ;;
+  self-update)   rex_self_update ;;
+  doctor)        rex_repo_doctor ;;
+  help|*)        cat <<'H'
 Usage: rex-codex <command>
-  init         Seed AGENTS.md, enforcement tests, Feature Cards, and .venv
-  loop         Run staged compliance pipeline with Codex autofix when needed
-  feature      Turn a Feature Card into deterministic pytest specs
-  supervise    Run feature+loop with concise Codex summaries
-  burn         Delete repo contents (preserves .git, defaults to keep .rex_agent)
-  doctor       Print versions and environment status
-  self-update  Pull latest agent into .rex_agent/src
+  init           Seed AGENTS.md, enforcement tests, Feature Cards, and .venv
+  generator      Convert a Feature Card into deterministic pytest specs
+  discriminator  Run staged automation loop with mechanical fixes + LLM assists
+  loop           Alternate generator → discriminator until repo is green
+  burn           Delete repo contents (preserves .git, the wrapper, and by default .rex_agent)
+  doctor         Print versions and environment status
+  self-update    Pull latest agent into .rex_agent/src
 H
   ;;
 esac

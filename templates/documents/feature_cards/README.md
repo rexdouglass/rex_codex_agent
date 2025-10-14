@@ -16,7 +16,7 @@ notes:
 
 ## Flow
 1. Start with `status: proposed`.
-2. When specs/tests exist, run `./rex-codex feature documents/feature_cards/<slug>.md`.
-3. Review the generated pytest specs under `tests/feature_specs/`.
-4. Update the card to `status: accepted` when the loop is green.
-5. Retire the card once behaviour is shipped and documented.
+2. When specs/tests exist, run `./rex-codex generator documents/feature_cards/<slug>.md`.
+3. Use `./rex-codex discriminator` (or `./rex-codex loop`) to go green and capture fixes.
+4. Review the generated pytest specs under `tests/feature_specs/`.
+5. Update the card to `status: accepted` when the discriminator run succeeds, then retire once shipped and documented.
