@@ -57,9 +57,7 @@ PY
 
 configure_pytest(){
   PYTEST_FLAGS=(-q)
-  if python - <<'PY' >/dev/null 2>&1; then
-import importlib.util, sys; sys.exit(0 if importlib.util.find_spec("xdist") else 1)
-PY
+  if python -c "import importlib.util as util, sys; sys.exit(0 if util.find_spec('xdist') else 1)" >/dev/null 2>&1; then
     PYTEST_FLAGS+=(-n 6 --dist loadscope)
   fi
 }
