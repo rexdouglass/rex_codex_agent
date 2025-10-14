@@ -10,6 +10,7 @@ case "$cmd" in
   loop)        rex_self_update; source "$REX_SRC/lib/loop.sh";        rex_cmd_loop "$@" ;;
   feature)     rex_self_update; source "$REX_SRC/lib/feature_creator.sh"; rex_cmd_feature "$@" ;;
   supervise)   rex_self_update; source "$REX_SRC/lib/supervisor.sh";  rex_cmd_supervise "$@" ;;
+  burn)        rex_self_update; source "$REX_SRC/lib/burn.sh";        rex_cmd_burn "$@" ;;
   self-update) rex_self_update ;;
   doctor)      rex_repo_doctor ;;
   help|*)      cat <<'H'
@@ -18,6 +19,7 @@ Usage: rex-codex <command>
   loop         Run staged compliance pipeline with Codex autofix when needed
   feature      Turn a Feature Card into deterministic pytest specs
   supervise    Run feature+loop with concise Codex summaries
+  burn         Delete repo contents (preserves .git, defaults to keep .rex_agent)
   doctor       Print versions and environment status
   self-update  Pull latest agent into .rex_agent/src
 H
