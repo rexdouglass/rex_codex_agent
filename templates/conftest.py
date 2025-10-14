@@ -10,7 +10,10 @@ import pytest
 @pytest.fixture(autouse=True)
 def _enforce_synthetic_run_level(monkeypatch: pytest.MonkeyPatch) -> None:
     """Default all tests to local synthetic mode."""
-    monkeypatch.setenv("SYNTHETIC_RUN_LEVEL", os.getenv("SYNTHETIC_RUN_LEVEL", "local"))
+    monkeypatch.setenv(
+        "SYNTHETIC_RUN_LEVEL",
+        os.getenv("SYNTHETIC_RUN_LEVEL", "local"),
+    )
 
 
 def _deny_network(*_: object, **__: object) -> None:

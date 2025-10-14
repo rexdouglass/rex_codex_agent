@@ -32,14 +32,15 @@ def test_runtime_does_not_import_tests_namespace() -> None:
     for module_path in modules:
         tree = ast.parse(module_path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
+            location = f"{module_path}:{getattr(node, 'lineno', '?')}"
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     if alias.name.startswith("tests"):
-                        offenders.append(f"{module_path}:{node.lineno} imports {alias.name}")
+                        offenders.append(f"{location} imports {alias.name}")
             elif isinstance(node, ast.ImportFrom):
                 module = node.module or ""
                 if module.startswith("tests"):
-                    offenders.append(f"{module_path}:{node.lineno} imports {module}")
+                    offenders.append(f"{location} imports {module}")
 
     if offenders:
         joined = "\n".join(sorted(offenders))

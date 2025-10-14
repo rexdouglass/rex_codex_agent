@@ -56,11 +56,13 @@ def test_public_functions_have_specs_and_types() -> None:
         for node in tree.body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 if function_missing_contract(node):
-                    violations.append(f"{module_path}:{node.lineno} missing spec or type hints")
+                    location = f"{module_path}:{node.lineno}"
+                    violations.append(f"{location} missing spec or type hints")
             elif isinstance(node, ast.ClassDef) and not node.name.startswith("_"):
                 docstring = ast.get_docstring(node)
                 if not has_spec(docstring):
-                    violations.append(f"{module_path}:{node.lineno} class missing doc spec")
+                    location = f"{module_path}:{node.lineno}"
+                    violations.append(f"{location} class missing doc spec")
 
     if violations:
         joined = "\n".join(sorted(violations))
