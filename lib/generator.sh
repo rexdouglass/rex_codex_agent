@@ -14,7 +14,7 @@ rex_cmd_generator(){
     local matches=()
     shopt -s nullglob
     for path in documents/feature_cards/*.md; do
-      if grep -Eq '^status:\s*proposed' "$path"; then
+      if grep -Eq '^status:\s*proposed\s*$' "$path"; then
         matches+=("$path")
       fi
     done
@@ -24,7 +24,7 @@ rex_cmd_generator(){
       return 1
     fi
     CARD="${matches[0]}"
-  elif ! grep -Eq '^status:\s*proposed' "$CARD"; then
+  elif ! grep -Eq '^status:\s*proposed\s*$' "$CARD"; then
     echo "[generator] Card $CARD is not marked status: proposed"
     return 1
   fi

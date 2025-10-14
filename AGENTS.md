@@ -12,7 +12,7 @@ This repository provides the Codex-friendly automation scaffold that target proj
    ```bash
    ./rex-codex init
    ```
-3. **Author a Feature Card** under `documents/feature_cards/<slug>.md` with `status: proposed`.
+3. **Author a Feature Card** under `documents/feature_cards/<slug>.md` with a dedicated line `status: proposed`.
 4. **Generate enforcement specs**
    ```bash
    ./rex-codex generator            # auto-selects the first proposed card

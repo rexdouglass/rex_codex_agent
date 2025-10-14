@@ -12,7 +12,7 @@ A portable Codex-first automation scaffold. Drop this repository into any Python
    ```bash
    ./rex-codex init
    ```
-3. Draft a Feature Card (`documents/feature_cards/<slug>.md`) with `status: proposed` — the Codex CLI is ideal for this.
+3. Draft a Feature Card (`documents/feature_cards/<slug>.md`) with a line that reads exactly `status: proposed` — the Codex CLI is ideal for this.
 4. Turn the card into deterministic specs:
    ```bash
    ./rex-codex generator         # auto-selects the first proposed card

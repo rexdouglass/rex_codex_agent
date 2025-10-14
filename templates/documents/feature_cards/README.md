@@ -15,7 +15,7 @@ notes:
 ```
 
 ## Flow
-1. Start with `status: proposed`.
+1. Start with a dedicated line `status: proposed`.
 2. When specs/tests exist, run `./rex-codex generator documents/feature_cards/<slug>.md`.
 3. Use `./rex-codex discriminator` (or `./rex-codex loop`) to go green and capture fixes.
 4. Review the generated pytest specs under `tests/feature_specs/`.
