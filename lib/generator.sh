@@ -11,12 +11,25 @@ rex_cmd_generator(){
 
   local CARD="${1:-}"
   if [[ -z "$CARD" ]]; then
-    CARD="$(grep -l -E '^status:\s*proposed' documents/feature_cards/*.md 2>/dev/null | head -n 1 || true)"
-    if [[ -z "$CARD" ]]; then
+    local matches=()
+    shopt -s nullglob
+    for path in documents/feature_cards/*.md; do
+      if grep -Eq '^status:\s*proposed' "$path"; then
+        matches+=("$path")
+      fi
+    done
+    shopt -u nullglob
+    if [[ "${#matches[@]}" -eq 0 ]]; then
       echo "[generator] No Feature Cards with status=proposed"
       return 1
     fi
+    CARD="${matches[0]}"
+  elif ! grep -Eq '^status:\s*proposed' "$CARD"; then
+    echo "[generator] Card $CARD is not marked status: proposed"
+    return 1
   fi
+
+  echo "[generator] Generating specs for $CARD"
 
   {
     cat <<'HDR'

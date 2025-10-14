@@ -40,6 +40,7 @@ rex_cmd_loop(){
 
   local gen_status=1
   if [[ "$run_generator" -eq 1 ]]; then
+    echo "=== rex-codex loop: generator phase ==="
     if rex_cmd_generator "${generator_args[@]}"; then
       gen_status=0
       echo "[loop] Generator produced new specs; running discriminator…"
@@ -57,6 +58,7 @@ rex_cmd_loop(){
   fi
 
   if [[ "$run_discriminator" -eq 1 ]]; then
+    echo "=== rex-codex loop: discriminator phase ==="
     rex_cmd_discriminator
   else
     echo "[loop] Discriminator skipped; generator phase complete."

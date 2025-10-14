@@ -8,6 +8,8 @@ A portable Codex-first automation scaffold. Drop this repository into any Python
 curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/scripts/install.sh | bash
 ./rex-codex init
 ./rex-codex loop
+
+# Before running the generator, create at least one Feature Card with `status: proposed`
 ```
 
 In a second terminal use the Codex CLI to draft documentation/specs. When a Feature Card is ready:
@@ -22,7 +24,7 @@ In a second terminal use the Codex CLI to draft documentation/specs. When a Feat
 ## Commands
 
 - `./rex-codex init` – bootstrap `.venv`, guardrails, enforcement tests, Feature Cards.
-- `./rex-codex generator` – convert a Feature Card into deterministic pytest specs.
+- `./rex-codex generator` – convert a `status: proposed` Feature Card into deterministic pytest specs.
 - `./rex-codex discriminator` – run the staged automation ladder (questions → commands → PASS/FAIL).
 - `./rex-codex loop` – invoke generator and then discriminator until the repository is green.
 - `./rex-codex burn --yes` – wipe the working tree (keeps `.git`, the `rex-codex` wrapper, and by default `.rex_agent`).
