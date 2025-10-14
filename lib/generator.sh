@@ -59,50 +59,26 @@ HDR
   fi
 
   if ! python3 - "$RESP" "$PATCH" <<'PY'
+import re
 import sys
 from pathlib import Path
 
-resp, out = map(Path, sys.argv[1:3])
-lines = resp.read_text(encoding='utf-8', errors='replace').splitlines()
-keep_heads = (
-    "diff --git ",
-    "index ",
-    "new file mode",
-    "deleted file mode",
-    "old mode",
-    "new mode",
-    "similarity index",
-    "rename from",
-    "rename to",
-    "Binary files ",
-    "--- ",
-    "+++ ",
-    "@@",
-)
-blocks, cur, include = [], [], False
-for ln in lines:
-    if ln.startswith("diff --git "):
-        if cur and include:
-            blocks.append("\n".join(cur))
-        cur = [ln]
-        include = False
-        parts = ln.split()
-        if len(parts) >= 4:
-            path = parts[2][2:]
-            include = path.startswith("tests/feature_specs/") or path.startswith("documents/feature_cards/")
-        continue
-    if not cur:
-        continue
-    if ln.startswith(keep_heads) or ln.startswith(("+", "-", " ")):
-        cur.append(ln)
-        continue
-    if ln == "":
-        cur.append(ln)
+response, patch_path = map(Path, sys.argv[1:3])
+text = response.read_text(encoding="utf-8", errors="replace")
+pattern = re.compile(r"^diff --git .*$", re.MULTILINE)
+segments = []
+for match in pattern.finditer(text):
+    start = match.start()
+    next_match = pattern.search(text, match.end())
+    block = text[start : next_match.start()] if next_match else text[start:]
+    header = block.splitlines()[0]
+    parts = header.split()
+    target = parts[2][2:] if len(parts) >= 3 else ""
+    if target.startswith("tests/feature_specs/") or target.startswith("documents/feature_cards/"):
+        segments.append(block.strip())
 
-if cur and include:
-    blocks.append("\n".join(cur))
-
-Path(out).write_text("\n\n".join(blocks), encoding="utf-8")
+patch = "\n\n".join(segments)
+Path(patch_path).write_text(patch, encoding="utf-8")
 PY
   then
     return 2
@@ -113,7 +89,14 @@ PY
     return 3
   fi
 
-  git apply --index "$PATCH" || (git apply "$PATCH" && git add tests documents/feature_cards || true)
+  if ! git apply --index "$PATCH"; then
+    echo "[generator] git apply --index failed; retrying without --index"
+    if ! git apply "$PATCH"; then
+      echo "[generator] Failed to apply Codex diff"
+      return 4
+    fi
+    git add tests documents/feature_cards || true
+  fi
   echo "[generator] Specs added. Running pytest smoke…"
   . .venv/bin/activate
   pytest -q || true
