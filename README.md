@@ -18,17 +18,19 @@ A portable Codex-first automation scaffold. Drop this repository into any Python
    ./rex-codex generator         # auto-selects the first proposed card; add --single-pass to opt out
    ```
 5. Drive the staged ladder until it’s green:
-   ```bash
-   ./rex-codex discriminator     # already loops until tests + style pass
-   ```
-   Use `./rex-codex loop` to execute steps 4 and 5 back-to-back (pass generator flags after `--`, e.g. `./rex-codex loop -- --single-pass`).
+  ```bash
+  ./rex-codex discriminator --feature-only   # quick shard (skipped if no active card)
+  ./rex-codex discriminator --global         # full sweep (default)
+  ```
+  Use `./rex-codex loop` to execute steps 4 and 5 back-to-back (pass generator flags after `--`, e.g. `./rex-codex loop -- --single-pass`).
 
 ## Commands
 
 - `./rex-codex init` – bootstrap `.venv`, guardrails, enforcement tests, Feature Cards.
-- `./rex-codex generator` – convert a `status: proposed` Feature Card into deterministic pytest specs.
-- `./rex-codex discriminator` – run the staged automation ladder (questions → commands → PASS/FAIL).
-- `./rex-codex loop` – invoke generator and then discriminator until the repository is green.
+- `./rex-codex generator` – iterate on the next `status: proposed` Feature Card until the critic returns `DONE` (tests land in `tests/feature_specs/<slug>/`).
+- `./rex-codex discriminator --feature-only` – run the staged ladder against the active feature shard.
+- `./rex-codex discriminator --global` – run the full staged ladder (default when no flag is given).
+- `./rex-codex loop` – generator → feature shard → global sweep (use `--each-feature`, `--status`, `--skip-feature`, `--skip-global`, or `-- --single-pass` to tweak behaviour).
 - `./rex-codex burn --yes` – wipe the working tree (keeps `.git`, the `rex-codex` wrapper, and by default `.rex_agent`).
 - `./rex-codex doctor` – print environment diagnostics.
 

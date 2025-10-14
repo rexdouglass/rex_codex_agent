@@ -19,8 +19,8 @@ case "$cmd" in
 Usage: rex-codex <command>
   init           Seed AGENTS.md, enforcement tests, Feature Cards, and .venv
   generator      Iterate on tests for the next `status: proposed` Feature Card (single-pass: --single-pass)
-  discriminator  Run the staged automation ladder (mechanical fixes → Codex) until green
-  loop           Generator then discriminator (forward args to generator after `--`)
+  discriminator  Run the staged automation ladder (use --feature-only / --global / --single-pass)
+  loop           Generator → feature shard → global sweep (pass generator flags after `--`)
   burn           Delete repo contents (preserves .git, the wrapper, and by default .rex_agent)
   doctor         Print versions and environment status
   self-update    Pull latest agent into .rex_agent/src

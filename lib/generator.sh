@@ -5,69 +5,147 @@ set -Eeuo pipefail
 rex_cmd_generator(){
   local continuous=1
   local max_passes="${GENERATOR_MAX_PASSES:-5}"
-  local card_arg=""
   local focus_override=""
+  local card_arg=""
+  local iterate_all=0
+  local statuses=("proposed")
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --continuous) continuous=1 ;;
       --single-pass) continuous=0 ;;
       --max-passes=*) max_passes="${1#*=}" ;;
-      --max-passes)
-        shift || true
-        max_passes="${1:-$max_passes}"
-        ;;
-      --focus=*)
-        focus_override="${1#*=}"
-        ;;
-      --help)
-        generator_usage
-        return 0
-        ;;
-      --) shift; break ;;
-      -*)
-        echo "[generator] Unknown option: $1" >&2
-        generator_usage >&2
-        return 2
-        ;;
-      *)
-        card_arg="$1"
-        ;;
+      --max-passes) shift || true; max_passes="${1:-$max_passes}" ;;
+      --focus=*) focus_override="${1#*=}" ;;
+      --focus) shift || true; focus_override="${1:-}" ;;
+      --include-accepted) statuses+=("accepted") ;;
+      --status=*) generator_set_statuses "${1#*=}" statuses ;;
+      --status) shift || true; generator_set_statuses "${1:-proposed}" statuses ;;
+      --statuses=*) generator_set_statuses "${1#*=}" statuses ;;
+      --statuses) shift || true; generator_set_statuses "${1:-proposed}" statuses ;;
+      --each|--all) iterate_all=1 ;;
+      --help) generator_usage; return 0 ;;
+      --) shift || true; break ;;
+      -* ) echo "[generator] Unknown option: $1" >&2; generator_usage >&2; return 2 ;;
+      * ) card_arg="$1"; shift || true; break ;;
     esac
     shift || true
-    if [[ -n "$card_arg" ]]; then
-      break
-    fi
   done
 
   local ROOT; ROOT="$(rex_repo_root)"; cd "$ROOT"
+  local cards=()
+  if [[ -n "$card_arg" ]]; then
+    if [[ ! -f "$card_arg" ]]; then
+      echo "[generator] Feature Card not found: $card_arg" >&2
+      return 1
+    fi
+    cards=("$card_arg")
+  else
+    mapfile -t cards < <(generator_collect_cards statuses)
+  fi
 
-  GENERATOR_CODEX_BIN="${CODEX_BIN:-npx --yes @openai/codex}"
-  GENERATOR_CODEX_FLAGS="${CODEX_FLAGS:---yolo}"
-  GENERATOR_CODEX_MODEL="${MODEL:-}"
-
-  local card_path
-  if ! card_path="$(generator_select_card "$card_arg")"; then
-    echo "$card_path"
+  if [[ ${#cards[@]} -eq 0 ]]; then
+    local status_list="${statuses[*]}"
+    echo "[generator] No Feature Cards with statuses: $status_list" >&2
     return 1
   fi
 
-  mkdir -p .codex_ci
+  local codex_bin="${CODEX_BIN:-npx --yes @openai/codex}"
+  local codex_flags="${CODEX_FLAGS:---yolo}"
+  local codex_model="${MODEL:-}"
+
+  if [[ $iterate_all -eq 1 ]]; then
+    local overall=0
+    local card
+    for card in "${cards[@]}"; do
+      echo "[generator] === Processing card $card ==="
+      if ! generator_process_card "$card" "$focus_override" "$continuous" "$max_passes" "$codex_bin" "$codex_flags" "$codex_model"; then
+        overall=$?
+        break
+      fi
+    done
+    return $overall
+  fi
+
+  generator_process_card "${cards[0]}" "$focus_override" "$continuous" "$max_passes" "$codex_bin" "$codex_flags" "$codex_model"
+}
+
+generator_usage(){
+  cat <<'USAGE'
+Usage: rex-codex generator [options] [documents/feature_cards/<slug>.md]
+Options:
+  --continuous            Iterate generator + critic until DONE (default)
+  --single-pass           Run a single generator invocation
+  --max-passes <n>        Limit generator+critic iterations (default: $GENERATOR_MAX_PASSES or 5)
+  --focus <notes>         Seed additional coverage notes for the first pass
+  --include-accepted      Also consider Feature Cards marked status: accepted
+  --status <name>         Only consider Feature Cards with the given status (comma separated allowed)
+  --statuses <list>       Alias for --status
+  --each                  Process every matching Feature Card sequentially
+USAGE
+}
+
+generator_set_statuses(){
+  local raw="$1"
+  local -n ref="$2"
+  ref=()
+  IFS=',' read -ra ref <<<"$raw"
+  local idx
+  for idx in "${!ref[@]}"; do
+    ref[$idx]="${ref[$idx],,}"
+  done
+  if [[ ${#ref[@]} -eq 0 ]]; then
+    ref=("proposed")
+  fi
+}
+
+generator_collect_cards(){
+  local -n statuses_ref="$1"
+  local matches=()
+  shopt -s nullglob
+  for card in documents/feature_cards/*.md; do
+    local status
+    status="$(generator_card_status "$card")"
+    for s in "${statuses_ref[@]}"; do
+      if [[ "$status" == "$s" ]]; then
+        matches+=("$card")
+        break
+      fi
+    done
+  done
+  shopt -u nullglob
+  printf '%s\n' "${matches[@]}"
+}
+
+generator_process_card(){
+  local card="$1"
+  local focus_override="$2"
+  local continuous="$3"
+  local max_passes="$4"
+  local codex_bin="$5"
+  local codex_flags="$6"
+  local codex_model="$7"
+
+  local ROOT; ROOT="$(rex_repo_root)"; cd "$ROOT"
+  local slug="$(generator_slug_from_card "$card")"
+  local status="$(generator_card_status "$card")"
+
   local focus="$focus_override"
+  local pass
 
   if [[ "$continuous" -eq 0 ]]; then
-    generator_run_once "$card_path" "$focus" 1
+    generator_run_once "$card" "$slug" "$status" "$focus" 1 "$codex_bin" "$codex_flags" "$codex_model"
     return $?
   fi
 
   for pass in $(seq 1 "$max_passes"); do
-    echo "[generator] Iteration $pass/$max_passes"
-    if ! generator_run_once "$card_path" "$focus" "$pass"; then
+    echo "[generator] Iteration $pass/$max_passes (slug: $slug, status: $status)"
+    if ! generator_run_once "$card" "$slug" "$status" "$focus" "$pass" "$codex_bin" "$codex_flags" "$codex_model"; then
       return $?
     fi
-    generator_run_tests_log
+    generator_run_tests_log "$slug"
     local critic_feedback=""
-    if generator_run_critic "$card_path" critic_feedback "$pass"; then
+    if generator_run_critic "$card" "$slug" critic_feedback "$pass" "$codex_bin" "$codex_flags" "$codex_model"; then
       echo "[generator] Critic returned DONE after pass $pass"
       return 0
     fi
@@ -75,7 +153,7 @@ rex_cmd_generator(){
       echo "[generator] Critic response empty; stopping." >&2
       return 5
     fi
-    echo "[generator] Critic requested further coverage:"
+    echo "[generator] Critic requested coverage updates:"
     echo "$critic_feedback"
     focus="$critic_feedback"
   done
@@ -84,57 +162,39 @@ rex_cmd_generator(){
   return 6
 }
 
-generator_usage(){
-  cat <<'USAGE'
-Usage: rex-codex generator [options] [documents/feature_cards/<slug>.md]
-Options:
-  --continuous          Iterate generator + critic until DONE (default)
-  --single-pass         Run a single generator invocation
-  --max-passes <n>      Limit number of generator+critic iterations (default: $GENERATOR_MAX_PASSES or 5)
-  --focus <notes>       Seed additional coverage notes for the first pass
-USAGE
-}
-
-generator_select_card(){
-  local requested="${1:-}"
-  local candidates=()
-  if [[ -n "$requested" ]]; then
-    if [[ ! -f "$requested" ]]; then
-      printf '[generator] Feature Card not found: %s\n' "$requested"
-      return 1
-    fi
-    if ! generator_card_is_proposed "$requested"; then
-      printf '[generator] Card %s is not marked with "status: proposed"\n' "$requested"
-      return 1
-    fi
-    printf '%s' "$requested"
-    return 0
-  fi
-
-  shopt -s nullglob
-  for path in documents/feature_cards/*.md; do
-    generator_card_is_proposed "$path" && candidates+=("$path")
-  done
-  shopt -u nullglob
-
-  if [[ "${#candidates[@]}" -eq 0 ]]; then
-    echo "[generator] No Feature Cards with status: proposed"
-    return 1
-  fi
-
-  printf '%s' "${candidates[0]}"
+generator_card_status(){
+  local card="$1"
+  local status
+  status="$(awk 'tolower($1)=="status:"{print tolower($2); exit}' "$card")"
+  [[ -z "$status" ]] && status="unknown"
+  echo "$status"
 }
 
 generator_card_is_proposed(){
+  [[ "$(generator_card_status "$1")" == "proposed" ]]
+}
+
+generator_slug_from_card(){
   local card="$1"
-  grep -Eq '^status:\s*proposed\s*$' "$card"
+  local base
+  base="$(basename "$card")"
+  base="${base%.md}"
+  echo "$base"
 }
 
 generator_run_once(){
   local card="$1"
-  local focus="${2:-}"
-  local pass="${3:-1}"
+  local slug="$2"
+  local status="$3"
+  local focus="$4"
+  local pass="$5"
+  local codex_bin="$6"
+  local codex_flags="$7"
+  local codex_model="$8"
+
   local ROOT; ROOT="$(rex_repo_root)"; cd "$ROOT"
+  local specs_dir="tests/feature_specs/$slug"
+  mkdir -p "$specs_dir"
 
   local prompt=".codex_ci/generator_prompt.txt"
   local response=".codex_ci/generator_response.log"
@@ -143,9 +203,9 @@ generator_run_once(){
   {
     cat <<'HDR'
 You are a senior test architect.
-Produce a *unified git diff* that adds deterministic pytest specs under tests/.
+Produce a *unified git diff* that adds deterministic pytest specs under tests/feature_specs/<feature>/.
 Only touch:
-- tests/feature_specs/...
+- tests/feature_specs/<feature>/...
 - documents/feature_cards/<same-card>.md  (to update state/links once tests are created)
 
 Guardrails:
@@ -155,6 +215,9 @@ Guardrails:
 - Include happy-path, env toggle, and explicit error coverage.
 Diff contract: unified diff only (start each file with 'diff --git').
 HDR
+    echo
+    echo "Feature slug: $slug"
+    echo "All updates must remain under tests/feature_specs/$slug/ and the card document."
     echo
     echo "--- PASS NUMBER ---"
     echo "$pass"
@@ -172,18 +235,18 @@ HDR
     cat "$card"
     echo
     echo "--- END FEATURE CARD ---"
-    generator_append_existing_tests
+    generator_append_existing_tests "$slug"
   } > "$prompt"
 
   local model_arg=()
-  [[ -n "$GENERATOR_CODEX_MODEL" ]] && model_arg=(--model "$GENERATOR_CODEX_MODEL")
+  [[ -n "$codex_model" ]] && model_arg=(--model "$codex_model")
 
-  if ! "$GENERATOR_CODEX_BIN" exec $GENERATOR_CODEX_FLAGS "${model_arg[@]}" --cd "$ROOT" -- "$(cat "$prompt")" > "$response" 2>&1; then
+  if ! "$codex_bin" exec $codex_flags "${model_arg[@]}" --cd "$ROOT" -- "$(cat "$prompt")" > "$response" 2>&1; then
     cat "$response" >&2
     return 2
   fi
 
-  if ! generator_extract_diff "$response" "$patch"; then
+  if ! generator_extract_diff "$response" "$patch" "$slug"; then
     return 3
   fi
 
@@ -201,15 +264,19 @@ HDR
     git add tests documents/feature_cards || true
   fi
 
+  if [[ "$status" == "proposed" ]]; then
+    generator_update_metadata "$card" "$slug"
+  fi
+
   echo "[generator] Specs updated from $card"
   return 0
 }
 
 generator_append_existing_tests(){
-  local tests_glob=tests/feature_specs/*.py
+  local slug="$1"
   local first=1
   shopt -s nullglob
-  for test_file in $tests_glob; do
+  for test_file in tests/feature_specs/"$slug"/*.py tests/feature_specs/"$slug"/**/*.py; do
     if [[ "$first" -eq 1 ]]; then
       echo
       echo "--- EXISTING TEST FILES ---"
@@ -225,50 +292,59 @@ generator_append_existing_tests(){
 generator_extract_diff(){
   local response="$1"
   local patch_path="$2"
-  python3 - "$response" "$patch_path" <<'PY'
+  local slug="$3"
+  python3 - "$response" "$patch_path" "$slug" <<'PY'
 import re
 import sys
 from pathlib import Path
 
-response, patch_path = map(Path, sys.argv[1:3])
-text = response.read_text(encoding="utf-8", errors="replace")
+response, patch_path, slug = sys.argv[1:4]
+text = Path(response).read_text(encoding="utf-8", errors="replace")
 pattern = re.compile(r"^diff --git .*$", re.MULTILINE)
 segments = []
+allowed_doc = f"documents/feature_cards/{slug}.md"
+allowed_prefix = f"tests/feature_specs/{slug}/"
 for match in pattern.finditer(text):
     start = match.start()
     next_match = pattern.search(text, match.end())
     block = text[start : next_match.start()] if next_match else text[start:]
     header = block.splitlines()[0]
     parts = header.split()
-    target = parts[2][2:] if len(parts) >= 3 else ""
-    if target.startswith("tests/feature_specs/") or target.startswith("documents/feature_cards/"):
+    if len(parts) < 3:
+        continue
+    target = parts[2][2:]
+    if target.startswith(allowed_prefix) or target == allowed_doc:
         segments.append(block.strip())
-
 Path(patch_path).write_text("\n\n".join(segments), encoding="utf-8")
 PY
 }
 
 generator_run_tests_log(){
+  local slug="$1"
   local ROOT; ROOT="$(rex_repo_root)"; cd "$ROOT"
   local log=".codex_ci/generator_tests.log"
-  if [[ ! -d tests/feature_specs ]]; then
-    echo "[generator] No tests/feature_specs directory yet; skipping pytest snapshot."
+  local specs_dir="tests/feature_specs/$slug"
+  if [[ ! -d "$specs_dir" ]]; then
+    echo "[generator] No tests/feature_specs/$slug directory yet; skipping pytest snapshot."
     : > "$log"
     return 0
   fi
   if [[ -x .venv/bin/activate ]]; then
-    # shellcheck source=/dev/null
     . .venv/bin/activate
   fi
-  pytest tests/feature_specs -q > "$log" 2>&1 || true
+  pytest "$specs_dir" -q > "$log" 2>&1 || true
 }
 
 generator_run_critic(){
   local card="$1"
-  local __result_var="$2"
-  local pass="${3:-1}"
-  local ROOT; ROOT="$(rex_repo_root)"; cd "$ROOT"
+  local slug="$2"
+  local __result_var="$3"
+  local pass="$4"
+  local codex_bin="$5"
+  local codex_flags="$6"
+  local codex_model="$7"
 
+  local ROOT; ROOT="$(rex_repo_root)"; cd "$ROOT"
   local prompt=".codex_ci/generator_critic_prompt.txt"
   local response=".codex_ci/generator_critic_response.log"
   local tests_log=".codex_ci/generator_tests.log"
@@ -286,12 +362,14 @@ HDR
     echo "--- GENERATOR PASS ---"
     echo "$pass"
     echo
+    echo "Feature slug: $slug"
+    echo
     echo "--- FEATURE CARD ---"
     cat "$card"
     echo
     echo "--- CURRENT TEST FILES ---"
     shopt -s nullglob
-    for test_file in tests/feature_specs/*.py; do
+    for test_file in tests/feature_specs/"$slug"/*.py tests/feature_specs/"$slug"/**/*.py; do
       echo "### $test_file"
       sed -n '1,300p' "$test_file"
       echo
@@ -300,16 +378,21 @@ HDR
     echo "--- END TEST FILES ---"
     echo
     if [[ -f "$tests_log" ]]; then
-      echo "--- PYTEST OUTPUT (tests/feature_specs) ---"
+      echo "--- PYTEST OUTPUT (tests/feature_specs/$slug) ---"
       sed -n '1,200p' "$tests_log"
+      echo
+    fi
+    if [[ -f .codex_ci_latest.log ]]; then
+      echo "--- MOST RECENT DISCRIMINATOR LOG (tail) ---"
+      tail -n 120 .codex_ci_latest.log
       echo
     fi
   } > "$prompt"
 
   local model_arg=()
-  [[ -n "$GENERATOR_CODEX_MODEL" ]] && model_arg=(--model "$GENERATOR_CODEX_MODEL")
+  [[ -n "$codex_model" ]] && model_arg=(--model "$codex_model")
 
-  if ! "$GENERATOR_CODEX_BIN" exec $GENERATOR_CODEX_FLAGS "${model_arg[@]}" --cd "$ROOT" -- "$(cat "$prompt")" > "$response" 2>&1; then
+  if ! "$codex_bin" exec $codex_flags "${model_arg[@]}" --cd "$ROOT" -- "$(cat "$prompt")" > "$response" 2>&1; then
     cat "$response" >&2
     printf -v "$__result_var" ""
     return 2
@@ -329,16 +412,33 @@ PY
     return 1
   fi
 
-  if [[ "$trimmed" =~ ^DONE$ ]]; then
+  if [[ "$trimmed" == "DONE" ]]; then
     printf -v "$__result_var" ""
     return 0
   fi
 
-  if [[ "$trimmed" =~ ^TODO: ]]; then
-    printf -v "$__result_var" "%s" "$trimmed"
-    return 1
-  fi
-
   printf -v "$__result_var" "%s" "$trimmed"
   return 1
+}
+
+generator_update_metadata(){
+  local card="$1"
+  local slug="$2"
+  local ROOT; ROOT="$(rex_repo_root)"; cd "$ROOT"
+  python3 - "$ROOT/rex-agent.json" "$card" "$slug" <<'PY'
+import json, sys, time
+path, card, slug = sys.argv[1:4]
+try:
+    with open(path) as fh:
+        data = json.load(fh)
+except FileNotFoundError:
+    data = {}
+feature = data.setdefault("feature", {})
+feature["active_card"] = card
+feature["active_slug"] = slug
+feature["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+with open(path, "w") as fh:
+    json.dump(data, fh, indent=2)
+    fh.write("\n")
+PY
 }

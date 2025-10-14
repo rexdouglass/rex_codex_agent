@@ -17,11 +17,12 @@ This repository provides the Codex-friendly automation scaffold that target proj
    ```bash
    ./rex-codex generator            # auto-selects the first proposed card (use --single-pass to opt out)
    ```
-5. **Drive the staged tests and fixes**
-   ```bash
-   ./rex-codex discriminator
-   ```
-   (or run both steps together with `./rex-codex loop`).
+5. **Drive the staged tests and fixes** (first the feature shard, then the global sweep)
+  ```bash
+  ./rex-codex discriminator --feature-only   # quick shard (skipped if no active proposed card)
+  ./rex-codex discriminator --global          # full ladder, catches regressions elsewhere
+  ```
+  Run `./rex-codex loop` to execute generator → feature shard → global sweep in one command (add `--each-feature` to re-evaluate accepted cards, `--status accepted` to focus on completed work, etc.).
 6. **Iterate** until the discriminator reports a PASS, then update the card to `status: accepted`.
 
 For a clean slate in a practice sandbox:

@@ -43,15 +43,15 @@ Stages 04–05 (DB/UI) are optional packs you can enable per project by extendin
 ## Feature Cards Workflow
 1. Create cards in `documents/feature_cards/<slug>.md` with a dedicated line `status: proposed`.
 2. Run `./rex-codex generator <path>` (or omit `<path>` to auto-select the first proposed card). The generator iterates with a critic until it returns `DONE` (use `--single-pass` to opt out).
-3. Use `./rex-codex discriminator`—or `./rex-codex loop` to chain both steps—to drive the staged ladder until green.
+3. Use `./rex-codex discriminator --feature-only` to verify the feature shard, then `./rex-codex discriminator --global` (or `./rex-codex loop` to chain generator → feature → global).
 4. Update the card to `status: accepted` once tests ship.
 5. Retire the card once behaviour is shipped and documented.
 
 ### Command Cheatsheet
 - `./rex-codex init` – seed guardrails and tooling.
-- `./rex-codex generator` – produce deterministic tests from the next Feature Card.
-- `./rex-codex discriminator` – run the staged ladder to make the repo green.
-- `./rex-codex loop` – generator followed by discriminator in one command.
+- `./rex-codex generator` – produce/iterate tests for the next Feature Card until the critic says DONE.
+- `./rex-codex discriminator --feature-only` / `--global` – run the shard or full ladder respectively.
+- `./rex-codex loop` – generator → feature shard → global sweep (use `--each-feature`, `--status accepted`, `--skip-feature`, or `--skip-global` to tweak).
 - `./rex-codex burn --yes` – reset the working tree (keeps `.git` and, by default, `.rex_agent`).
 
 Keep this document updated when expectations shift. The automation loop assumes these guardrails are authoritative.
