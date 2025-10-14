@@ -35,6 +35,7 @@ rex_cmd_burn(){
     case "$(basename "$entry")" in
       .|..) continue ;;
       .git) continue ;;
+      rex-codex) continue ;;
       .rex_agent)
         [[ "$KEEP_AGENT" -eq 1 ]] && continue
         ;;

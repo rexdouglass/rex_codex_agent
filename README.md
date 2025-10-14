@@ -22,7 +22,7 @@ In a second terminal use the Codex CLI to draft documentation/specs, then run:
 - `./rex-codex loop` – run the staged automation ladder (questions → commands → PASS/FAIL).
 - `./rex-codex feature` – convert a Feature Card into deterministic pytest specs.
 - `./rex-codex supervise` – orchestrate feature creation followed by the loop.
-- `./rex-codex burn --yes` – wipe the working tree (keeps `.git`, defaults to preserving `.rex_agent`).
+- `./rex-codex burn --yes` – wipe the working tree (keeps `.git`, the `rex-codex` wrapper, and by default `.rex_agent`).
 - `./rex-codex doctor` – print environment diagnostics.
 
 ## Templates
