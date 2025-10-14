@@ -49,6 +49,7 @@ Stages 04–05 (DB/UI) are optional packs you can enable per project by extendin
 5. Retire the card once behaviour is shipped and documented.
 
 ### Command Cheatsheet
+- `./rex-codex install --force` – refresh the agent if the embedded sources drift.
 - `./rex-codex init` – seed guardrails and tooling.
 - `./rex-codex card new` – scaffold Feature Cards; `card list` / `card validate` keep hygiene tidy.
 - `./rex-codex generator` – produce/iterate tests for the next Feature Card until the critic says DONE.

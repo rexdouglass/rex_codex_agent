@@ -13,6 +13,7 @@ from .discriminator import DiscriminatorOptions, run_discriminator
 from .doctor import run_doctor
 from .generator import GeneratorOptions, parse_statuses, run_generator
 from .init import run_init
+from .install import run_install
 from .logs import show_latest_logs
 from .loop import LoopOptions, run_loop
 from .self_update import self_update
@@ -26,7 +27,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"rex-codex {__version__}")
     sub = parser.add_subparsers(dest="command")
 
-    # init
+    # install / init
+    install_parser = sub.add_parser("install", help="Install or refresh the rex-codex agent")
+    install_parser.add_argument("--force", action="store_true", help="Remove existing .rex_agent before installing")
+    install_parser.add_argument("--channel", help="Install a specific channel/tag (e.g. stable, main)")
+
     init_parser = sub.add_parser("init", help="Seed guardrails and tooling")
     init_parser.add_argument("--no-self-update", action="store_true", help="Skip self-update before initializing")
 
@@ -98,7 +103,7 @@ def build_parser() -> argparse.ArgumentParser:
     burn_parser.add_argument("--dry-run", action="store_true", help="Preview deletions without executing")
 
     uninstall_parser = sub.add_parser("uninstall", help="Remove the rex-codex agent")
-    uninstall_parser.add_argument("--yes", action="store_true", help="Skip confirmation")
+    uninstall_parser.add_argument("--yes", "--force", action="store_true", dest="force", help="Skip confirmation")
     uninstall_parser.add_argument("--keep-wrapper", action="store_true", help="Preserve the ./rex-codex wrapper")
 
     # self-update
@@ -112,6 +117,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     context = RexContext.discover()
+
+    if args.command == "install":
+        run_install(force=args.force, channel=args.channel, context=context)
+        return 0
 
     if args.command == "init":
         run_init(context=context, perform_self_update=not args.no_self_update)
@@ -237,7 +246,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "uninstall":
-        uninstall_agent(force=args.yes, keep_wrapper=args.keep_wrapper, context=context)
+        uninstall_agent(force=args.force, keep_wrapper=args.keep_wrapper, context=context)
         return 0
 
     if args.command == "self-update":

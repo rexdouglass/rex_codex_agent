@@ -11,6 +11,7 @@ This document captures the current architecture, the rationale for migrating orc
   - `generator` produces deterministic pytest specs in `tests/feature_specs/<slug>/`, appends to the Feature Card links/trace sections, and enforces hermetic AST checks and patch budgets (defaults: 6 files, 300 lines).
   - `discriminator` runs a staged ladder (health, tooling, smoke/unit shards, coverage >=80 percent, optional pip-audit/bandit/build, then style/type). Mechanical fixes are limited to runtime paths, and LLM runtime edits are off by default (`DISABLE_LLM=1`).
   - `loop` orchestrates generator -> discriminator with Python advisory (`fcntl`) locking, and mirrors flag passthrough from the underlying commands.
+  - `install` provides an in-place refresh path (`--force` re-clones the agent) to make recovery from broken installs obvious.
   - `supervise` is a thin wrapper over `loop`.
   - `uninstall` requires typing "remove agent" and honors `--keep-wrapper`.
   - `self-update` is opt-in and respects release channels via environment flags.
@@ -116,7 +117,7 @@ The Python CLI enables ergonomics that were cumbersome in shell:
 5. Promote the card to `status: accepted` once the ladder passes.
 6. When requirements change, update the card, rerun the generator, and iterate through the discriminator ladder again.
 7. Optionally enable LLM runtime assistance by passing `--enable-llm` (or exporting `DISABLE_LLM=0`); guardrails still enforce runtime allowlists, patch budgets, and protected-path hashing. If Node is missing, the flow continues offline.
-8. Use burn/uninstall flows to reset the environment or remove the agent entirely.
+8. Use burn/uninstall flows to reset the environment or remove the agent entirely (`install --force` is available for re-cloning without a full uninstall).
 
 ## 7. Final Recommendation
 

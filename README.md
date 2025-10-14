@@ -64,8 +64,9 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
    - `./rex-codex logs` – tail the latest discriminator/generator output from `.codex_ci/`.
    - `./rex-codex card list` – list cards by status for quick triage.
    - `./rex-codex doctor` – diagnose env issues.
+   - `./rex-codex install --force` – re-clone the agent (useful when hopping channels or recovering from a broken install).
    - `./rex-codex burn --dry-run` then `--yes` – wipe repo contents (keeps `.git`, optionally `.rex_agent`).
-   - `./rex-codex uninstall` – remove the agent wrapper after typing “remove agent”.
+   - `./rex-codex uninstall --force` – remove the agent (add `--keep-wrapper` to preserve the shim).
 
 ---
 
@@ -73,6 +74,7 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
 
 | Command | Purpose | Key Flags & Env |
 |---------|---------|-----------------|
+| `./rex-codex install` | Reinstall or refresh the agent in-place. | `--force`, `--channel` |
 | `./rex-codex init` | Seed `.venv`, guardrails, Feature Card scaffolding, and `rex-agent.json`. | — |
 | `./rex-codex generator` | Generate deterministic pytest specs from the next `status: proposed` card. | `--single-pass`, `--max-passes`, `--focus`, `--status`, `--each` |
 | `./rex-codex discriminator` | Run the staged ladder (feature shard via `--feature-only`, full sweep by default). | `--feature-only`, `--global`, `--single-pass`, `--enable-llm`, `--disable-llm`, `DISCRIMINATOR_MAX_PASSES`, `COVERAGE_MIN`, `PIP_AUDIT`, `BANDIT`, `PACKAGE_CHECK`, `MYPY_TARGETS`, `MYPY_INCLUDE_TESTS` |
@@ -82,7 +84,7 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
 | `./rex-codex logs` | Tail the latest generator/discriminator logs from `.codex_ci/`. | — |
 | `./rex-codex doctor` | Print versions/paths for `python3`, `node`, and `docker`. | — |
 | `./rex-codex burn` | Wipe the repo (keeps `.git`; optional `--purge-agent`; supports `--dry-run`). | `--yes`, `--purge-agent`, `--dry-run` |
-| `./rex-codex uninstall` | Remove `.rex_agent/` and optionally the wrapper. | `--yes`, `--keep-wrapper` |
+| `./rex-codex uninstall` | Remove `.rex_agent/` and optionally the wrapper. | `--force`, `--keep-wrapper` |
 | `./rex-codex self-update` | Refresh the agent when `REX_AGENT_NO_UPDATE=0`. | `--channel`, `REX_AGENT_CHANNEL` |
 
 ### Exit codes at a glance

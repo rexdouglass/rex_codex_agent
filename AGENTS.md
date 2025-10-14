@@ -90,11 +90,13 @@ Keep these expectations visible—both docs and templates must reinforce them so
 
 - `./rex-codex init` – seed guardrails and tooling (idempotent).
 - `./rex-codex card new` – scaffold a Feature Card; `card list` / `card validate` keep hygiene tight.
+- `./rex-codex install --force` – refresh the agent sources in-place (useful when switching channels or repairing a bad install).
 - `./rex-codex generator` – produce/iterate tests for the next Feature Card until the critic says DONE.
 - `./rex-codex discriminator --feature-only` / `--global` – run the shard or full ladder; use `./rex-codex logs` to inspect failures.
 - `./rex-codex loop` – generator → feature shard → global sweep (`--each`, `--status`, `--skip-*`, `--explain` mirror generator/discriminator knobs).
 - `./rex-codex status` – inspect the active slug/card and last discriminator success metadata.
 - `./rex-codex burn --yes` – reset the working tree (keeps `.git`; add `--purge-agent` to drop `.rex_agent`).
+- `./rex-codex uninstall --force` – remove the agent (use `--keep-wrapper` to leave the shim).
 
 ## Documentation Duties
 
