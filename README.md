@@ -19,10 +19,11 @@ A portable Codex-first automation scaffold. Drop this repository into any Python
    ```
 5. Drive the staged ladder until it’s green:
   ```bash
-  ./rex-codex discriminator --feature-only   # quick shard (skipped if no active card)
-  ./rex-codex discriminator --global         # full sweep (default)
+  ./rex-codex discriminator --feature-only   # quick shard (fail-fast: pytest -x --maxfail=1)
+  ./rex-codex discriminator --global         # full sweep (xdist -n auto when available)
   ```
   Use `./rex-codex loop` to execute steps 4 and 5 back-to-back (pass generator flags after `--`, e.g. `./rex-codex loop -- --single-pass`).
+  Tune the discriminator with env vars when needed, e.g. `DISCRIMINATOR_MAX_PASSES=10 ./rex-codex discriminator --global`.
 
 ## Commands
 
@@ -33,6 +34,8 @@ A portable Codex-first automation scaffold. Drop this repository into any Python
 - `./rex-codex loop` – generator → feature shard → global sweep (use `--each-feature`, `--status`, `--skip-feature`, `--skip-global`, or `-- --single-pass` to tweak behaviour).
 - `./rex-codex burn --yes` – wipe the working tree (keeps `.git`, the `rex-codex` wrapper, and by default `.rex_agent`).
 - `./rex-codex doctor` – print environment diagnostics.
+
+Logs land in `.codex_ci/` (e.g. `latest_discriminator.log`, `generator_tests.log`); `./rex-codex loop` keeps the compatibility tail in `.codex_ci_latest.log`.
 
 ## Templates
 

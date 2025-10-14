@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # lib/discriminator.sh
 set -Eeuo pipefail
+shopt -s lastpipe
 
 rex_cmd_discriminator(){
   local mode="global"
@@ -58,6 +59,8 @@ rex_cmd_discriminator(){
   done
 
   local ROOT; ROOT="$(rex_repo_root)"; cd "$ROOT"
+  mkdir -p .codex_ci
+  export DISCRIMINATOR_LOG=".codex_ci/latest_discriminator.log"
   [[ -z "$slug" ]] && slug="$(rex_current_feature_slug)"
   if [[ "$mode" == "feature" && -z "$slug" ]]; then
     echo "[discriminator] No active feature slug; falling back to global sweep"
@@ -71,6 +74,7 @@ rex_cmd_discriminator(){
   while (( passes < max_passes )); do
     passes=$((passes + 1))
     echo "=== rex-codex discriminator ($mode) pass $passes/$max_passes ==="
+    : > "$DISCRIMINATOR_LOG"
     : > .codex_ci_latest.log
 
     if discriminator_run_stages "$mode" "$slug"; then
@@ -110,7 +114,7 @@ discriminator_usage(){
 Usage: rex-codex discriminator [options]
   --feature-only         Run only the active feature shard (defaults to latest generator card)
   --global               Run the full ladder (default)
-  --continuous           Keep iterating until green (default)
+  --continuous           Keep iterating until green (default; override via DISCRIMINATOR_MAX_PASSES)
   --single-pass          Run one pass and stop (even if failing)
   --max-passes <n>       Maximum passes before giving up (default: 25)
   --feature <slug>       Override feature slug for feature-only mode
@@ -130,12 +134,13 @@ PY
 
 configure_pytest(){
   local mode="$1"
-  PYTEST_FLAGS=(-q)
+  PYTEST_FLAGS=(-q -ra)
   if [[ "$mode" == "feature" ]]; then
+    PYTEST_FLAGS+=(-x --maxfail=1)
     return
   fi
   if python -c "import importlib.util as util, sys; sys.exit(0 if util.find_spec('xdist') else 1)" >/dev/null 2>&1; then
-    PYTEST_FLAGS+=(-n 6 --dist loadscope)
+    PYTEST_FLAGS+=(-n auto --dist loadscope)
   fi
 }
 
@@ -163,11 +168,11 @@ discriminator_run_stages(){
     fi
     echo "------------------------------------------------------------"
     echo "Stage: Level 02 - Feature Spec Smoke ($slug)"
-    run_stage "02.1" "Run feature specs" "pytest -q $specs_dir" || rc=1
+    run_stage "02.1" "Run feature specs" "pytest ${PYTEST_FLAGS[*]} $specs_dir --junitxml .codex_ci/discriminator_feature_${slug}.xml" || rc=1
 
     echo "------------------------------------------------------------"
     echo "Stage: Level 03 - Feature Unit Grid ($slug)"
-    run_stage "03.1" "Run feature specs (no DB markers)" "pytest -q $specs_dir -m 'not django_db'" || rc=1
+    run_stage "03.1" "Run feature specs (no DB markers)" "pytest ${PYTEST_FLAGS[*]} $specs_dir -m 'not django_db'" || rc=1
 
     echo "------------------------------------------------------------"
     echo "Stage: Level 06 - Feature Style & Type Gates ($slug)"
@@ -180,7 +185,7 @@ discriminator_run_stages(){
   else
     echo "------------------------------------------------------------"
     echo "Stage: Level 02 - Inline Spec Smoke"
-    run_stage "02.1" "Do doctests/specs pass?" "pytest -q -k 'spec or doctest'" || rc=1
+    run_stage "02.1" "Do doctests/specs pass?" "pytest ${PYTEST_FLAGS[*]} -k 'spec or doctest'" || rc=1
 
     echo "------------------------------------------------------------"
     echo "Stage: Level 03 - Unit Test Grid"
@@ -227,11 +232,19 @@ discriminator_auto_style(){
 run_stage(){
   local id="$1" q="$2" cmd="$3"
   printf "\n  Question %s: %s\n    Command: %s\n" "$id" "$q" "$cmd"
-  if bash -lc "$cmd" | tee -a .codex_ci_latest.log; then return 0; else return 1; fi
+  if bash -lc "$cmd" | tee -a "$DISCRIMINATOR_LOG" | tee -a .codex_ci_latest.log; then
+    return 0
+  else
+    return 1
+  fi
 }
 
 summarize_log(){
-  tail -n 120 .codex_ci_latest.log 2>/dev/null || true
+  if [[ -n "$DISCRIMINATOR_LOG" && -f "$DISCRIMINATOR_LOG" ]]; then
+    tail -n 120 "$DISCRIMINATOR_LOG" 2>/dev/null || true
+  else
+    tail -n 120 .codex_ci_latest.log 2>/dev/null || true
+  fi
 }
 
 run_llm_once(){
@@ -260,8 +273,19 @@ EOH
     summarize_log
     echo '```'
   } > "$prompt_file"
-  local model_arg=""
-  [[ -n "$model" ]] && model_arg="--model $model"
-  echo "[*] Invoking Codex with $bin $flags $model_arg"
-  $bin exec $flags ${model_arg:+$model_arg} --cd "$PWD" -- "$(cat "$prompt_file")" || true
+  local -a BIN_ARR=()
+  local -a FLAGS_ARR=()
+  local -a CMD=()
+  # shellcheck disable=SC2206
+  BIN_ARR=($bin)
+  # shellcheck disable=SC2206
+  FLAGS_ARR=($flags)
+  CMD=( "${BIN_ARR[@]}" exec )
+  CMD+=( "${FLAGS_ARR[@]}" )
+  if [[ -n "$model" ]]; then
+    CMD+=( --model "$model" )
+  fi
+  CMD+=( --cd "$PWD" -- "$(cat "$prompt_file")" )
+  echo "[*] Invoking Codex with: ${CMD[*]}"
+  "${CMD[@]}" || true
 }

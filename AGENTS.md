@@ -19,8 +19,8 @@ This repository provides the Codex-friendly automation scaffold that target proj
    ```
 5. **Drive the staged tests and fixes** (first the feature shard, then the global sweep)
   ```bash
-  ./rex-codex discriminator --feature-only   # quick shard (skipped if no active proposed card)
-  ./rex-codex discriminator --global          # full ladder, catches regressions elsewhere
+  ./rex-codex discriminator --feature-only   # quick shard (fail-fast: pytest -x --maxfail=1)
+  ./rex-codex discriminator --global          # full ladder (pytest -n auto when xdist is present)
   ```
   Run `./rex-codex loop` to execute generator → feature shard → global sweep in one command (add `--each-feature` to re-evaluate accepted cards, `--status accepted` to focus on completed work, etc.).
 6. **Iterate** until the discriminator reports a PASS, then update the card to `status: accepted`.
@@ -36,7 +36,8 @@ For a clean slate in a practice sandbox:
 - **Versioning** – bump `VERSION` and retag (`vX.Y.Z`) for every behavioral or template change.
 - **Command help** – keep `bin/rex-codex` help text synchronized with docs and template guidance.
 - **Templates** – update `templates/AGENTS.md` and `templates/documents/feature_cards/README.md` whenever command names change.
-- **Logging** – generator/discriminator/loop should emit clear stage banners so end users can trace progress.
+- **Logging** – generator/discriminator/loop should emit clear stage banners so end users can trace progress. Discriminator logs live in `.codex_ci/latest_discriminator.log` (compat tail: `.codex_ci_latest.log`).
+- Prefer feature shards to fail fast and global runs to use xdist auto balancing when available.
 - **Compatibility** – avoid breaking shell portability (Bash 4+), and keep dependencies limited to the Python stdlib plus the dev tools installed during `init`.
 
 When introducing a new workflow, document it here, in `README.md`, and in the relevant templates before cutting a release.

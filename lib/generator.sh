@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # lib/generator.sh
 set -Eeuo pipefail
+shopt -s lastpipe
 
 rex_cmd_generator(){
   local continuous=1
@@ -20,9 +21,13 @@ rex_cmd_generator(){
       --focus) shift || true; focus_override="${1:-}" ;;
       --include-accepted) statuses+=("accepted") ;;
       --status=*) generator_set_statuses "${1#*=}" statuses ;;
-      --status) shift || true; generator_set_statuses "${1:-proposed}" statuses ;;
+      --status)
+        shift || { echo "[generator] --status requires a value" >&2; return 2; }
+        generator_set_statuses "${1:-proposed}" statuses ;;
       --statuses=*) generator_set_statuses "${1#*=}" statuses ;;
-      --statuses) shift || true; generator_set_statuses "${1:-proposed}" statuses ;;
+      --statuses)
+        shift || { echo "[generator] --statuses requires a value" >&2; return 2; }
+        generator_set_statuses "${1:-proposed}" statuses ;;
       --each|--each-feature|--all) iterate_all=1 ;;
       --help) generator_usage; return 0 ;;
       --) shift || true; break ;;
@@ -33,6 +38,7 @@ rex_cmd_generator(){
   done
 
   local ROOT; ROOT="$(rex_repo_root)"; cd "$ROOT"
+  mkdir -p .codex_ci
   local cards=()
   if [[ -n "$card_arg" ]]; then
     if [[ ! -f "$card_arg" ]]; then
@@ -165,7 +171,10 @@ generator_process_card(){
 generator_card_status(){
   local card="$1"
   local status
-  status="$(awk 'tolower($1)=="status:"{print tolower($2); exit}' "$card")"
+  status="$(awk '
+    BEGIN{IGNORECASE=1}
+    match($0, /^[[:space:]]*status:[[:space:]]*([[:alnum:]_.-]+)/, m){print tolower(m[1]); exit}
+  ' "$card")"
   [[ -z "$status" ]] && status="unknown"
   echo "$status"
 }
@@ -214,6 +223,9 @@ Guardrails:
 - Force offline defaults (no network/time.sleep).
 - Include happy-path, env toggle, and explicit error coverage.
 Diff contract: unified diff only (start each file with 'diff --git').
+Determinism:
+- Avoid non-determinism (seed randomness, freeze time, avoid sleeps and network).
+- Prefer explicit assertions and minimal fixtures; ensure failures point to the right module.
 HDR
     echo
     echo "Feature slug: $slug"
@@ -238,10 +250,21 @@ HDR
     generator_append_existing_tests "$slug"
   } > "$prompt"
 
-  local model_arg=()
-  [[ -n "$codex_model" ]] && model_arg=(--model "$codex_model")
+  local -a BIN_ARR=()
+  local -a FLAGS_ARR=()
+  local -a CMD=()
+  # shellcheck disable=SC2206
+  BIN_ARR=($codex_bin)
+  # shellcheck disable=SC2206
+  FLAGS_ARR=($codex_flags)
+  CMD=( "${BIN_ARR[@]}" exec )
+  CMD+=( "${FLAGS_ARR[@]}" )
+  if [[ -n "$codex_model" ]]; then
+    CMD+=( --model "$codex_model" )
+  fi
+  CMD+=( --cd "$ROOT" -- "$(cat "$prompt")" )
 
-  if ! "$codex_bin" exec $codex_flags "${model_arg[@]}" --cd "$ROOT" -- "$(cat "$prompt")" > "$response" 2>&1; then
+  if ! "${CMD[@]}" > "$response" 2>&1; then
     cat "$response" >&2
     return 2
   fi
@@ -309,12 +332,14 @@ for match in pattern.finditer(text):
     next_match = pattern.search(text, match.end())
     block = text[start : next_match.start()] if next_match else text[start:]
     header = block.splitlines()[0]
-    parts = header.split()
-    if len(parts) < 3:
+    m = re.match(r"^diff --git a/(.*?) b/(.*?)$", header)
+    if not m:
         continue
-    target = parts[2][2:]
-    if target.startswith(allowed_prefix) or target == allowed_doc:
-        segments.append(block.strip())
+    a_path, b_path = m.group(1), m.group(2)
+    for candidate in (a_path, b_path):
+        if candidate.startswith(allowed_prefix) or candidate == allowed_doc:
+            segments.append(block.strip())
+            break
 Path(patch_path).write_text("\n\n".join(segments), encoding="utf-8")
 PY
 }
@@ -329,10 +354,10 @@ generator_run_tests_log(){
     : > "$log"
     return 0
   fi
-  if [[ -x .venv/bin/activate ]]; then
+  if [[ -f .venv/bin/activate ]]; then
     . .venv/bin/activate
   fi
-  pytest "$specs_dir" -q > "$log" 2>&1 || true
+  pytest "$specs_dir" -q -x --maxfail=1 > "$log" 2>&1 || true
 }
 
 generator_run_critic(){
@@ -389,10 +414,21 @@ HDR
     fi
   } > "$prompt"
 
-  local model_arg=()
-  [[ -n "$codex_model" ]] && model_arg=(--model "$codex_model")
+  local -a BIN_ARR=()
+  local -a FLAGS_ARR=()
+  local -a CMD=()
+  # shellcheck disable=SC2206
+  BIN_ARR=($codex_bin)
+  # shellcheck disable=SC2206
+  FLAGS_ARR=($codex_flags)
+  CMD=( "${BIN_ARR[@]}" exec )
+  CMD+=( "${FLAGS_ARR[@]}" )
+  if [[ -n "$codex_model" ]]; then
+    CMD+=( --model "$codex_model" )
+  fi
+  CMD+=( --cd "$ROOT" -- "$(cat "$prompt")" )
 
-  if ! "$codex_bin" exec $codex_flags "${model_arg[@]}" --cd "$ROOT" -- "$(cat "$prompt")" > "$response" 2>&1; then
+  if ! "${CMD[@]}" > "$response" 2>&1; then
     cat "$response" >&2
     printf -v "$__result_var" ""
     return 2
@@ -412,7 +448,9 @@ PY
     return 1
   fi
 
-  if [[ "$trimmed" == "DONE" ]]; then
+  local normalized
+  normalized="$(echo "$trimmed" | tr -d '`' | tr '[:space:]' ' ' | sed 's/^ *//;s/ *$//' | tr '[:lower:]' '[:upper:]')"
+  if [[ "$normalized" == "DONE" ]]; then
     printf -v "$__result_var" ""
     return 0
   fi

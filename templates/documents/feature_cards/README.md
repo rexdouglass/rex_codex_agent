@@ -17,6 +17,6 @@ notes:
 ## Flow
 1. Start with a dedicated line `status: proposed`.
 2. When specs/tests exist, run `./rex-codex generator documents/feature_cards/<slug>.md` (it keeps iterating with a critic until coverage is marked DONE; use `--single-pass` to opt out).
-3. Use `./rex-codex discriminator --feature-only` for quick feedback, then `./rex-codex discriminator --global` (or `./rex-codex loop`; add `--each-feature --status accepted` to re-evaluate completed cards).
+3. Use `./rex-codex discriminator --feature-only` for quick feedback (pytest `-x --maxfail=1`), then `./rex-codex discriminator --global` (xdist `-n auto` when present)—or `./rex-codex loop`; add `--each-feature --status accepted` to re-evaluate completed cards.
 4. Review the generated pytest specs under `tests/feature_specs/`.
 5. Update the card to `status: accepted` when the discriminator run succeeds, then retire once shipped and documented.
