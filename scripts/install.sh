@@ -25,7 +25,8 @@ fi
 
 case "$CHANNEL" in
   stable)
-    TAG="$(git -C "$SRC_DIR" describe --tags --abbrev=0 2>/dev/null || echo main)"
+    TAG="$(git -C "$SRC_DIR" tag --sort=-v:refname | head -n1)"
+    TAG="${TAG:-main}"
     git -C "$SRC_DIR" checkout -q "$TAG"
     ;;
   main) git -C "$SRC_DIR" checkout -q main && git -C "$SRC_DIR" pull --ff-only ;;
