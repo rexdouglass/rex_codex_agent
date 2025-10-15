@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 import json
 import os
 import shlex
 import subprocess
 import sys
+from datetime import UTC, datetime
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -277,10 +277,115 @@ def _audit_candidate_paths(root: Path) -> List[Path]:
     return sorted(seen)
 
 
-def _write_audit_file(audit_path: Path, files: List[Path]) -> None:
+def _is_gitignored(root: Path, path: Path) -> bool:
+    try:
+        relative = path.relative_to(root)
+    except ValueError:
+        return False
+    try:
+        result = run(
+            ["git", "check-ignore", "-q", "--", str(relative)],
+            cwd=root,
+            capture_output=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return False
+    return result.returncode == 0
+
+
+def _render_directory_listing(root: Path) -> str:
+    max_depth = 3
+    per_dir_limit = 25
+    line_budget = 400
+    skip_dir_names = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".nox", ".idea"}
+    skip_contents_dirs = {".git"}
+    gitignore_cache: Dict[Path, bool] = {}
+    lines: List[str] = []
+    truncated = False
+
+    def add_line(text: str) -> bool:
+        nonlocal line_budget, truncated
+        if truncated:
+            return False
+        if line_budget <= 0:
+            lines.append("  ... (directory listing truncated)")
+            truncated = True
+            return False
+        lines.append(text)
+        line_budget -= 1
+        return True
+
+    def is_gitignored_cached(path: Path) -> bool:
+        resolved = path.resolve()
+        if resolved in gitignore_cache:
+            return gitignore_cache[resolved]
+        ignored = _is_gitignored(root, resolved)
+        gitignore_cache[resolved] = ignored
+        return ignored
+
+    def walk(path: Path, depth: int) -> None:
+        nonlocal truncated
+        if truncated:
+            return
+        try:
+            entries = sorted(
+                path.iterdir(),
+                key=lambda item: (not item.is_dir(), item.name.lower()),
+            )
+        except OSError as exc:
+            add_line(f"{'  ' * (depth + 1)}[Error listing {path.name}: {exc}]")
+            return
+
+        filtered: List[Path] = []
+        for entry in entries:
+            if entry.is_dir() and entry.name in skip_dir_names:
+                continue
+            filtered.append(entry)
+
+        shown = 0
+        total_entries = len(filtered)
+        for entry in filtered:
+            if truncated:
+                break
+            if shown >= per_dir_limit:
+                break
+            rel = entry.relative_to(root)
+            indent = "  " * (depth + 1)
+            if entry.is_dir():
+                ignored = is_gitignored_cached(entry)
+                if ignored:
+                    add_line(f"{indent}{rel.as_posix()}/ (gitignored; contents omitted)")
+                elif entry.name in skip_contents_dirs:
+                    add_line(f"{indent}{rel.as_posix()}/ (contents omitted)")
+                elif depth + 1 >= max_depth:
+                    add_line(f"{indent}{rel.as_posix()}/ (depth limit)")
+                else:
+                    add_line(f"{indent}{rel.as_posix()}/")
+                    walk(entry, depth + 1)
+                shown += 1
+            else:
+                add_line(f"{indent}{rel.as_posix()}")
+                shown += 1
+
+        remaining = total_entries - shown
+        if remaining > 0 and not truncated:
+            indent = "  " * (depth + 1)
+            add_line(f"{indent}... ({remaining} more entries)")
+
+    add_line("./")
+    walk(root, 0)
+    return "\n".join(lines)
+
+
+def _write_audit_file(audit_path: Path, root: Path, files: List[Path]) -> None:
     with audit_path.open("w", encoding="utf-8") as fh:
         fh.write(f"# External GPT5-Pro Audit Snapshot\n")
         fh.write(f"Generated at {datetime.now(UTC).isoformat()}\n\n")
+        fh.write("## Repository Layout\n")
+        fh.write(_render_directory_listing(root))
+        fh.write("\n\n")
+        fh.write("## File Snapshots\n\n")
         for file_path in files:
             resolved = file_path.as_posix()
             fh.write(f"=== {resolved} ===\n")
@@ -330,7 +435,7 @@ def create_audit_snapshot(context: RexContext, *, auto_commit: bool = True) -> P
     if not files:
         print("[audit] No candidate files found for snapshot.")
         return audit_path
-    _write_audit_file(audit_path, files)
+    _write_audit_file(audit_path, root, files)
     print(f"[audit] Snapshot written to {audit_path}")
     if auto_commit:
         _auto_commit_and_push(root, audit_path)
