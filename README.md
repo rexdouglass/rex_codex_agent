@@ -48,8 +48,9 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
    ```
    - **Generator** converts the card into deterministic pytest specs under `tests/feature_specs/<slug>/`.
    - Each generator pass opens with a dashboard summarising the Feature Card (title, acceptance criteria, existing specs) and previews the proposed diff with per-test highlights before patches land.
-   - **Discriminator** executes the staged ladder (health, smoke/unit, coverage ≥80%, optional pip-audit/bandit/build, style/type).
-   - Runs now finish with a color-coded loop summary so you can see at a glance whether generator/discriminator passed, warned, or failed and why.
+- **Discriminator** executes the staged ladder (health, smoke/unit, coverage ≥80%, optional pip-audit/bandit/build, style/type).
+- Runs now finish with a color-coded loop summary so you can see at a glance whether generator/discriminator passed, warned, or failed and why.
+- After each run, an audit snapshot is written to `for_external_GPT5_pro_audit/` and committed/pushed automatically so GPT5-Pro reviews have the latest scripts and docs.
    - Add `--explain` to preview the planned generator/discriminator phases before they run; `--no-self-update` skips the preflight update check.
    - Need a targeted rerun? `./rex-codex discriminator --feature-only` handles the shard; `./rex-codex discriminator --global` runs the full ladder.
 

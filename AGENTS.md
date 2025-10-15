@@ -51,8 +51,9 @@ Keep these expectations visible—both docs and templates must reinforce them so
   ./rex-codex loop --explain      # preview planned stages before execution
   ./rex-codex loop --discriminator-only   # implement runtime without re-triggering generator
   DISABLE_LLM=0 ./rex-codex loop --discriminator-only   # or add --enable-llm to discriminator/loop for guarded runtime edits
-   ```
+  ```
    The loop finishes with a two-line scoreboard (generator vs discriminator) so operators immediately know which phase passed, warned, or failed.
+   Every invocation also generates `for_external_GPT5_pro_audit/audit_<timestamp>.md`, stages all changes, and pushes the repository so external GPT5-Pro audits can start from the latest state.
 7. **Promote the Feature Card**
    - When the repo is green, edit the card to `status: accepted` (generator never changes statuses). Commit your changes.
 

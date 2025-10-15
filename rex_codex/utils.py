@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 import json
 import os
 import shlex
@@ -10,7 +11,7 @@ import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Iterable, Iterator, List, Mapping, MutableMapping, Optional, Sequence
+from typing import Dict, Iterable, Iterator, List, Mapping, MutableMapping, Optional, Sequence, Set
 
 
 class RexError(RuntimeError):
@@ -250,3 +251,87 @@ def ensure_requirements_installed(
             "mypy==1.8.0",
         ]
         run(base_cmd + baseline, env=env)
+
+
+def _audit_candidate_paths(root: Path) -> List[Path]:
+    patterns = [
+        "*.md",
+        "AGENTS.md",
+        "README.md",
+        "documents/**/*.md",
+        "bin/**/*.py",
+        "bin/**/*.sh",
+        "scripts/**/*.py",
+        "scripts/**/*.sh",
+        "rex_codex/**/*.py",
+    ]
+    seen: Set[Path] = set()
+    excluded_root = root / "for_external_GPT5_pro_audit"
+    for pattern in patterns:
+        for path in root.glob(pattern):
+            if not path.is_file():
+                continue
+            if excluded_root in path.parents:
+                continue
+            seen.add(path.resolve())
+    return sorted(seen)
+
+
+def _write_audit_file(audit_path: Path, files: List[Path]) -> None:
+    with audit_path.open("w", encoding="utf-8") as fh:
+        fh.write(f"# External GPT5-Pro Audit Snapshot\n")
+        fh.write(f"Generated at {datetime.now(UTC).isoformat()}\n\n")
+        for file_path in files:
+            resolved = file_path.as_posix()
+            fh.write(f"=== {resolved} ===\n")
+            try:
+                contents = file_path.read_text(encoding="utf-8", errors="replace")
+            except OSError as exc:  # pragma: no cover - filesystem errors
+                fh.write(f"[Error reading file: {exc}]\n\n")
+                continue
+            fh.write(contents)
+            if not contents.endswith("\n"):
+                fh.write("\n")
+            fh.write("\n")
+
+
+def _auto_commit_and_push(root: Path, audit_path: Path) -> None:
+    run(["git", "add", "-A"], cwd=root, check=False)
+    status = run(
+        ["git", "status", "--porcelain"],
+        cwd=root,
+        capture_output=True,
+        check=False,
+    )
+    if not (status.stdout or "").strip():
+        print("[audit] No changes detected; skipping commit.")
+        return
+    message = f"chore: external audit snapshot {audit_path.name}"
+    commit = run(
+        ["git", "commit", "-m", message],
+        cwd=root,
+        capture_output=True,
+        check=False,
+    )
+    if commit.returncode != 0:
+        print(f"[audit] git commit failed: {commit.stderr or commit.stdout}")
+        return
+    push = run(["git", "push"], cwd=root, capture_output=True, check=False)
+    if push.returncode != 0:
+        print(f"[audit] git push failed: {push.stderr or push.stdout}")
+
+
+def create_audit_snapshot(context: RexContext, *, auto_commit: bool = True) -> Path:
+    root = context.root
+    audit_dir = ensure_dir(root / "for_external_GPT5_pro_audit")
+    timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+    audit_path = audit_dir / f"audit_{timestamp}.md"
+    files = _audit_candidate_paths(root)
+    if not files:
+        print("[audit] No candidate files found for snapshot.")
+        return audit_path
+    _write_audit_file(audit_path, files)
+    print(f"[audit] Snapshot written to {audit_path}")
+    if auto_commit:
+        _auto_commit_and_push(root, audit_path)
+    return audit_path

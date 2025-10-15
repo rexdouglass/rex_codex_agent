@@ -14,7 +14,7 @@ from .doctor import run_doctor
 from .generator import GeneratorOptions, run_generator
 from .logs import show_latest_logs
 from .self_update import self_update
-from .utils import RexContext, lock_file
+from .utils import RexContext, lock_file, create_audit_snapshot
 
 
 GENERATOR_EXIT_MESSAGES = {
@@ -101,6 +101,13 @@ def _render_loop_summary(
     print("==============================================================")
 
 
+def _perform_audit(context: RexContext) -> None:
+    try:
+        create_audit_snapshot(context)
+    except Exception as exc:  # pragma: no cover - filesystem/git errors
+        print(f"[loop] Audit snapshot failed: {exc}")
+
+
 @dataclass
 class LoopOptions:
     generator_options: GeneratorOptions = field(default_factory=GeneratorOptions)
@@ -182,6 +189,7 @@ def _run_each(options: LoopOptions, context: RexContext) -> int:
             if result != 0:
                 _maybe_tail_logs("generator", options.tail_lines, context)
                 print(f"[loop] Generator failed on {card.path} (exit {result})")
+                _perform_audit(context)
                 return result
             if options.verbose:
                 _announce_log(context, "generator_response.log")
@@ -190,7 +198,9 @@ def _run_each(options: LoopOptions, context: RexContext) -> int:
         if options.run_discriminator:
             exit_code = _run_discriminator_phases(options, card.slug, context)
             if exit_code != 0:
+                _perform_audit(context)
                 return exit_code
+    _perform_audit(context)
     return 0
 
 
@@ -209,6 +219,7 @@ def _run_single(options: LoopOptions, context: RexContext) -> int:
             print(f"[loop] Generator failed (exit {generator_code}); aborting.")
             _maybe_tail_logs("generator", options.tail_lines, context)
             _render_loop_summary(generator_code=generator_code, discriminator_code=None)
+            _perform_audit(context)
             return generator_code
     else:
         print("[loop] Generator skipped; running discriminator only.")
@@ -228,6 +239,7 @@ def _run_single(options: LoopOptions, context: RexContext) -> int:
         exit_code = generator_code if generator_code not in (None, 0, 1) else 0
 
     _render_loop_summary(generator_code=generator_code, discriminator_code=discriminator_code)
+    _perform_audit(context)
     return exit_code
 
 
