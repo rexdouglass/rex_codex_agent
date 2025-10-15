@@ -42,3 +42,11 @@ def test_logs_parser_filters() -> None:
     assert args.generator is True
     assert args.discriminator is False
     assert args.lines == 50
+
+
+def test_install_parser_skip_flags() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["install", "--skip-init", "--skip-doctor"])
+    assert args.command == "install"
+    assert args.skip_init is True
+    assert args.skip_doctor is True

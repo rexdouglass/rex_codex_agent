@@ -11,7 +11,7 @@ This document captures the current architecture, the rationale for migrating orc
   - `generator` produces deterministic pytest specs in `tests/feature_specs/<slug>/`, appends to the Feature Card links/trace sections, and enforces hermetic AST checks and patch budgets (defaults: 6 files, 300 lines).
   - `discriminator` runs a staged ladder (health, tooling, smoke/unit shards, coverage >=80 percent, optional pip-audit/bandit/build, then style/type). Mechanical fixes are limited to runtime paths, and LLM runtime edits are off by default (`DISABLE_LLM=1`).
   - `loop` orchestrates generator -> discriminator with Python advisory (`fcntl`) locking, and mirrors flag passthrough from the underlying commands.
-  - `install` provides an in-place refresh path (`--force` re-clones the agent) to make recovery from broken installs obvious.
+  - `install` provides an in-place refresh path (`--force` re-clones the agent) and now re-runs `init`/`doctor` automatically so the repo is ready immediately (opt out via `--skip-init` / `--skip-doctor`).
   - `supervise` is a thin wrapper over `loop`.
   - `uninstall` requires typing "remove agent" and honors `--keep-wrapper`.
   - `self-update` is opt-in and respects release channels via environment flags.
@@ -111,8 +111,8 @@ The Python CLI enables ergonomics that were cumbersome in shell:
 
 ## 6. Day-in-the-Life Scenario
 
-1. Initialize and verify environment with `init` and `doctor`.
-2. Create a card (`card new`) describing acceptance criteria.
+1. Reinstall/refresh the agent (`curl … install.sh | bash -s -- --force --channel main` or `./rex-codex install --force --channel main`)—this now runs `./rex-codex init` and `./rex-codex doctor` automatically so the repo is seeded.
+2. Create a card (`card new`) describing acceptance criteria (leave `status: proposed`).
 3. Run `loop` to generate specs and execute the feature shard of the discriminator. Logs land in `.codex_ci/`.
 4. Implement runtime code, rerunning `loop --discriminator-only` until green on feature and global stages.
 5. Promote the card to `status: accepted` once the ladder passes.

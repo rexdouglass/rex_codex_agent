@@ -31,6 +31,8 @@ def build_parser() -> argparse.ArgumentParser:
     install_parser = sub.add_parser("install", help="Install or refresh the rex-codex agent")
     install_parser.add_argument("--force", action="store_true", help="Remove existing .rex_agent before installing")
     install_parser.add_argument("--channel", help="Install a specific channel/tag (e.g. stable, main)")
+    install_parser.add_argument("--skip-init", action="store_true", help="Skip running ./rex-codex init after install")
+    install_parser.add_argument("--skip-doctor", action="store_true", help="Skip running ./rex-codex doctor after install")
 
     init_parser = sub.add_parser("init", help="Seed guardrails and tooling")
     init_parser.add_argument("--no-self-update", action="store_true", help="Skip self-update before initializing")
@@ -134,7 +136,13 @@ def main(argv: list[str] | None = None) -> int:
     context = RexContext.discover()
 
     if args.command == "install":
-        run_install(force=args.force, channel=args.channel, context=context)
+        run_install(
+            force=args.force,
+            channel=args.channel,
+            run_init_after=not args.skip_init,
+            run_doctor_after=not args.skip_doctor,
+            context=context,
+        )
         return 0
 
     if args.command == "init":

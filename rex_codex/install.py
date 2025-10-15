@@ -7,6 +7,8 @@ import subprocess
 from pathlib import Path
 
 from .config import AGENT_SRC
+from .doctor import run_doctor
+from .init import run_init
 from .utils import RexContext, RexError
 
 
@@ -14,6 +16,8 @@ def run_install(
     *,
     force: bool = False,
     channel: str | None = None,
+    run_init_after: bool = True,
+    run_doctor_after: bool = True,
     context: RexContext | None = None,
 ) -> None:
     """Invoke the bundled install script to (re)install the agent."""
@@ -31,6 +35,13 @@ def run_install(
     env = os.environ.copy()
     if channel:
         env["REX_AGENT_CHANNEL"] = channel
+    env["REX_AGENT_SKIP_INIT"] = "1"
+    env["REX_AGENT_SKIP_DOCTOR"] = "1"
     completed = subprocess.run(cmd, cwd=context.root, env=env)
     if completed.returncode != 0:
         raise RexError(f"Install command failed with exit code {completed.returncode}")
+
+    if run_init_after:
+        run_init(context=context, perform_self_update=False)
+    if run_doctor_after:
+        run_doctor()

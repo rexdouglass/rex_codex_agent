@@ -29,7 +29,7 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
    curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/scripts/install.sh | bash
    ```
 
-2. **Bootstrap guardrails and tooling**
+2. **Bootstrap guardrails and tooling** *(the install step now runs these automatically; rerun anytime for assurance)*
    ```bash
    ./rex-codex init
    ./rex-codex doctor   # confirm python/node/docker availability
@@ -64,7 +64,7 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
    - `./rex-codex logs` – tail the latest discriminator/generator output from `.codex_ci/`.
    - `./rex-codex card list` – list cards by status for quick triage.
    - `./rex-codex doctor` – diagnose env issues.
-   - `./rex-codex install --force` – re-clone the agent (useful when hopping channels or recovering from a broken install).
+   - `./rex-codex install --force` – re-clone the agent and re-run `init`/`doctor` automatically (add `--skip-init` / `--skip-doctor` to opt out).
    - `./rex-codex burn --dry-run` then `--yes` – wipe repo contents (keeps `.git`, optionally `.rex_agent`).
    - `./rex-codex uninstall --force` – remove the agent (add `--keep-wrapper` to preserve the shim).
 
@@ -80,7 +80,7 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
 
 | Command | Purpose | Key Flags & Env |
 |---------|---------|-----------------|
-| `./rex-codex install` | Reinstall or refresh the agent in-place. | `--force`, `--channel` |
+| `./rex-codex install` | Reinstall or refresh the agent in-place (auto-runs `init`/`doctor`). | `--force`, `--channel`, `--skip-init`, `--skip-doctor` |
 | `./rex-codex init` | Seed `.venv`, guardrails, Feature Card scaffolding, and `rex-agent.json`. | — |
 | `./rex-codex generator` | Generate deterministic pytest specs from the next `status: proposed` card. | `--single-pass`, `--max-passes`, `--focus`, `--status`, `--each`, `--tail`, `--quiet` |
 | `./rex-codex discriminator` | Run the staged ladder (feature shard via `--feature-only`, full sweep by default). | `--feature-only`, `--global`, `--single-pass`, `--enable-llm`, `--disable-llm`, `DISCRIMINATOR_MAX_PASSES`, `COVERAGE_MIN`, `PIP_AUDIT`, `BANDIT`, `PACKAGE_CHECK`, `MYPY_TARGETS`, `MYPY_INCLUDE_TESTS`, `--tail`, `--quiet` |

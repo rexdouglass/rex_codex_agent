@@ -6,14 +6,19 @@ REPO_SLUG="${REPO_SLUG:-rexdouglass/rex_codex_agent}"
 REPO_URL="${REPO_URL:-https://github.com/${REPO_SLUG}.git}"
 CHANNEL="${REX_AGENT_CHANNEL:-stable}"   # stable|main|<tag>|<commit>
 FORCE="${REX_AGENT_FORCE:-0}"
+SKIP_INIT="${REX_AGENT_SKIP_INIT:-0}"
+SKIP_DOCTOR="${REX_AGENT_SKIP_DOCTOR:-0}"
 
 usage() {
   cat <<'USAGE'
 Usage: ./rex-codex install [--force] [--channel <ref>]
+       curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/scripts/install.sh | bash -s -- [options]
 
 Options:
   --force, -f       Remove any existing .rex_agent before reinstalling.
   --channel <ref>   Source ref to install (stable, main, tag, or commit).
+  --skip-init       Do not run ./rex-codex init after installation.
+  --skip-doctor     Do not run ./rex-codex doctor after installation.
 USAGE
 }
 
@@ -28,6 +33,12 @@ while [[ $# -gt 0 ]]; do
       ;;
     --channel=*)
       CHANNEL="${1#*=}"
+      ;;
+    --skip-init)
+      SKIP_INIT=1
+      ;;
+    --skip-doctor)
+      SKIP_DOCTOR=1
       ;;
     --help|-h)
       usage
@@ -104,5 +115,27 @@ WRAP
 chmod +x "$WRAPPER"
 
 echo "[✓] rex_codex_agent installed."
-echo "Run: ./rex-codex init    # seed guardrails/tests/tooling"
-echo "     ./rex-codex loop    # staged automation loop"
+
+if [[ "$SKIP_INIT" != "1" ]]; then
+  echo "[*] Running ./rex-codex init"
+  if ! "$WRAPPER" init --no-self-update; then
+    echo "[!] ./rex-codex init failed" >&2
+    exit 1
+  fi
+  echo "[✓] ./rex-codex init completed."
+else
+  echo "[i] Skipped ./rex-codex init (requested)."
+fi
+
+if [[ "$SKIP_DOCTOR" != "1" ]]; then
+  echo "[*] Running ./rex-codex doctor"
+  if ! "$WRAPPER" doctor; then
+    echo "[!] ./rex-codex doctor failed" >&2
+    exit 1
+  fi
+  echo "[✓] ./rex-codex doctor completed."
+else
+  echo "[i] Skipped ./rex-codex doctor (requested)."
+fi
+
+echo "Next: ./rex-codex loop    # staged automation loop"
