@@ -356,19 +356,25 @@ def _run_codex_with_progress(
         try:
             stdout, stderr = process.communicate(timeout=PROGRESS_INTERVAL_SECONDS)
             if stdout:
+                if not isinstance(stdout, str):
+                    stdout = stdout.decode()
                 stdout_buffer.append(stdout)
                 if verbose:
                     last_update = _emit_codex_updates(stdout, palette, last_update)
             if stderr:
+                if not isinstance(stderr, str):
+                    stderr = stderr.decode()
                 stderr_buffer.append(stderr)
             break
         except subprocess.TimeoutExpired as exc:
             if exc.stdout:
-                stdout_buffer.append(exc.stdout)
+                chunk = exc.stdout.decode() if not isinstance(exc.stdout, str) else exc.stdout
+                stdout_buffer.append(chunk)
                 if verbose:
-                    last_update = _emit_codex_updates(exc.stdout, palette, last_update)
+                    last_update = _emit_codex_updates(chunk, palette, last_update)
             if exc.stderr:
-                stderr_buffer.append(exc.stderr)
+                chunk_err = exc.stderr.decode() if not isinstance(exc.stderr, str) else exc.stderr
+                stderr_buffer.append(chunk_err)
             if verbose:
                 elapsed = int(time.time() - start)
                 print(f"[generator] {progress_label}… {elapsed}s elapsed", flush=True)
