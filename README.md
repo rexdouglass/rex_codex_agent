@@ -73,6 +73,7 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
 - `./rex-codex generator --tail 120` – replay Codex output and show the latest diff/log on failure (add `--quiet` to silence).
 - `./rex-codex loop --tail 120` – run generator + discriminator with live diff previews and automatic log tails.
 - `./rex-codex logs --generator --lines 200` – dump the most recent generator response/patch when you need manual inspection.
+- `GENERATOR_PROGRESS_SECONDS=5 ./rex-codex loop` – tighten the Codex heartbeat interval (default 15s) so long passes show more frequent progress updates.
 
 ---
 
@@ -126,6 +127,7 @@ The agent also tracks state in `rex-agent.json` (active slug/card, last discrimi
   - Hermeticity scan blocking network/clock/entropy/subprocess calls (e.g. `requests.get`, `subprocess.run`, `time.sleep`, `uuid.uuid4`, `secrets`, `numpy.random.*`).
   - Card guard: only appends in `## Links` / `## Spec Trace`, never mutates `status:`.
 - After each pass it runs pytest on the spec shard and feeds logs to a “critic” loop until the card is marked `DONE` or max passes hit.
+- Long Codex calls surface elapsed-time heartbeats (default every 15 seconds, configurable via `GENERATOR_PROGRESS_SECONDS`) so the loop never sits silent during a pass.
 
 ---
 
@@ -143,6 +145,7 @@ Guardrails:
 - Mechanical fixes (ruff/black/isort) run on runtime code only and auto-commit if they change anything.
 - LLM runtime edits are **opt-in** (`DISABLE_LLM=0`) and obey protected-path hashing, runtime allowlists, patch-size limits, and “no shrinking tests”. Non-compliant diffs are reverted automatically.
 - Each successful pass records a timestamp/slug/test-count in `rex-agent.json` for auditability.
+- Every discriminator sweep ends with a colorized summary table (stage, identifier, duration, pass/fail) plus a suggested next command when something fails, making it easy to resume locally.
 
 ---
 

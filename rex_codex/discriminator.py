@@ -11,9 +11,12 @@ import shutil
 import subprocess
 import textwrap
 import time
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Iterable, List, Optional, Sequence, Tuple
+from collections import OrderedDict
 
 from .cards import discover_cards, load_rex_agent
 from .config import (
@@ -65,6 +68,33 @@ class Stage:
 class StageGroup:
     title: str
     stages: List[Stage]
+
+
+def _ansi_palette() -> SimpleNamespace:
+    disable = bool(os.environ.get("NO_COLOR")) or not sys.stdout.isatty()
+    if disable:
+        return SimpleNamespace(
+            green="",
+            red="",
+            yellow="",
+            blue="",
+            cyan="",
+            magenta="",
+            dim="",
+            reset="",
+            bold="",
+        )
+    return SimpleNamespace(
+        green="\x1b[32m",
+        red="\x1b[31m",
+        yellow="\x1b[33m",
+        blue="\x1b[34m",
+        cyan="\x1b[36m",
+        magenta="\x1b[35m",
+        dim="\x1b[2m",
+        reset="\x1b[0m",
+        bold="\x1b[1m",
+    )
 
 
 def run_discriminator(options: DiscriminatorOptions, *, context: RexContext | None = None) -> int:
@@ -210,6 +240,7 @@ def _run_stage_plan(
 ) -> bool:
     pytest_flags = _configure_pytest_flags(mode, env, context)
     specs_dir = context.root / "tests" / "feature_specs" / (slug or "")
+    palette = _ansi_palette()
     if mode == "feature":
         if not slug:
             print("[discriminator] Feature mode requested but no slug provided.")
@@ -223,17 +254,35 @@ def _run_stage_plan(
 
     groups = _build_stage_groups(mode, slug, pytest_flags, env, context)
     overall_ok = True
+    summary: List[dict[str, object]] = []
+    first_failure: Optional[dict[str, object]] = None
     for group in groups:
         print("------------------------------------------------------------")
-        print(f"Stage: {group.title}")
+        print(f"{palette.blue}Stage: {group.title}{palette.reset}")
         for stage in group.stages:
             if stage.command.strip() == "":
                 continue
-            ok = _execute_stage(stage, env, context, log_path, latest_log_path)
+            ok, elapsed, tail = _execute_stage(stage, env, context, log_path, latest_log_path)
+            status = f"{palette.green}PASS{palette.reset}" if ok else f"{palette.red}FAIL{palette.reset}"
+            timing = f"{palette.dim}({elapsed:.2f}s){palette.reset}"
+            print(f"    {palette.dim}[{stage.identifier}]{palette.reset} {status} {timing}")
+            record = {
+                "group": group.title,
+                "identifier": stage.identifier,
+                "description": stage.description,
+                "command": stage.command,
+                "elapsed": elapsed,
+                "ok": ok,
+                "tail": tail,
+            }
+            summary.append(record)
             if not ok:
                 overall_ok = False
-    result = "PASS" if overall_ok else "FAIL"
+                if first_failure is None:
+                    first_failure = record
+    result = f"{palette.green}PASS{palette.reset}" if overall_ok else f"{palette.red}FAIL{palette.reset}"
     print(f"  Result: [{result}]")
+    _render_stage_summary(summary, overall_ok, first_failure, palette)
     return overall_ok
 
 
@@ -454,12 +503,13 @@ def _execute_stage(
     context: RexContext,
     log_path: Path,
     latest_log_path: Path,
-) -> bool:
+) -> Tuple[bool, float, str]:
     print(f"\n  Question {stage.identifier}: {stage.description}")
     print(f"    Command: {stage.command}")
     stage_timeout = int(os.environ.get("DISCRIMINATOR_STAGE_TIMEOUT", "0") or "0")
     timeout_enabled = _has_timeout_utility()
     cmd = ["bash", "-lc", stage.command]
+    start = time.perf_counter()
     try:
         completed = subprocess.run(
             cmd,
@@ -474,17 +524,48 @@ def _execute_stage(
         message = f"[discriminator] Stage {stage.identifier} timed out after {stage_timeout}s"
         output = message + "\n"
         completed = subprocess.CompletedProcess(cmd, returncode=124, stdout="", stderr=message)
+    elapsed = time.perf_counter() - start
     with open(log_path, "a", encoding="utf-8") as fh:
         fh.write(f"\n[{stage.identifier}] {stage.description}\n")
         fh.write(output)
     with open(latest_log_path, "a", encoding="utf-8") as fh:
         fh.write(output)
     print(output, end="")
-    if completed.returncode == 0:
-        return True
     if completed.returncode == 124:
         print(f"[discriminator] Stage {stage.identifier} timed out after {stage_timeout}s")
-    return False
+    ok = completed.returncode == 0
+    tail_lines = "\n".join((output or "").splitlines()[-8:])
+    return ok, elapsed, tail_lines
+
+
+def _render_stage_summary(
+    summary: List[dict[str, object]],
+    overall_ok: bool,
+    first_failure: Optional[dict[str, object]],
+    palette: SimpleNamespace,
+) -> None:
+    if not summary:
+        return
+    print("\n--- Summary -----------------------------------------------------")
+    grouped: "OrderedDict[str, List[dict[str, object]]]" = OrderedDict()
+    for record in summary:
+        key = record["group"]  # type: ignore[index]
+        grouped.setdefault(key, []).append(record)
+    for group, rows in grouped.items():
+        print(f"{palette.bold}{group}{palette.reset}")
+        for record in rows:
+            ok = bool(record["ok"])
+            icon = f"{palette.green}✔{palette.reset}" if ok else f"{palette.red}✖{palette.reset}"
+            identifier = record["identifier"]
+            description = record["description"]
+            elapsed = float(record["elapsed"])
+            timing = f"{palette.dim}({elapsed:.2f}s){palette.reset}"
+            print(f"  {icon} {palette.dim}[{identifier}]{palette.reset} {description} {timing}")
+    if not overall_ok and first_failure is not None:
+        command = first_failure["command"]
+        print(f"\n{palette.yellow}Next step:{palette.reset} rerun the first failing command locally:")
+        print(f"  {command}")
+        print(f"Inspect {palette.cyan}./rex-codex logs --discriminator --lines 200{palette.reset} for full output.")
 
 
 _HAS_TIMEOUT: Optional[bool] = None

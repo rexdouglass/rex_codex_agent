@@ -280,7 +280,8 @@ def _run_once(
         return 3, None
 
     if not _validate_card_diff(diff_text, slug):
-        print("[generator] Codex attempted to modify protected sections of the Feature Card; rejecting diff.")
+        print("[generator] Codex attempted to modify a protected part of the Feature Card (e.g. the `status:` line).")
+        print("[generator] Rejected. Only append inside '## Links' or '## Spec Trace' as documented in AGENTS.md.")
         return 3, None
 
     if options.verbose:
@@ -288,9 +289,14 @@ def _run_once(
         print(f"[generator] Applying diff from {context.relative(patch_path)}:")
         _print_diff_preview(diff_text)
 
-    if not _apply_patch(patch_path, root):
-        print("[generator] Failed to apply Codex diff")
+    applied, patch_error = _apply_patch(patch_path, root)
+    if not applied:
+        print("[generator] Failed to apply Codex diff.")
+        if patch_error:
+            tail = "\n".join(patch_error.splitlines()[-8:])
+            print(tail)
         print(f"[generator] Inspect {context.relative(patch_path)} for the diff and {context.relative(response_path)} for raw output.")
+        print("[generator] Tip: rerun with `./rex-codex generator --tail 200` to review the Codex response.")
         return 4, None
     if options.verbose:
         print("[generator] Diff applied successfully.")
@@ -445,20 +451,29 @@ def _print_diff_preview(diff_text: str) -> None:
         print(f"[generator] … (diff truncated, {remaining} more lines)")
 
 
-def _apply_patch(patch_path: Path, root: Path) -> bool:
+def _apply_patch(patch_path: Path, root: Path) -> Tuple[bool, Optional[str]]:
     apply_index = run(
         ["git", "apply", "--index", str(patch_path)],
         cwd=root,
         check=False,
+        capture_output=True,
     )
     if apply_index.returncode == 0:
-        return True
+        return True, None
     print("[generator] git apply --index failed; retrying without --index")
-    apply_wc = run(["git", "apply", str(patch_path)], cwd=root, check=False)
+    apply_wc = run(
+        ["git", "apply", str(patch_path)],
+        cwd=root,
+        check=False,
+        capture_output=True,
+    )
     if apply_wc.returncode == 0:
         run(["git", "add", "tests", "documents/feature_cards"], cwd=root, check=False)
-        return True
-    return False
+        return True, None
+    combined_error = (apply_wc.stderr or "") + (apply_wc.stdout or "")
+    if not combined_error:
+        combined_error = (apply_index.stderr or "") + (apply_index.stdout or "")
+    return False, combined_error or None
 
 
 def _guard_card_edits(slug: str, root: Path, baseline_text: Optional[str]) -> bool:

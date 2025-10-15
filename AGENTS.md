@@ -39,7 +39,7 @@ Keep these expectations visible—both docs and templates must reinforce them so
    ./rex-codex discriminator --feature-only   # smoke/unit on the spec shard (pytest -x --maxfail=1)
    ./rex-codex discriminator --global         # full ladder (xdist auto, coverage ≥80%)
    ```
-   Stages = health → tooling → smoke/unit → coverage → optional `pip-audit`/`bandit`/`build` → style/type (`black`, `isort`, `ruff`, `flake8`, `mypy`). Logs + JUnit land in `.codex_ci/`. Successful passes are recorded in `rex-agent.json`.
+   Stages = health → tooling → smoke/unit → coverage → optional `pip-audit`/`bandit`/`build` → style/type (`black`, `isort`, `ruff`, `flake8`, `mypy`). Each pass now ends with a color summary (stage, result, duration) plus a “next command” hint if anything failed. Logs + JUnit land in `.codex_ci/`. Successful passes are recorded in `rex-agent.json`.
 6. **Iterate via the loop**
    ```bash
   ./rex-codex loop                # generator → feature → global
@@ -96,6 +96,7 @@ Keep these expectations visible—both docs and templates must reinforce them so
 - `./rex-codex discriminator --feature-only` / `--global` – run the shard or full ladder; add `--tail 120` (and `--quiet` if you want silence) during debug sessions.
 - `./rex-codex loop --tail 120` – generator → feature shard → global sweep with inline diff previews (use `--quiet` to suppress diff chatter).
 - `./rex-codex logs --generator --lines 200` – dump the latest generator response/patch without hunting for files.
+- `GENERATOR_PROGRESS_SECONDS=5 ./rex-codex loop` – tighten the Codex heartbeat interval (default 15s) for long generator passes.
 - `./rex-codex status` – inspect the active slug/card and last discriminator success metadata.
 - `./rex-codex burn --yes` – reset the working tree (keeps `.git`; add `--purge-agent` to drop `.rex_agent`).
 - `./rex-codex uninstall --force` – remove the agent (use `--keep-wrapper` to leave the shim).
