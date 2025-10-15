@@ -192,6 +192,8 @@ def _run_once(
         cmd += ["--model", options.codex_model]
     cmd += ["--cd", str(root), "--", prompt]
 
+    if options.verbose:
+        print("[generator] Calling Codex CLI…")
     completed = subprocess.run(
         cmd,
         cwd=root,
@@ -229,6 +231,8 @@ def _run_once(
         print("[generator] Failed to apply Codex diff")
         print(f"[generator] Inspect {context.relative(patch_path)} for the diff and {context.relative(response_path)} for raw output.")
         return 4, None
+    if options.verbose:
+        print("[generator] Diff applied successfully.")
 
     if not _guard_card_edits(slug, root, baseline_card_text):
         _revert_generated_files(slug, root)
