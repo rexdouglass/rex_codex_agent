@@ -5,6 +5,9 @@ This repository ships the **Codex-first automation scaffold** that installs via 
 - **Platform:** Linux shells (Bash 4+) or WSL.
 - **Language/tooling:** Python projects (pytest, mypy, ruff, black, isort, flake8) with coverage ≥80% by default.
 - **LLM:** OpenAI Codex invoked through `npx @openai/codex` (Node 18+). Discriminator LLM edits are opt-in (`DISABLE_LLM=1` by default).
+- **Audit goals:**
+  1. Maintain a folder named `for_external_GPT5_pro_audit/` in each working repository.
+  2. After every interaction, commit and push the current state of the repository and drop into that folder a concatenated snapshot of every important script/markdown/readme file, each prefixed with its absolute path.
 
 The Bash wrapper is now a shim; all orchestration lives in the Python package `rex_codex` so we can unit-test and extend behaviour without shell metaprogramming.
 
