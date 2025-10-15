@@ -255,6 +255,28 @@ def _print_diff_summary(diff_text: str) -> None:
                 print(f"      {label} tests: {joined}")
 
 
+def _emit_codex_updates(chunk: str, palette: SimpleNamespace, last_update: str) -> str:
+    lines = [line.strip() for line in chunk.splitlines() if line.strip()]
+    if not lines:
+        return last_update
+    interesting: List[str] = []
+    for line in lines:
+        if line.startswith(("diff --git", "index ", "--- ", "+++ ", "@@ ", "+", "-", "Applying diff")):
+            continue
+        if line.startswith("Total patch size"):
+            continue
+        interesting.append(line)
+    candidates = interesting or lines
+    for line in candidates[-3:]:
+        snippet = line
+        if len(snippet) > 160:
+            snippet = snippet[:157] + "…"
+        if snippet and snippet != last_update:
+            print(f"{palette.accent}[generator] Codex: {snippet}{palette.reset}")
+            last_update = snippet
+    return last_update
+
+
 def _diagnose_missing_cards(statuses: List[str], context: RexContext) -> None:
     cards = discover_cards(context=context)
     if not cards:
@@ -326,27 +348,33 @@ def _run_codex_with_progress(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    stdout_chunks: List[str] = []
-    stderr_chunks: List[str] = []
+    stdout_buffer: List[str] = []
+    stderr_buffer: List[str] = []
+    palette = _ansi_palette()
+    last_update = ""
     while True:
         try:
             stdout, stderr = process.communicate(timeout=PROGRESS_INTERVAL_SECONDS)
             if stdout:
-                stdout_chunks.append(stdout)
+                stdout_buffer.append(stdout)
+                if verbose:
+                    last_update = _emit_codex_updates(stdout, palette, last_update)
             if stderr:
-                stderr_chunks.append(stderr)
+                stderr_buffer.append(stderr)
             break
         except subprocess.TimeoutExpired as exc:
             if exc.stdout:
-                stdout_chunks.append(exc.stdout)
+                stdout_buffer.append(exc.stdout)
+                if verbose:
+                    last_update = _emit_codex_updates(exc.stdout, palette, last_update)
             if exc.stderr:
-                stderr_chunks.append(exc.stderr)
+                stderr_buffer.append(exc.stderr)
             if verbose:
                 elapsed = int(time.time() - start)
                 print(f"[generator] {progress_label}… {elapsed}s elapsed", flush=True)
     elapsed_total = int(time.time() - start)
-    stdout_combined = "".join(stdout_chunks)
-    stderr_combined = "".join(stderr_chunks)
+    stdout_combined = "".join(stdout_buffer)
+    stderr_combined = "".join(stderr_buffer)
     return _CodexResult(
         returncode=process.returncode or 0,
         stdout=stdout_combined,
