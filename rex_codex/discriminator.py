@@ -51,7 +51,7 @@ class DiscriminatorOptions:
     codex_bin: str = os.environ.get("CODEX_BIN", "npx --yes @openai/codex")
     codex_flags: str = os.environ.get("CODEX_FLAGS", "--yolo")
     codex_model: str = os.environ.get("MODEL", "")
-    verbose: bool = False
+    verbose: bool = True
 
 
 @dataclass

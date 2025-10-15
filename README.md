@@ -70,8 +70,8 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
 
 **Troubleshooting cheat sheet**
 - `curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/scripts/install.sh | bash -s -- --force --channel main` – drop the latest agent into the current repo.
-- `./rex-codex generator --verbose --tail 120` – replay Codex output and show the latest diff/log on failure.
-- `./rex-codex loop --verbose --tail 120` – run generator + discriminator with live diff previews and automatic log tails.
+- `./rex-codex generator --tail 120` – replay Codex output and show the latest diff/log on failure (add `--quiet` to silence).
+- `./rex-codex loop --tail 120` – run generator + discriminator with live diff previews and automatic log tails.
 - `./rex-codex logs --generator --lines 200` – dump the most recent generator response/patch when you need manual inspection.
 
 ---
@@ -82,9 +82,9 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
 |---------|---------|-----------------|
 | `./rex-codex install` | Reinstall or refresh the agent in-place. | `--force`, `--channel` |
 | `./rex-codex init` | Seed `.venv`, guardrails, Feature Card scaffolding, and `rex-agent.json`. | — |
-| `./rex-codex generator` | Generate deterministic pytest specs from the next `status: proposed` card. | `--single-pass`, `--max-passes`, `--focus`, `--status`, `--each`, `--verbose`, `--tail` |
-| `./rex-codex discriminator` | Run the staged ladder (feature shard via `--feature-only`, full sweep by default). | `--feature-only`, `--global`, `--single-pass`, `--enable-llm`, `--disable-llm`, `DISCRIMINATOR_MAX_PASSES`, `COVERAGE_MIN`, `PIP_AUDIT`, `BANDIT`, `PACKAGE_CHECK`, `MYPY_TARGETS`, `MYPY_INCLUDE_TESTS`, `--verbose`, `--tail` |
-| `./rex-codex loop` | Generator → feature shard → global sweep in one shot. | `--generator-only`, `--discriminator-only`, `--feature-only`, `--global-only`, `--each`, `--explain`, `--no-self-update`, `--enable-llm`, `--disable-llm`, `--verbose`, `--tail` |
+| `./rex-codex generator` | Generate deterministic pytest specs from the next `status: proposed` card. | `--single-pass`, `--max-passes`, `--focus`, `--status`, `--each`, `--tail`, `--quiet` |
+| `./rex-codex discriminator` | Run the staged ladder (feature shard via `--feature-only`, full sweep by default). | `--feature-only`, `--global`, `--single-pass`, `--enable-llm`, `--disable-llm`, `DISCRIMINATOR_MAX_PASSES`, `COVERAGE_MIN`, `PIP_AUDIT`, `BANDIT`, `PACKAGE_CHECK`, `MYPY_TARGETS`, `MYPY_INCLUDE_TESTS`, `--tail`, `--quiet` |
+| `./rex-codex loop` | Generator → feature shard → global sweep in one shot. | `--generator-only`, `--discriminator-only`, `--feature-only`, `--global-only`, `--each`, `--explain`, `--no-self-update`, `--enable-llm`, `--disable-llm`, `--tail`, `--quiet` |
 | `./rex-codex card` | `new`, `list`, `validate` helpers for Feature Cards. | `--status`, `--acceptance` (for `new`) |
 | `./rex-codex status` | Show the active slug/card and last discriminator success. | — |
 | `./rex-codex logs` | Tail the latest generator/discriminator logs from `.codex_ci/`. | `--generator`, `--discriminator`, `--lines` |

@@ -25,7 +25,7 @@ class LoopOptions:
     each_features: bool = False
     perform_self_update: bool = True
     explain: bool = False
-    verbose: bool = False
+    verbose: bool = True
     tail_lines: int = 0
 
 
@@ -36,9 +36,8 @@ def run_loop(options: LoopOptions, *, context: RexContext | None = None) -> int:
             print(line)
     if options.perform_self_update:
         self_update()
-    if options.verbose:
-        options.generator_options.verbose = True
-        options.discriminator_options.verbose = True
+    options.generator_options.verbose = options.verbose
+    options.discriminator_options.verbose = options.verbose
     lock_path = context.codex_ci_dir / "rex.lock"
     with lock_file(lock_path):
         run_doctor()

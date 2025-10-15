@@ -45,7 +45,9 @@ def build_parser() -> argparse.ArgumentParser:
     gen_parser.add_argument("--status", dest="statuses", default=None, help="Comma-separated statuses to include")
     gen_parser.add_argument("--each", action="store_true", help="Process each matching Feature Card sequentially")
     gen_parser.add_argument("--tail", type=int, default=0, help="Tail log output (N lines) when the generator fails")
-    gen_parser.add_argument("--verbose", action="store_true", help="Print Codex diffs when they apply")
+    gen_verbose = gen_parser.add_mutually_exclusive_group()
+    gen_verbose.add_argument("--verbose", action="store_true", help="Print Codex diffs (default)")
+    gen_verbose.add_argument("--quiet", action="store_true", help="Suppress Codex diff output")
 
     # discriminator
     disc_parser = sub.add_parser("discriminator", help="Run the automation ladder")
@@ -58,7 +60,9 @@ def build_parser() -> argparse.ArgumentParser:
     disc_parser.add_argument("--single-pass", action="store_true", help="Run one pass and stop")
     disc_parser.add_argument("--max-passes", type=int, default=None, help="Maximum passes before giving up")
     disc_parser.add_argument("--feature", dest="feature_slug", help="Override feature slug")
-    disc_parser.add_argument("--verbose", action="store_true", help="Print discriminator debug output")
+    disc_verbose = disc_parser.add_mutually_exclusive_group()
+    disc_verbose.add_argument("--verbose", action="store_true", help="Print discriminator debug output (default)")
+    disc_verbose.add_argument("--quiet", action="store_true", help="Reduce discriminator verbosity")
     disc_parser.add_argument("--tail", type=int, default=0, help="Tail log output (N lines) when the discriminator fails")
 
     # loop
@@ -75,7 +79,9 @@ def build_parser() -> argparse.ArgumentParser:
     loop_parser.add_argument("--each", action="store_true", help="Process each matching Feature Card sequentially")
     loop_parser.add_argument("--no-self-update", action="store_true", help="Skip self-update before running")
     loop_parser.add_argument("--explain", action="store_true", help="Describe planned actions and exit")
-    loop_parser.add_argument("--verbose", action="store_true", help="Print generator/discriminator debug output")
+    loop_verbose = loop_parser.add_mutually_exclusive_group()
+    loop_verbose.add_argument("--verbose", action="store_true", help="Print generator/discriminator debug output (default)")
+    loop_verbose.add_argument("--quiet", action="store_true", help="Reduce generator/discriminator output")
     loop_parser.add_argument("--tail", type=int, default=0, help="Tail log output (N lines) after failures")
     loop_llm = loop_parser.add_mutually_exclusive_group()
     loop_llm.add_argument("--enable-llm", action="store_true", help="Allow guarded runtime edits via LLM")
@@ -149,7 +155,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.card:
             options.card_path = Path(args.card)
         options.iterate_all = args.each
-        options.verbose = options.verbose or args.verbose
+        options.verbose = not args.quiet
+        if args.verbose:
+            options.verbose = True
         options.tail_lines = args.tail
         exit_code = run_generator(options, context=context)
         if exit_code != 0 and args.tail:
@@ -172,7 +180,9 @@ def main(argv: list[str] | None = None) -> int:
             options.disable_llm = False
         elif args.disable_llm:
             options.disable_llm = True
-        options.verbose = args.verbose
+        options.verbose = not args.quiet
+        if args.verbose:
+            options.verbose = True
         exit_code = run_discriminator(options, context=context)
         if exit_code != 0 and args.tail:
             show_latest_logs(context, lines=args.tail, discriminator=True)
@@ -205,7 +215,9 @@ def main(argv: list[str] | None = None) -> int:
         loop_opts.each_features = args.each
         loop_opts.perform_self_update = not args.no_self_update
         loop_opts.explain = args.explain
-        loop_opts.verbose = args.verbose
+        loop_opts.verbose = not args.quiet
+        if args.verbose:
+            loop_opts.verbose = True
         loop_opts.tail_lines = args.tail
         if args.enable_llm:
             loop_opts.discriminator_options.disable_llm = False

@@ -101,7 +101,7 @@ The Python CLI enables ergonomics that were cumbersome in shell:
 3. **Better observability** through `status` (renders `rex-agent.json`) and `logs` (tails `.codex_ci/` artifacts).
 4. **Explicit self-update controls** (`self-update --channel`, `REX_AGENT_NO_UPDATE`, `REX_AGENT_CHANNEL`).
 5. **Explain mode** (`loop --explain`) to preview guardrails, patch budgets, and planned stages before execution.
-6. **Verbose/tail diagnostics** (`generator --verbose --tail`, `loop --verbose --tail`, `logs --generator/--discriminator`) so engineers can inspect Codex output without copying files manually.
+6. **Verbose/tail diagnostics** (`generator --tail`, `loop --tail`, `logs --generator/--discriminator`) so engineers can inspect Codex output without copying files manually (add `--quiet` to silence).
 
 ## 5. Migration Plan
 

@@ -92,9 +92,9 @@ Keep these expectations visible—both docs and templates must reinforce them so
 - `./rex-codex card new` – scaffold a Feature Card; `card list` / `card validate` keep hygiene tight.
 - `./rex-codex install --force` – refresh the agent sources in-place (useful when switching channels or repairing a bad install).
 - `curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/scripts/install.sh | bash -s -- --force --channel main` – reinstall the latest agent snapshot from anywhere.
-- `./rex-codex generator --verbose --tail 120` – replay Codex diffs and tail logs when the generator fails.
-- `./rex-codex discriminator --feature-only` / `--global` – run the shard or full ladder; add `--verbose --tail 120` during debug sessions.
-- `./rex-codex loop --verbose --tail 120` – generator → feature shard → global sweep with inline diff previews.
+- `./rex-codex generator --tail 120` – replay Codex diffs and tail logs when the generator fails (add `--quiet` to silence).
+- `./rex-codex discriminator --feature-only` / `--global` – run the shard or full ladder; add `--tail 120` (and `--quiet` if you want silence) during debug sessions.
+- `./rex-codex loop --tail 120` – generator → feature shard → global sweep with inline diff previews (use `--quiet` to suppress diff chatter).
 - `./rex-codex logs --generator --lines 200` – dump the latest generator response/patch without hunting for files.
 - `./rex-codex status` – inspect the active slug/card and last discriminator success metadata.
 - `./rex-codex burn --yes` – reset the working tree (keeps `.git`; add `--purge-agent` to drop `.rex_agent`).

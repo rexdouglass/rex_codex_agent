@@ -49,7 +49,7 @@ class GeneratorOptions:
     codex_bin: str = os.environ.get("CODEX_BIN", "npx --yes @openai/codex")
     codex_flags: str = os.environ.get("CODEX_FLAGS", "--yolo")
     codex_model: str = os.environ.get("MODEL", "")
-    verbose: bool = False
+    verbose: bool = True
     tail_lines: int = 0
 
 
@@ -73,10 +73,9 @@ def run_generator(options: GeneratorOptions, *, context: RexContext | None = Non
     lock_path = context.codex_ci_dir / "rex_generator.lock"
     with lock_file(lock_path):
         ensure_python(context, quiet=True)
-        if not options.verbose:
-            env_verbose = os.environ.get("GENERATOR_DEBUG")
-            if env_verbose and env_verbose not in {"0", "", "false", "False"}:
-                options.verbose = True
+        env_verbose = os.environ.get("GENERATOR_DEBUG")
+        if env_verbose is not None:
+            options.verbose = env_verbose.lower() not in {"0", "false", ""}
         requirements_template = AGENT_SRC / "templates" / "requirements-dev.txt"
         ensure_requirements_installed(context, requirements_template)
         cards: List[FeatureCard]
