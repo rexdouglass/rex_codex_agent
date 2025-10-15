@@ -37,6 +37,8 @@ from .utils import (
     run,
 )
 
+PROGRESS_INTERVAL_SECONDS = max(5, int(os.environ.get("GENERATOR_PROGRESS_SECONDS", "15")))
+
 
 @dataclass
 class GeneratorOptions:
@@ -53,6 +55,14 @@ class GeneratorOptions:
     tail_lines: int = 0
 
 
+@dataclass
+class _CodexResult:
+    returncode: int
+    stdout: str
+    stderr: str
+    elapsed_seconds: int
+
+
 def parse_statuses(raw: str | None) -> List[str]:
     if not raw:
         return ["proposed"]
@@ -64,6 +74,50 @@ def _split_command(raw: str) -> List[str]:
     import shlex
 
     return shlex.split(raw)
+
+
+def _run_codex_with_progress(
+    cmd: Sequence[str],
+    *,
+    cwd: Path,
+    verbose: bool,
+    progress_label: str,
+) -> _CodexResult:
+    start = time.time()
+    process = subprocess.Popen(
+        cmd,
+        cwd=cwd,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    stdout_chunks: List[str] = []
+    stderr_chunks: List[str] = []
+    while True:
+        try:
+            stdout, stderr = process.communicate(timeout=PROGRESS_INTERVAL_SECONDS)
+            if stdout:
+                stdout_chunks.append(stdout)
+            if stderr:
+                stderr_chunks.append(stderr)
+            break
+        except subprocess.TimeoutExpired as exc:
+            if exc.stdout:
+                stdout_chunks.append(exc.stdout)
+            if exc.stderr:
+                stderr_chunks.append(exc.stderr)
+            if verbose:
+                elapsed = int(time.time() - start)
+                print(f"[generator] {progress_label}… {elapsed}s elapsed", flush=True)
+    elapsed_total = int(time.time() - start)
+    stdout_combined = "".join(stdout_chunks)
+    stderr_combined = "".join(stderr_chunks)
+    return _CodexResult(
+        returncode=process.returncode or 0,
+        stdout=stdout_combined,
+        stderr=stderr_combined,
+        elapsed_seconds=elapsed_total,
+    )
 
 
 def run_generator(options: GeneratorOptions, *, context: RexContext | None = None) -> int:
@@ -125,6 +179,7 @@ def _process_card(card: FeatureCard, options: GeneratorOptions, context: RexCont
             status=status,
             focus=focus,
             generation_pass=iteration,
+            total_passes=passes,
             options=options,
             context=context,
         )
@@ -160,6 +215,7 @@ def _run_once(
     status: str,
     focus: str,
     generation_pass: int,
+    total_passes: int,
     options: GeneratorOptions,
     context: RexContext,
 ) -> Tuple[int, Optional[str]]:
@@ -193,16 +249,18 @@ def _run_once(
 
     if options.verbose:
         print("[generator] Calling Codex CLI…")
-    completed = subprocess.run(
+    completed = _run_codex_with_progress(
         cmd,
         cwd=root,
-        text=True,
-        capture_output=True,
+        verbose=options.verbose,
+        progress_label=f"Codex CLI running (pass {generation_pass}/{total_passes})",
     )
     response_path.write_text(
         (completed.stdout or "") + ("\n" if completed.stdout else ""),
         encoding="utf-8",
     )
+    if options.verbose:
+        print(f"[generator] Codex CLI finished in {completed.elapsed_seconds}s.")
     if completed.returncode != 0:
         stderr = completed.stderr or ""
         response_path.write_text(
