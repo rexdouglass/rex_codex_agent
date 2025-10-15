@@ -884,28 +884,27 @@ def _run_critic(
         lines = latest_log.read_text(encoding="utf-8", errors="replace").splitlines()
         discriminator_tail = "\n".join(lines[-120:])
 
-    prompt = textwrap.dedent(
-        f"""\
-        You are reviewing pytest specs that were just generated for the following Feature Card.
-        Decide whether the tests fully capture the acceptance criteria and obvious negative cases.
-        Respond in ONE of two ways:
-        1. `DONE` (exact uppercase word) if coverage is sufficient.
-        2. `TODO:` followed by bullet items describing additional scenarios to cover.
-        Do NOT provide code; only guidance.
-
-        --- GENERATOR PASS ---
-        {generation_pass}
-
-        Feature slug: {slug}
-
-        --- FEATURE CARD ---
-        {card_text}
-
-        --- CURRENT TEST FILES ---
-        {'\\n\\n'.join(files_output)}
-        --- END TEST FILES ---
-        """
-    )
+    prompt_sections = [
+        "You are reviewing pytest specs that were just generated for the following Feature Card.",
+        "Decide whether the tests fully capture the acceptance criteria and obvious negative cases.",
+        "Respond in ONE of two ways:",
+        "1. `DONE` (exact uppercase word) if coverage is sufficient.",
+        "2. `TODO:` followed by bullet items describing additional scenarios to cover.",
+        "Do NOT provide code; only guidance.",
+        "",
+        "--- GENERATOR PASS ---",
+        str(generation_pass),
+        "",
+        f"Feature slug: {slug}",
+        "",
+        "--- FEATURE CARD ---",
+        card_text,
+        "",
+        "--- CURRENT TEST FILES ---",
+        "\n\n".join(files_output),
+        "--- END TEST FILES ---",
+    ]
+    prompt = "\n".join(prompt_sections)
     if tests_summary:
         prompt += f"\n--- PYTEST OUTPUT (tests/feature_specs/{slug}) ---\n{tests_summary}\n"
     if discriminator_tail:
