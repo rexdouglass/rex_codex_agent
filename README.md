@@ -47,7 +47,9 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
    ./rex-codex loop
    ```
    - **Generator** converts the card into deterministic pytest specs under `tests/feature_specs/<slug>/`.
+   - Each generator pass opens with a dashboard summarising the Feature Card (title, acceptance criteria, existing specs) and previews the proposed diff with per-test highlights before patches land.
    - **Discriminator** executes the staged ladder (health, smoke/unit, coverage ≥80%, optional pip-audit/bandit/build, style/type).
+   - Runs now finish with a color-coded loop summary so you can see at a glance whether generator/discriminator passed, warned, or failed and why.
    - Add `--explain` to preview the planned generator/discriminator phases before they run; `--no-self-update` skips the preflight update check.
    - Need a targeted rerun? `./rex-codex discriminator --feature-only` handles the shard; `./rex-codex discriminator --global` runs the full ladder.
 
@@ -121,6 +123,8 @@ The agent also tracks state in `rex-agent.json` (active slug/card, last discrimi
 ## Generator (tests only, never runtime)
 
 - Discovers cards by status; prompt instructs the Codex CLI to output a **unified diff** limited to `tests/feature_specs/<slug>/…` and the matching card.
+- Prints a concise dashboard before each pass (Feature Card summary, acceptance criteria, existing specs) and a diff summary that calls out new/updated tests so you can see the plan at a glance.
+- Warns when Feature Cards exist but their `status:` values miss the requested set (useful for catching typos like `propsed`).
 - Before applying a diff it enforces:
   - Allowed-path filter.
   - Patch-size budget (`GENERATOR_MAX_FILES`, `GENERATOR_MAX_LINES`).
@@ -145,7 +149,7 @@ Guardrails:
 - Mechanical fixes (ruff/black/isort) run on runtime code only and auto-commit if they change anything.
 - LLM runtime edits are **opt-in** (`DISABLE_LLM=0`) and obey protected-path hashing, runtime allowlists, patch-size limits, and “no shrinking tests”. Non-compliant diffs are reverted automatically.
 - Each successful pass records a timestamp/slug/test-count in `rex-agent.json` for auditability.
-- Every discriminator sweep ends with a colorized summary table (stage, identifier, duration, pass/fail) plus a suggested next command when something fails, making it easy to resume locally.
+- Every discriminator sweep ends with a colorized summary table (stage, identifier, duration, pass/fail) that includes the first failing log line and a suggested next command when something fails, making it easy to resume locally.
 
 ---
 

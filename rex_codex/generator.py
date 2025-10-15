@@ -10,9 +10,11 @@ import sys
 import tempfile
 import textwrap
 import time
+from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence, Tuple
+from types import SimpleNamespace
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .cards import FeatureCard, discover_cards, load_rex_agent, update_active_card
 from .config import (
@@ -40,6 +42,228 @@ from .utils import (
 PROGRESS_INTERVAL_SECONDS = max(5, int(os.environ.get("GENERATOR_PROGRESS_SECONDS", "15")))
 
 
+def _ansi_palette() -> SimpleNamespace:
+    disable = bool(os.environ.get("NO_COLOR")) or not sys.stdout.isatty()
+    if disable:
+        return SimpleNamespace(
+            header="",
+            accent="",
+            success="",
+            warning="",
+            error="",
+            dim="",
+            reset="",
+        )
+    return SimpleNamespace(
+        header="\x1b[95m",
+        accent="\x1b[36m",
+        success="\x1b[32m",
+        warning="\x1b[33m",
+        error="\x1b[31m",
+        dim="\x1b[2m",
+        reset="\x1b[0m",
+    )
+
+
+def _extract_section(lines: List[str], heading: str) -> List[str]:
+    target = f"## {heading}".lower()
+    start: Optional[int] = None
+    for idx, line in enumerate(lines):
+        if line.strip().lower() == target:
+            start = idx + 1
+            break
+    if start is None:
+        return []
+    body: List[str] = []
+    for line in lines[start:]:
+        if line.strip().startswith("## "):
+            break
+        body.append(line.rstrip())
+    while body and not body[0].strip():
+        body.pop(0)
+    while body and not body[-1].strip():
+        body.pop()
+    return body
+
+
+def _extract_card_metadata(card_path: Path) -> Dict[str, object]:
+    metadata: Dict[str, object] = {"title": card_path.stem.replace("-", " ").title()}
+    try:
+        text = card_path.read_text(encoding="utf-8")
+    except OSError:
+        return metadata
+    lines = text.splitlines()
+    for line in lines:
+        if line.startswith("# "):
+            metadata["title"] = line[2:].strip()
+            break
+    summary_section = _extract_section(lines, "Summary")
+    metadata["summary"] = " ".join(summary_section).strip()
+    acceptance_section = _extract_section(lines, "Acceptance Criteria")
+    acceptance = [
+        item.strip()[2:].strip()
+        for item in acceptance_section
+        if item.strip().startswith("- ")
+    ]
+    metadata["acceptance"] = acceptance
+    return metadata
+
+
+def _list_existing_specs(specs_dir: Path) -> List[str]:
+    if not specs_dir.exists():
+        return []
+    items: List[str] = []
+    for path in sorted(specs_dir.rglob("*.py")):
+        try:
+            items.append(str(path.relative_to(specs_dir)))
+        except ValueError:
+            items.append(path.name)
+    return items
+
+
+def _render_generator_dashboard(
+    *,
+    card: FeatureCard,
+    specs_dir: Path,
+    focus: str,
+    passes: int,
+    options: GeneratorOptions,
+) -> None:
+    palette = _ansi_palette()
+    metadata = _extract_card_metadata(card.path)
+    existing_specs = _list_existing_specs(specs_dir)
+    header = f"{palette.header}Generator Dashboard{palette.reset}"
+    divider = "-" * 62
+    print(f"\n{header}")
+    print(divider)
+    print(f"{palette.accent}Feature{palette.reset}: {card.slug} ({metadata.get('title', card.slug)})")
+    print(f"{palette.accent}Status{palette.reset}: {card.status}")
+    if metadata.get("summary"):
+        print(f"{palette.accent}Summary{palette.reset}: {metadata['summary']}")
+    acceptance = metadata.get("acceptance") or []
+    if acceptance:
+        print(f"{palette.accent}Acceptance Criteria{palette.reset}:")
+        for item in acceptance:
+            print(f"  - {item}")
+    if existing_specs:
+        print(f"{palette.accent}Existing specs{palette.reset}: {', '.join(existing_specs)}")
+    else:
+        print(f"{palette.accent}Existing specs{palette.reset}: (none yet)")
+    print(f"{palette.accent}Focus{palette.reset}: {focus or 'default coverage guidance'}")
+    print(f"{palette.accent}Pass budget{palette.reset}: {passes} (continuous={options.continuous})")
+    print(divider)
+
+
+def _summarize_diff(diff_text: str) -> Tuple[List[Dict[str, object]], Dict[str, int]]:
+    entries: List[Dict[str, object]] = []
+    totals = defaultdict(int)
+    current: Optional[Dict[str, object]] = None
+    for line in diff_text.splitlines():
+        if line.startswith("diff --git "):
+            if current:
+                entries.append(current)
+            parts = line.split()
+            path = parts[-1] if parts else ""
+            if path.startswith("b/"):
+                path = path[2:]
+            current = {
+                "path": path,
+                "status": "modified",
+                "added": 0,
+                "removed": 0,
+                "added_tests": [],
+                "removed_tests": [],
+            }
+        elif current is None:
+            continue
+        elif line.startswith("new file mode"):
+            current["status"] = "new"
+        elif line.startswith("deleted file mode"):
+            current["status"] = "deleted"
+        elif line.startswith("+++ b/"):
+            if line.endswith("/dev/null"):
+                current["status"] = "deleted"
+        elif line.startswith("--- a/"):
+            if line.endswith("/dev/null"):
+                current["status"] = "new"
+        elif line.startswith("+") and not line.startswith("+++"):
+            current["added"] = current.get("added", 0) + 1
+            totals["added_lines"] += 1
+            stripped = line[1:].lstrip()
+            if stripped.startswith("def test"):
+                name = stripped.split("(", 1)[0].replace("def", "", 1).strip()
+                current["added_tests"].append(name)
+        elif line.startswith("-") and not line.startswith("---"):
+            current["removed"] = current.get("removed", 0) + 1
+            totals["removed_lines"] += 1
+            stripped = line[1:].lstrip()
+            if stripped.startswith("def test"):
+                name = stripped.split("(", 1)[0].replace("def", "", 1).strip()
+                current["removed_tests"].append(name)
+    if current:
+        entries.append(current)
+    totals["files"] = len(entries)
+    for entry in entries:
+        added_tests = set(entry.get("added_tests", []))
+        removed_tests = set(entry.get("removed_tests", []))
+        modified_tests = sorted(added_tests & removed_tests)
+        entry["modified_tests"] = modified_tests
+        entry["added_tests"] = sorted(added_tests - removed_tests)
+        entry["removed_tests"] = sorted(removed_tests - added_tests)
+    return entries, totals
+
+
+def _print_diff_summary(diff_text: str) -> None:
+    entries, totals = _summarize_diff(diff_text)
+    if not entries:
+        return
+    palette = _ansi_palette()
+    print(f"{palette.accent}Diff summary{palette.reset}: {totals['files']} files, "
+          f"+{totals['added_lines']} / -{totals['removed_lines']} lines")
+    for entry in entries:
+        path = entry["path"]
+        status = entry["status"]
+        added = entry["added"]
+        removed = entry["removed"]
+        status_label = status
+        if status == "new":
+            status_label = f"{palette.success}new{palette.reset}"
+        elif status == "deleted":
+            status_label = f"{palette.warning}deleted{palette.reset}"
+        changes = []
+        if added:
+            changes.append(f"+{added}")
+        if removed:
+            changes.append(f"-{removed}")
+        change_text = ", ".join(changes) if changes else "no line changes"
+        print(f"  • {path} ({status_label}, {change_text})")
+        for label, tests in (
+            ("added", entry["added_tests"]),
+            ("modified", entry["modified_tests"]),
+            ("removed", entry["removed_tests"]),
+        ):
+            if tests:
+                joined = ", ".join(tests)
+                print(f"      {label} tests: {joined}")
+
+
+def _diagnose_missing_cards(statuses: List[str], context: RexContext) -> None:
+    cards = discover_cards(context=context)
+    if not cards:
+        print("[generator] No Feature Cards found in documents/feature_cards/.")
+        return
+    palette = _ansi_palette()
+    print("[generator] Feature Cards present but none matched the requested statuses.")
+    for card in cards:
+        suggestion = ""
+        for target in statuses:
+            if not target:
+                continue
+            ratio = difflib.SequenceMatcher(None, card.status, target).ratio()
+            if ratio >= 0.75 and card.status != target:
+                suggestion = f" ({palette.warning}did you mean '{target}'?{palette.reset})"
+                break
+        print(f"  - {card.slug}: status={card.status}{suggestion}")
 @dataclass
 class GeneratorOptions:
     continuous: bool = True
@@ -151,6 +375,8 @@ def run_generator(options: GeneratorOptions, *, context: RexContext | None = Non
         if not cards:
             status_list = ", ".join(options.statuses)
             print(f"[generator] No Feature Cards with statuses: {status_list}")
+            if options.statuses:
+                _diagnose_missing_cards(options.statuses, context)
             return 1
 
         if options.iterate_all:
@@ -168,8 +394,16 @@ def _process_card(card: FeatureCard, options: GeneratorOptions, context: RexCont
     status = card.status
     focus = options.focus
     passes = options.max_passes if options.continuous else 1
+    specs_dir = context.root / "tests" / "feature_specs" / slug
 
     update_active_card(context, card=card)
+    _render_generator_dashboard(
+        card=card,
+        specs_dir=specs_dir,
+        focus=focus,
+        passes=passes,
+        options=options,
+    )
 
     for iteration in range(1, passes + 1):
         print(f"[generator] Iteration {iteration}/{passes} (slug: {slug}, status: {status})")
@@ -288,6 +522,7 @@ def _run_once(
         print(f"[generator] Codex response saved to {context.relative(response_path)}")
         print(f"[generator] Applying diff from {context.relative(patch_path)}:")
         _print_diff_preview(diff_text)
+        _print_diff_summary(diff_text)
 
     applied, patch_error = _apply_patch(patch_path, root)
     if not applied:

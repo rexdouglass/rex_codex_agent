@@ -32,14 +32,16 @@ Keep these expectations visible—both docs and templates must reinforce them so
    ```
    The generator:
    - Keeps diffs under `tests/feature_specs/<slug>/…` (tests only) and appends links/trace in the card.
+   - Prints a dashboard summarising the Feature Card (acceptance criteria, existing specs) and previews the diff with new/updated tests before applying patches so operators can follow along in one screen.
    - Enforces patch-size limits (default 6 files / 300 lines).
+   - Warns when cards exist but their `status:` values don't match the requested set (e.g. typos like `propsed`) so operators can repair metadata quickly.
    - Runs an AST hermeticity scan that bans network, subprocess, clock, and entropy **calls** (`requests.get`, `subprocess.run`, `time.sleep`, `uuid.uuid4`, `os.urandom`, `secrets`, `numpy.random`…), plus unconditional skip/xfail.
 5. **Run the discriminator ladder**
    ```bash
    ./rex-codex discriminator --feature-only   # smoke/unit on the spec shard (pytest -x --maxfail=1)
    ./rex-codex discriminator --global         # full ladder (xdist auto, coverage ≥80%)
    ```
-   Stages = health → tooling → smoke/unit → coverage → optional `pip-audit`/`bandit`/`build` → style/type (`black`, `isort`, `ruff`, `flake8`, `mypy`). Each pass now ends with a color summary (stage, result, duration) plus a “next command” hint if anything failed. Logs + JUnit land in `.codex_ci/`. Successful passes are recorded in `rex-agent.json`.
+   Stages = health → tooling → smoke/unit → coverage → optional `pip-audit`/`bandit`/`build` → style/type (`black`, `isort`, `ruff`, `flake8`, `mypy`). Each pass now ends with a color summary (stage, result, duration, first failing line) plus a “next command” hint if anything failed. Logs + JUnit land in `.codex_ci/`. Successful passes are recorded in `rex-agent.json`.
 6. **Iterate via the loop**
    ```bash
   ./rex-codex loop                # generator → feature → global
@@ -47,6 +49,7 @@ Keep these expectations visible—both docs and templates must reinforce them so
   ./rex-codex loop --discriminator-only   # implement runtime without re-triggering generator
   DISABLE_LLM=0 ./rex-codex loop --discriminator-only   # or add --enable-llm to discriminator/loop for guarded runtime edits
    ```
+   The loop finishes with a two-line scoreboard (generator vs discriminator) so operators immediately know which phase passed, warned, or failed.
 7. **Promote the Feature Card**
    - When the repo is green, edit the card to `status: accepted` (generator never changes statuses). Commit your changes.
 

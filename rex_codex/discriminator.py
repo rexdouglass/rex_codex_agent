@@ -561,6 +561,10 @@ def _render_stage_summary(
             elapsed = float(record["elapsed"])
             timing = f"{palette.dim}({elapsed:.2f}s){palette.reset}"
             print(f"  {icon} {palette.dim}[{identifier}]{palette.reset} {description} {timing}")
+            if not ok:
+                reason = _summarize_failure_reason(record.get("tail", ""))
+                if reason:
+                    print(f"      ↳ {palette.error}{reason}{palette.reset}")
     if not overall_ok and first_failure is not None:
         command = first_failure["command"]
         print(f"\n{palette.yellow}Next step:{palette.reset} rerun the first failing command locally:")
@@ -569,6 +573,20 @@ def _render_stage_summary(
 
 
 _HAS_TIMEOUT: Optional[bool] = None
+
+
+def _summarize_failure_reason(tail: object) -> str:
+    text = str(tail or "")
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.lower().startswith("bringing up nodes"):
+            continue
+        if stripped.startswith("SKIPPED "):
+            continue
+        return stripped[:160]
+    return ""
 
 
 def _has_timeout_utility() -> bool:

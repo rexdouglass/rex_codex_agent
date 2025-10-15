@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import sys
 from dataclasses import dataclass, field, replace
+from types import SimpleNamespace
 from typing import List
 
 from .cards import discover_cards, load_rex_agent
@@ -12,6 +15,90 @@ from .generator import GeneratorOptions, run_generator
 from .logs import show_latest_logs
 from .self_update import self_update
 from .utils import RexContext, lock_file
+
+
+GENERATOR_EXIT_MESSAGES = {
+    0: "Specs updated",
+    1: "No matching Feature Cards",
+    2: "Codex CLI error (see generator logs)",
+    3: "Diff rejected by guardrail",
+    4: "Diff failed to apply cleanly",
+    5: "Critic returned empty guidance",
+    6: "Max passes reached without DONE",
+    7: "Guardrail rejection (card edit or hermetic failure)",
+}
+
+DISCRIMINATOR_EXIT_MESSAGES = {
+    0: "Ladder passed",
+    1: "Stage failure (see summary above)",
+    2: "LLM disabled or patch rejected",
+}
+
+
+def _ansi_palette() -> SimpleNamespace:
+    disable = bool(os.environ.get("NO_COLOR")) or not sys.stdout.isatty()
+    if disable:
+        return SimpleNamespace(
+            success="",
+            warning="",
+            error="",
+            label="",
+            dim="",
+            reset="",
+        )
+    return SimpleNamespace(
+        success="\x1b[32m",
+        warning="\x1b[33m",
+        error="\x1b[31m",
+        label="\x1b[36m",
+        dim="\x1b[2m",
+        reset="\x1b[0m",
+    )
+
+
+def _describe_generator_exit(code: int | None) -> tuple[str, str]:
+    if code is None:
+        return "skipped", "Skipped (flagged off)"
+    message = GENERATOR_EXIT_MESSAGES.get(code, "Unknown generator exit")
+    if code == 0:
+        return "pass", message
+    if code == 1:
+        return "warn", message
+    return "fail", message
+
+
+def _describe_discriminator_exit(code: int | None) -> tuple[str, str]:
+    if code is None:
+        return "skipped", "Skipped (flagged off)"
+    message = DISCRIMINATOR_EXIT_MESSAGES.get(code, "Unknown discriminator exit")
+    if code == 0:
+        return "pass", message
+    return "fail", message
+
+
+def _render_loop_summary(
+    *,
+    generator_code: int | None,
+    discriminator_code: int | None,
+) -> None:
+    palette = _ansi_palette()
+    gen_state, gen_message = _describe_generator_exit(generator_code)
+    disc_state, disc_message = _describe_discriminator_exit(discriminator_code)
+    def _format(state: str, label: str) -> str:
+        if state == "pass":
+            color = palette.success
+        elif state == "warn":
+            color = palette.warning
+        elif state == "fail":
+            color = palette.error
+        else:
+            color = palette.dim
+        return f"{color}{label}{palette.reset}"
+
+    print("\n=== Loop Summary =============================================")
+    print(f"{palette.label}Generator{palette.reset}: {_format(gen_state, gen_state.upper())} — {gen_message}")
+    print(f"{palette.label}Discriminator{palette.reset}: {_format(disc_state, disc_state.upper())} — {disc_message}")
+    print("==============================================================")
 
 
 @dataclass
@@ -108,32 +195,40 @@ def _run_each(options: LoopOptions, context: RexContext) -> int:
 
 
 def _run_single(options: LoopOptions, context: RexContext) -> int:
-    gen_status = 1
+    generator_code: int | None = None
     if options.run_generator:
         print("=== rex-codex loop: generator phase ===")
-        gen_status = run_generator(options.generator_options, context=context)
-        if gen_status == 0:
+        generator_code = run_generator(options.generator_options, context=context)
+        if generator_code == 0:
             print("[loop] Generator produced new specs; running discriminator…")
             if options.verbose:
                 _announce_log(context, "generator_response.log")
-        elif gen_status == 1:
+        elif generator_code == 1:
             print("[loop] Generator found no matching Feature Cards; running discriminator anyway.")
         else:
-            print(f"[loop] Generator failed (exit {gen_status}); aborting.")
+            print(f"[loop] Generator failed (exit {generator_code}); aborting.")
             _maybe_tail_logs("generator", options.tail_lines, context)
-            return gen_status
+            _render_loop_summary(generator_code=generator_code, discriminator_code=None)
+            return generator_code
     else:
         print("[loop] Generator skipped; running discriminator only.")
+        generator_code = None
 
+    discriminator_code: int | None = None
+    exit_code = 0
     if options.run_discriminator:
         slug = _discover_active_slug(context)
         print("=== rex-codex loop: discriminator phase ===")
-        result = _run_discriminator_phases(options, slug, context)
-        if result == 0 and options.verbose:
+        discriminator_code = _run_discriminator_phases(options, slug, context)
+        exit_code = discriminator_code
+        if discriminator_code == 0 and options.verbose:
             _announce_log(context, "latest_discriminator.log")
-        return result
-    print("[loop] Discriminator skipped; generator phase complete.")
-    return 0
+    else:
+        print("[loop] Discriminator skipped; generator phase complete.")
+        exit_code = generator_code if generator_code not in (None, 0, 1) else 0
+
+    _render_loop_summary(generator_code=generator_code, discriminator_code=discriminator_code)
+    return exit_code
 
 
 def _run_discriminator_phases(options: LoopOptions, slug: str | None, context: RexContext) -> int:
