@@ -221,6 +221,10 @@ def _run_once(
     if not _enforce_patch_size(diff_text):
         return 3, None
 
+    if not _validate_card_diff(diff_text, slug):
+        print("[generator] Codex attempted to modify protected sections of the Feature Card; rejecting diff.")
+        return 3, None
+
     if options.verbose:
         print(f"[generator] Codex response saved to {context.relative(response_path)}")
         print(f"[generator] Applying diff from {context.relative(patch_path)}:")
@@ -344,6 +348,23 @@ def _enforce_patch_size(diff_text: str) -> bool:
             f"[generator] diff touches {files} files / {lines} lines "
             f"(limits {max_files}/{max_lines})"
         )
+        return False
+    return True
+
+
+def _validate_card_diff(diff_text: str, slug: str) -> bool:
+    card_target = f"documents/feature_cards/{slug}.md"
+    if card_target not in diff_text:
+        return True
+    card_pattern = re.compile(rf"^diff --git a/{re.escape(card_target)} b/{re.escape(card_target)}$", re.MULTILINE)
+    match = card_pattern.search(diff_text)
+    if not match:
+        return True
+    section = diff_text[match.start():]
+    next_diff = section.find("\ndiff --git ")
+    if next_diff != -1:
+        section = section[:next_diff]
+    if re.search(r"^[+-]\s*status\s*:", section, flags=re.IGNORECASE | re.MULTILINE):
         return False
     return True
 
