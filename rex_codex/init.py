@@ -35,7 +35,7 @@ def run_init(*, context: RexContext | None = None, perform_self_update: bool = T
     ensure_python(context)
 
     requirements_template = AGENT_SRC / "templates" / "requirements-dev.txt"
-    ensure_requirements_installed(context, requirements_template)
+    ensure_requirements_installed(context, requirements_template, quiet=False)
 
     root = context.root
     ensure_dir(root / "tests" / "enforcement")

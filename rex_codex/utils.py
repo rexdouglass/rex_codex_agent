@@ -225,11 +225,19 @@ def ask_confirmation(message: str, *, expected: str) -> bool:
     return response.strip() == expected
 
 
-def ensure_requirements_installed(context: RexContext, requirements_template: Path) -> None:
+def ensure_requirements_installed(
+    context: RexContext,
+    requirements_template: Path,
+    *,
+    quiet: bool = True,
+) -> None:
     env = activate_venv(context)
     pip = context.venv_dir / "bin" / "pip"
+    base_cmd: List[str] = [str(pip), "install"]
+    if quiet:
+        base_cmd.append("-q")
     if requirements_template.exists():
-        run([str(pip), "install", "-r", str(requirements_template)], env=env)
+        run(base_cmd + ["-r", str(requirements_template)], env=env)
     else:
         baseline = [
             "pytest==8.0.2",
@@ -241,5 +249,4 @@ def ensure_requirements_installed(context: RexContext, requirements_template: Pa
             "flake8==7.0.0",
             "mypy==1.8.0",
         ]
-        run([str(pip), "install", *baseline], env=env)
-
+        run(base_cmd + baseline, env=env)
