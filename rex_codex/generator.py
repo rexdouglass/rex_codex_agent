@@ -136,17 +136,20 @@ def _render_generator_dashboard(
     divider = "-" * 62
     print(f"\n{header}")
     print(divider)
-    print(f"{palette.accent}Feature{palette.reset}: {card.slug} ({metadata.get('title', card.slug)})")
-    print(f"{palette.accent}Status{palette.reset}: {card.status}")
-    if metadata.get("summary"):
-        print(f"{palette.accent}Summary{palette.reset}: {metadata['summary']}")
+    title = metadata.get("title", card.slug)
+    summary_text = metadata.get("summary", "")
     acceptance = metadata.get("acceptance") or []
+    print(f"{palette.accent}Feature{palette.reset}: {card.slug} ({title})")
+    print(f"{palette.accent}Status{palette.reset}: {card.status}")
+    if summary_text:
+        print(f"{palette.accent}Summary{palette.reset}: {summary_text}")
     if acceptance:
         print(f"{palette.accent}Acceptance Criteria{palette.reset}:")
         for item in acceptance:
             print(f"  - {item}")
     if existing_specs:
-        print(f"{palette.accent}Existing specs{palette.reset}: {', '.join(existing_specs)}")
+        specs_list = ", ".join(existing_specs)
+        print(f"{palette.accent}Existing specs{palette.reset}: {specs_list}")
     else:
         print(f"{palette.accent}Existing specs{palette.reset}: (none yet)")
     print(f"{palette.accent}Focus{palette.reset}: {focus or 'default coverage guidance'}")
@@ -218,8 +221,13 @@ def _print_diff_summary(diff_text: str) -> None:
     if not entries:
         return
     palette = _ansi_palette()
-    print(f"{palette.accent}Diff summary{palette.reset}: {totals['files']} files, "
-          f"+{totals['added_lines']} / -{totals['removed_lines']} lines")
+    files_changed = totals.get("files", 0)
+    added_lines = totals.get("added_lines", 0)
+    removed_lines = totals.get("removed_lines", 0)
+    print(
+        f"{palette.accent}Diff summary{palette.reset}: {files_changed} files, "
+        f"+{added_lines} / -{removed_lines} lines"
+    )
     for entry in entries:
         path = entry["path"]
         status = entry["status"]
@@ -261,9 +269,12 @@ def _diagnose_missing_cards(statuses: List[str], context: RexContext) -> None:
                 continue
             ratio = difflib.SequenceMatcher(None, card.status, target).ratio()
             if ratio >= 0.75 and card.status != target:
-                suggestion = f" ({palette.warning}did you mean '{target}'?{palette.reset})"
+                suggestion = (
+                    f" ({palette.warning}did you mean \"{target}\"?{palette.reset})"
+                )
                 break
-        print(f"  - {card.slug}: status={card.status}{suggestion}")
+        status_display = f"status={card.status}"
+        print(f"  - {card.slug}: {status_display}{suggestion}")
 @dataclass
 class GeneratorOptions:
     continuous: bool = True
