@@ -91,6 +91,7 @@ Keep these expectations visible—both docs and templates must reinforce them so
 - `./rex-codex init` – seed guardrails and tooling (idempotent).
 - `./rex-codex card new` – scaffold a Feature Card; `card list` / `card validate` keep hygiene tight.
 - `./rex-codex install --force` – refresh the agent sources in-place (useful when switching channels or repairing a bad install).
+- `curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/scripts/install.sh | bash -s -- --force --channel main` – reinstall the latest agent snapshot from anywhere.
 - `./rex-codex generator --verbose --tail 120` – replay Codex diffs and tail logs when the generator fails.
 - `./rex-codex discriminator --feature-only` / `--global` – run the shard or full ladder; add `--verbose --tail 120` during debug sessions.
 - `./rex-codex loop --verbose --tail 120` – generator → feature shard → global sweep with inline diff previews.

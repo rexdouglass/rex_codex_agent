@@ -69,6 +69,7 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
    - `./rex-codex uninstall --force` – remove the agent (add `--keep-wrapper` to preserve the shim).
 
 **Troubleshooting cheat sheet**
+- `curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/scripts/install.sh | bash -s -- --force --channel main` – drop the latest agent into the current repo.
 - `./rex-codex generator --verbose --tail 120` – replay Codex output and show the latest diff/log on failure.
 - `./rex-codex loop --verbose --tail 120` – run generator + discriminator with live diff previews and automatic log tails.
 - `./rex-codex logs --generator --lines 200` – dump the most recent generator response/patch when you need manual inspection.
