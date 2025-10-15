@@ -51,6 +51,7 @@ class DiscriminatorOptions:
     codex_bin: str = os.environ.get("CODEX_BIN", "npx --yes @openai/codex")
     codex_flags: str = os.environ.get("CODEX_FLAGS", "--yolo")
     codex_model: str = os.environ.get("MODEL", "")
+    verbose: bool = False
 
 
 @dataclass
@@ -93,6 +94,8 @@ def _run_locked(options: DiscriminatorOptions, context: RexContext) -> int:
 
     log_path = context.codex_ci_dir / "latest_discriminator.log"
     latest_log_path = context.root / ".codex_ci_latest.log"
+    if options.verbose:
+        print(f"[discriminator] Logs will be written to {context.relative(log_path)}")
 
     passes = 0
     while passes < options.max_passes:

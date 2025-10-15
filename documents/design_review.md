@@ -90,7 +90,7 @@ Adopt the hybrid approach: retain `./rex-codex` as a shell shim, but keep genera
    - Use generator/discriminator status filters (`--include-accepted`, `--status`) to revisit accepted work when needed.
 8. **Reset sandbox or uninstall**
    - `./rex-codex burn --dry-run` -> `./rex-codex burn --yes` to reset (preserves `.git`, optional `--purge-agent`).
-   - `./rex-codex uninstall` removes the agent after typing "remove agent"; `--keep-wrapper` retains the shim.
+   - `./rex-codex uninstall --force` removes the agent without prompts; add `--keep-wrapper` to retain the shim for a reinstall.
 
 ## 4. Python CLI UX Enhancements
 
@@ -101,6 +101,7 @@ The Python CLI enables ergonomics that were cumbersome in shell:
 3. **Better observability** through `status` (renders `rex-agent.json`) and `logs` (tails `.codex_ci/` artifacts).
 4. **Explicit self-update controls** (`self-update --channel`, `REX_AGENT_NO_UPDATE`, `REX_AGENT_CHANNEL`).
 5. **Explain mode** (`loop --explain`) to preview guardrails, patch budgets, and planned stages before execution.
+6. **Verbose/tail diagnostics** (`generator --verbose --tail`, `loop --verbose --tail`, `logs --generator/--discriminator`) so engineers can inspect Codex output without copying files manually.
 
 ## 5. Migration Plan
 

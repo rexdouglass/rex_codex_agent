@@ -78,10 +78,10 @@ Keep these expectations visible—both docs and templates must reinforce them so
 | `discriminator` | Maintain stage banners, logging, and optional gate envs. Default LLM usage must stay disabled (`DISABLE_LLM=1`). |
 | `loop` | Orchestrates generator → discriminator. Ensure flag passthrough stays consistent with docs. |
 | `card` | CLI helper for card creation/listing/validation—keep prompts aligned with template README. |
-| `status` / `logs` | Surface rex-agent.json metadata and `.codex_ci` tails; keep output concise and automation-friendly. |
+| `status` / `logs` | Surface rex-agent.json metadata and `.codex_ci` tails; `logs` supports `--generator/--discriminator/--lines`. |
 | `doctor` | Emit versions/paths for python/node/docker; add tooling here before relying on it elsewhere. |
 | `burn` | Preserve `.git`, warn loudly, honour `--dry-run` / `--purge-agent`. |
-| `uninstall` | Typed confirmation (“remove agent”) and `--keep-wrapper` option are required UX. |
+| `uninstall` | `--force` skips the prompt; `--keep-wrapper` leaves the shim in place. |
 | `self-update` | Default is **offline** (`REX_AGENT_NO_UPDATE=1`). Respect release tags (`VERSION`) when enabling `stable`. |
 
 ---
@@ -91,9 +91,10 @@ Keep these expectations visible—both docs and templates must reinforce them so
 - `./rex-codex init` – seed guardrails and tooling (idempotent).
 - `./rex-codex card new` – scaffold a Feature Card; `card list` / `card validate` keep hygiene tight.
 - `./rex-codex install --force` – refresh the agent sources in-place (useful when switching channels or repairing a bad install).
-- `./rex-codex generator` – produce/iterate tests for the next Feature Card until the critic says DONE.
-- `./rex-codex discriminator --feature-only` / `--global` – run the shard or full ladder; use `./rex-codex logs` to inspect failures.
-- `./rex-codex loop` – generator → feature shard → global sweep (`--each`, `--status`, `--skip-*`, `--explain` mirror generator/discriminator knobs).
+- `./rex-codex generator --verbose --tail 120` – replay Codex diffs and tail logs when the generator fails.
+- `./rex-codex discriminator --feature-only` / `--global` – run the shard or full ladder; add `--verbose --tail 120` during debug sessions.
+- `./rex-codex loop --verbose --tail 120` – generator → feature shard → global sweep with inline diff previews.
+- `./rex-codex logs --generator --lines 200` – dump the latest generator response/patch without hunting for files.
 - `./rex-codex status` – inspect the active slug/card and last discriminator success metadata.
 - `./rex-codex burn --yes` – reset the working tree (keeps `.git`; add `--purge-agent` to drop `.rex_agent`).
 - `./rex-codex uninstall --force` – remove the agent (use `--keep-wrapper` to leave the shim).

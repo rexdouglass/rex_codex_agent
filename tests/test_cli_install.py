@@ -9,3 +9,36 @@ def test_install_parser_accepts_force_and_channel() -> None:
     assert args.command == "install"
     assert args.force is True
     assert args.channel == "main"
+
+
+def test_generator_parser_verbose_and_tail() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["generator", "--verbose", "--tail", "200"])
+    assert args.command == "generator"
+    assert args.verbose is True
+    assert args.tail == 200
+
+
+def test_loop_parser_verbose_and_tail() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["loop", "--verbose", "--tail", "150"])
+    assert args.command == "loop"
+    assert args.verbose is True
+    assert args.tail == 150
+
+
+def test_discriminator_parser_verbose_and_tail() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["discriminator", "--verbose", "--tail", "90"])
+    assert args.command == "discriminator"
+    assert args.verbose is True
+    assert args.tail == 90
+
+
+def test_logs_parser_filters() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["logs", "--generator", "--lines", "50"])
+    assert args.command == "logs"
+    assert args.generator is True
+    assert args.discriminator is False
+    assert args.lines == 50

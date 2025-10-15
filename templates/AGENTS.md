@@ -49,13 +49,15 @@ Stages 04–05 (DB/UI) are optional packs you can enable per project by extendin
 5. Retire the card once behaviour is shipped and documented.
 
 ### Command Cheatsheet
-- `./rex-codex install --force` – refresh the agent if the embedded sources drift.
+- `./rex-codex install --force --channel main` – refresh the agent if the embedded sources drift.
 - `./rex-codex init` – seed guardrails and tooling.
 - `./rex-codex card new` – scaffold Feature Cards; `card list` / `card validate` keep hygiene tidy.
-- `./rex-codex generator` – produce/iterate tests for the next Feature Card until the critic says DONE.
-- `./rex-codex discriminator --feature-only` / `--global` – run the shard (fail-fast) or full ladder (xdist auto); inspect failures with `./rex-codex logs`.
-- `./rex-codex loop` – generator → feature shard → global sweep (use `--each`, `--status accepted`, `--skip-feature`, or `--skip-global` to tweak).
+- `./rex-codex generator --verbose --tail 120` – iterate specs and print Codex diffs/logs on failure.
+- `./rex-codex discriminator --feature-only --verbose --tail 120` (or `--global`) – run the shard/full ladder with automatic log tails.
+- `./rex-codex loop --verbose --tail 120` – generator → feature shard → global sweep (use `--each`, `--status accepted`, `--skip-feature`, or `--skip-global` to tweak).
+- `./rex-codex logs --generator --lines 200` – dump the latest generator response/patch without spelunking.
 - `./rex-codex status` – inspect the active slug/card and last discriminator success metadata.
 - `./rex-codex burn --yes` – reset the working tree (keeps `.git` and, by default, `.rex_agent`).
+- `./rex-codex uninstall --force` – remove the agent (pair with `--keep-wrapper` to leave the shim).
 
 Keep this document updated when expectations shift. The automation loop assumes these guardrails are authoritative.

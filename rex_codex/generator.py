@@ -49,6 +49,8 @@ class GeneratorOptions:
     codex_bin: str = os.environ.get("CODEX_BIN", "npx --yes @openai/codex")
     codex_flags: str = os.environ.get("CODEX_FLAGS", "--yolo")
     codex_model: str = os.environ.get("MODEL", "")
+    verbose: bool = False
+    tail_lines: int = 0
 
 
 def parse_statuses(raw: str | None) -> List[str]:
@@ -71,6 +73,10 @@ def run_generator(options: GeneratorOptions, *, context: RexContext | None = Non
     lock_path = context.codex_ci_dir / "rex_generator.lock"
     with lock_file(lock_path):
         ensure_python(context, quiet=True)
+        if not options.verbose:
+            env_verbose = os.environ.get("GENERATOR_DEBUG")
+            if env_verbose and env_verbose not in {"0", "", "false", "False"}:
+                options.verbose = True
         requirements_template = AGENT_SRC / "templates" / "requirements-dev.txt"
         ensure_requirements_installed(context, requirements_template)
         cards: List[FeatureCard]
@@ -214,8 +220,14 @@ def _run_once(
     if not _enforce_patch_size(diff_text):
         return 3, None
 
+    if options.verbose:
+        print(f"[generator] Codex response saved to {context.relative(response_path)}")
+        print(f"[generator] Applying diff from {context.relative(patch_path)}:")
+        _print_diff_preview(diff_text)
+
     if not _apply_patch(patch_path, root):
         print("[generator] Failed to apply Codex diff")
+        print(f"[generator] Inspect {context.relative(patch_path)} for the diff and {context.relative(response_path)} for raw output.")
         return 4, None
 
     if not _guard_card_edits(slug, root, baseline_card_text):
@@ -331,6 +343,24 @@ def _enforce_patch_size(diff_text: str) -> bool:
         )
         return False
     return True
+
+
+def _print_diff_preview(diff_text: str) -> None:
+    lines = diff_text.splitlines()
+    if not lines:
+        print("[generator] (no diff content to preview)")
+        return
+    limit_env = os.environ.get("GENERATOR_DIFF_PREVIEW_LINES")
+    try:
+        limit = int(limit_env) if limit_env else 200
+    except ValueError:
+        limit = 200
+    preview = lines[:limit]
+    for line in preview:
+        print(line)
+    remaining = len(lines) - len(preview)
+    if remaining > 0:
+        print(f"[generator] … (diff truncated, {remaining} more lines)")
 
 
 def _apply_patch(patch_path: Path, root: Path) -> bool:

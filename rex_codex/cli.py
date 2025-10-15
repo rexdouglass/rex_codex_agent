@@ -44,6 +44,8 @@ def build_parser() -> argparse.ArgumentParser:
     gen_parser.add_argument("--include-accepted", action="store_true", help="Consider cards with status: accepted")
     gen_parser.add_argument("--status", dest="statuses", default=None, help="Comma-separated statuses to include")
     gen_parser.add_argument("--each", action="store_true", help="Process each matching Feature Card sequentially")
+    gen_parser.add_argument("--tail", type=int, default=0, help="Tail log output (N lines) when the generator fails")
+    gen_parser.add_argument("--verbose", action="store_true", help="Print Codex diffs when they apply")
 
     # discriminator
     disc_parser = sub.add_parser("discriminator", help="Run the automation ladder")
@@ -56,6 +58,8 @@ def build_parser() -> argparse.ArgumentParser:
     disc_parser.add_argument("--single-pass", action="store_true", help="Run one pass and stop")
     disc_parser.add_argument("--max-passes", type=int, default=None, help="Maximum passes before giving up")
     disc_parser.add_argument("--feature", dest="feature_slug", help="Override feature slug")
+    disc_parser.add_argument("--verbose", action="store_true", help="Print discriminator debug output")
+    disc_parser.add_argument("--tail", type=int, default=0, help="Tail log output (N lines) when the discriminator fails")
 
     # loop
     loop_parser = sub.add_parser("loop", help="Generator → discriminator orchestration")
@@ -71,6 +75,8 @@ def build_parser() -> argparse.ArgumentParser:
     loop_parser.add_argument("--each", action="store_true", help="Process each matching Feature Card sequentially")
     loop_parser.add_argument("--no-self-update", action="store_true", help="Skip self-update before running")
     loop_parser.add_argument("--explain", action="store_true", help="Describe planned actions and exit")
+    loop_parser.add_argument("--verbose", action="store_true", help="Print generator/discriminator debug output")
+    loop_parser.add_argument("--tail", type=int, default=0, help="Tail log output (N lines) after failures")
     loop_llm = loop_parser.add_mutually_exclusive_group()
     loop_llm.add_argument("--enable-llm", action="store_true", help="Allow guarded runtime edits via LLM")
     loop_llm.add_argument("--disable-llm", action="store_true", help="Disable LLM runtime edits")
@@ -90,7 +96,10 @@ def build_parser() -> argparse.ArgumentParser:
     card_sub.add_parser("validate", help="Validate Feature Card formatting")
 
     # logs & status
-    sub.add_parser("logs", help="Tail recent discriminator/generator logs")
+    logs_parser = sub.add_parser("logs", help="Tail recent discriminator/generator logs")
+    logs_parser.add_argument("--generator", action="store_true", help="Show generator logs")
+    logs_parser.add_argument("--discriminator", action="store_true", help="Show discriminator logs")
+    logs_parser.add_argument("--lines", type=int, default=120, help="Number of log lines to display")
     sub.add_parser("status", help="Show rex-codex status summary")
 
     # doctor
@@ -140,7 +149,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.card:
             options.card_path = Path(args.card)
         options.iterate_all = args.each
-        return run_generator(options, context=context)
+        options.verbose = options.verbose or args.verbose
+        options.tail_lines = args.tail
+        exit_code = run_generator(options, context=context)
+        if exit_code != 0 and args.tail:
+            show_latest_logs(context, lines=args.tail, generator=True)
+        return exit_code
 
     if args.command == "discriminator":
         options = DiscriminatorOptions()
@@ -158,7 +172,11 @@ def main(argv: list[str] | None = None) -> int:
             options.disable_llm = False
         elif args.disable_llm:
             options.disable_llm = True
-        return run_discriminator(options, context=context)
+        options.verbose = args.verbose
+        exit_code = run_discriminator(options, context=context)
+        if exit_code != 0 and args.tail:
+            show_latest_logs(context, lines=args.tail, discriminator=True)
+        return exit_code
 
     if args.command == "loop":
         loop_opts = LoopOptions()
@@ -187,6 +205,8 @@ def main(argv: list[str] | None = None) -> int:
         loop_opts.each_features = args.each
         loop_opts.perform_self_update = not args.no_self_update
         loop_opts.explain = args.explain
+        loop_opts.verbose = args.verbose
+        loop_opts.tail_lines = args.tail
         if args.enable_llm:
             loop_opts.discriminator_options.disable_llm = False
         elif args.disable_llm:
@@ -230,7 +250,12 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("card requires a sub-command (new/list/validate)")
 
     if args.command == "logs":
-        show_latest_logs(context)
+        show_latest_logs(
+            context,
+            lines=args.lines,
+            generator=args.generator,
+            discriminator=args.discriminator,
+        )
         return 0
 
     if args.command == "status":
