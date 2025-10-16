@@ -12,6 +12,9 @@ import subprocess
 import textwrap
 import time
 import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -409,26 +412,17 @@ def _run_stage_plan(
         attempt=attempt,
         stage_groups=[group.title for group in groups],
     )
+    print_lock = threading.Lock()
+
     for group in groups:
         print("------------------------------------------------------------")
         print(f"{palette.blue}Stage: {group.title}{palette.reset}")
-        for stage in group.stages:
-            if stage.command.strip() == "":
-                continue
-            emit_event(
-                "discriminator",
-                "stage_start",
-                slug=slug,
-                mode=mode,
-                pass_number=pass_number,
-                run_id=run_id,
-                attempt=attempt,
-                identifier=stage.identifier,
-                description=stage.description,
-                command=stage.command,
-                group=group.title,
-            )
-            ok, elapsed, tail = _execute_stage(stage, env, context, log_path, latest_log_path)
+        executable_stages = [stage for stage in group.stages if stage.command.strip()]
+        if not executable_stages:
+            continue
+
+        def _handle_stage_result(stage: Stage, ok: bool, elapsed: float, tail: str) -> None:
+            nonlocal overall_ok, first_failure, coverage_failed
             status = f"{palette.green}PASS{palette.reset}" if ok else f"{palette.red}FAIL{palette.reset}"
             timing = f"{palette.dim}({elapsed:.2f}s){palette.reset}"
             print(f"    {palette.dim}[{stage.identifier}]{palette.reset} {status} {timing}")
@@ -486,6 +480,54 @@ def _run_stage_plan(
                         fh.write(banner + "\n")
                 if stage.identifier.startswith("04.") or "Coverage" in group.title:
                     coverage_failed = True
+
+        if group.title.startswith("Level 06"):
+            for stage in executable_stages:
+                emit_event(
+                    "discriminator",
+                    "stage_start",
+                    slug=slug,
+                    mode=mode,
+                    pass_number=pass_number,
+                    run_id=run_id,
+                    attempt=attempt,
+                    identifier=stage.identifier,
+                    description=stage.description,
+                    command=stage.command,
+                    group=group.title,
+                )
+            for stage, ok, elapsed, tail in _run_parallel_stage_group(
+                executable_stages,
+                env,
+                context,
+                log_path,
+                latest_log_path,
+                print_lock,
+            ):
+                _handle_stage_result(stage, ok, elapsed, tail)
+        else:
+            for stage in executable_stages:
+                emit_event(
+                    "discriminator",
+                    "stage_start",
+                    slug=slug,
+                    mode=mode,
+                    pass_number=pass_number,
+                    run_id=run_id,
+                    attempt=attempt,
+                    identifier=stage.identifier,
+                    description=stage.description,
+                    command=stage.command,
+                    group=group.title,
+                )
+                ok, elapsed, tail = _execute_stage(
+                    stage,
+                    env,
+                    context,
+                    log_path,
+                    latest_log_path,
+                )
+                _handle_stage_result(stage, ok, elapsed, tail)
     result = f"{palette.green}PASS{palette.reset}" if overall_ok else f"{palette.red}FAIL{palette.reset}"
     print(f"  Result: [{result}]")
     _render_stage_summary(summary, overall_ok, first_failure, palette, context, mode)
@@ -742,9 +784,11 @@ def _execute_stage(
     context: RexContext,
     log_path: Path,
     latest_log_path: Path,
+    print_lock: Optional[threading.Lock] = None,
 ) -> Tuple[bool, float, str]:
-    print(f"\n  Question {stage.identifier}: {stage.description}")
-    print(f"    Command: {stage.command}")
+    with (print_lock or nullcontext()):
+        print(f"\n  Question {stage.identifier}: {stage.description}")
+        print(f"    Command: {stage.command}")
     stage_timeout = int(os.environ.get("DISCRIMINATOR_STAGE_TIMEOUT", "0") or "0")
     timeout_seconds = stage_timeout if stage_timeout > 0 else None
     cmd = ["bash", "-lc", stage.command]
@@ -769,12 +813,43 @@ def _execute_stage(
         fh.write(output)
     with open(latest_log_path, "a", encoding="utf-8") as fh:
         fh.write(output)
-    print(output, end="")
-    if completed.returncode == 124:
-        print(f"[discriminator] Stage {stage.identifier} timed out after {stage_timeout}s")
+    with (print_lock or nullcontext()):
+        print(output, end="")
+        if completed.returncode == 124:
+            print(f"[discriminator] Stage {stage.identifier} timed out after {stage_timeout}s")
     ok = completed.returncode == 0
     tail_lines = "\n".join((output or "").splitlines()[-8:])
     return ok, elapsed, tail_lines
+
+
+def _run_parallel_stage_group(
+    stages: Sequence[Stage],
+    env: dict[str, str],
+    context: RexContext,
+    log_path: Path,
+    latest_log_path: Path,
+    print_lock: threading.Lock,
+) -> Iterable[Tuple[Stage, bool, float, str]]:
+    if not stages:
+        return
+    max_workers = min(5, len(stages))
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_map = {
+            executor.submit(
+                _execute_stage,
+                stage,
+                env,
+                context,
+                log_path,
+                latest_log_path,
+                print_lock,
+            ): stage
+            for stage in stages
+        }
+        for future in as_completed(future_map):
+            stage = future_map[future]
+            ok, elapsed, tail = future.result()
+            yield stage, ok, elapsed, tail
 
 
 _COVERAGE_TOTAL_RE = re.compile(r"TOTAL\s+\d+\s+\d+\s+\d+\s+(\d+)%")
