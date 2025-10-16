@@ -188,7 +188,12 @@ def ensure_python(context: RexContext, *, quiet: bool = False) -> None:
             print("[*] Creating Python virtual environment (.venv)…")
         run(["python3", "-m", "venv", str(context.venv_dir)])
     pip = context.venv_dir / "bin" / "pip"
-    run([str(pip), "install", "--upgrade", "pip"], check=True)
+    run(
+        [str(pip), "install", "--upgrade", "pip"],
+        check=True,
+        capture_output=quiet,
+        text=True,
+    )
 
 
 def activate_venv(context: RexContext) -> Dict[str, str]:
@@ -258,6 +263,8 @@ def _audit_candidate_paths(root: Path) -> List[Path]:
         "*.md",
         "AGENTS.md",
         "README.md",
+        ".codex_ci_latest.log",
+        ".codex_ci/*.log",
         "documents/**/*.md",
         "bin/**/*.py",
         "bin/**/*.sh",
@@ -426,7 +433,12 @@ def _auto_commit_and_push(root: Path, audit_path: Path) -> None:
         print(f"[audit] git push failed: {push.stderr or push.stdout}")
 
 
-def create_audit_snapshot(context: RexContext, *, auto_commit: bool = True) -> Path:
+def create_audit_snapshot(
+    context: RexContext,
+    *,
+    auto_commit: bool = True,
+    extra_sections: Optional[List[tuple[str, Sequence[str]]]] = None,
+) -> Path:
     root = context.root
     audit_dir = ensure_dir(root / "for_external_GPT5_pro_audit")
     timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
@@ -436,6 +448,12 @@ def create_audit_snapshot(context: RexContext, *, auto_commit: bool = True) -> P
         print("[audit] No candidate files found for snapshot.")
         return audit_path
     _write_audit_file(audit_path, root, files)
+    if extra_sections:
+        with audit_path.open("a", encoding="utf-8") as fh:
+            for title, lines in extra_sections:
+                fh.write(f"\n## {title}\n\n")
+                for line in lines:
+                    fh.write(f"- {line}\n")
     print(f"[audit] Snapshot written to {audit_path}")
     if auto_commit:
         _auto_commit_and_push(root, audit_path)

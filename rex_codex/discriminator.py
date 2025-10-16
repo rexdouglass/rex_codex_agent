@@ -15,10 +15,10 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Iterable, List, Mapping, Optional, Sequence, Tuple
 from collections import OrderedDict
 
-from .cards import discover_cards, load_rex_agent
+from .cards import discover_cards, find_orphan_spec_slugs, load_rex_agent
 from .config import (
     AGENT_SRC,
     DEFAULT_COVERAGE_MIN,
@@ -55,6 +55,7 @@ class DiscriminatorOptions:
     codex_flags: str = os.environ.get("CODEX_FLAGS", "--yolo")
     codex_model: str = os.environ.get("MODEL", "")
     verbose: bool = True
+    stage_timeout: Optional[int] = None
 
 
 @dataclass
@@ -70,6 +71,11 @@ class StageGroup:
     stages: List[Stage]
 
 
+def _write_discriminator_result(context: RexContext, payload: Mapping[str, object]) -> None:
+    path = context.codex_ci_dir / "discriminator_result.json"
+    dump_json(path, payload)
+
+
 def _ansi_palette() -> SimpleNamespace:
     disable = bool(os.environ.get("NO_COLOR")) or not sys.stdout.isatty()
     if disable:
@@ -83,6 +89,7 @@ def _ansi_palette() -> SimpleNamespace:
             dim="",
             reset="",
             bold="",
+            error="",
         )
     return SimpleNamespace(
         green="\x1b[32m",
@@ -94,6 +101,7 @@ def _ansi_palette() -> SimpleNamespace:
         dim="\x1b[2m",
         reset="\x1b[0m",
         bold="\x1b[1m",
+        error="\x1b[31m",
     )
 
 
@@ -115,6 +123,8 @@ def _run_locked(options: DiscriminatorOptions, context: RexContext) -> int:
     if "COVERAGE_TARGETS" not in env and (context.root / "src").exists():
         env["COVERAGE_TARGETS"] = "src"
     env.setdefault("COVERAGE_MIN", str(DEFAULT_COVERAGE_MIN))
+    if options.stage_timeout:
+        env["DISCRIMINATOR_STAGE_TIMEOUT"] = str(options.stage_timeout)
 
     slug = options.slug or _discover_active_slug(context)
     mode = options.mode
@@ -244,18 +254,57 @@ def _run_stage_plan(
     if mode == "feature":
         if not slug:
             print("[discriminator] Feature mode requested but no slug provided.")
+            _write_discriminator_result(
+                context,
+                {
+                    "mode": mode,
+                    "slug": slug,
+                    "ok": False,
+                    "coverage_failed": False,
+                    "coverage_targets": None,
+                    "coverage_threshold": None,
+                    "first_failure": {
+                        "identifier": None,
+                        "description": "Feature slug missing",
+                        "command": "",
+                    },
+                },
+            )
             return False
         if not specs_dir.is_dir():
             msg = f"[discriminator] Feature specs directory {specs_dir} missing"
             print(msg)
             with open(latest_log_path, "a", encoding="utf-8") as fh:
                 fh.write(msg + "\n")
+            _write_discriminator_result(
+                context,
+                {
+                    "mode": mode,
+                    "slug": slug,
+                    "ok": False,
+                    "coverage_failed": False,
+                    "coverage_targets": None,
+                    "coverage_threshold": None,
+                    "first_failure": {
+                        "identifier": None,
+                        "description": "Feature specs directory missing",
+                        "command": "",
+                    },
+                },
+            )
             return False
 
     groups = _build_stage_groups(mode, slug, pytest_flags, env, context)
     overall_ok = True
     summary: List[dict[str, object]] = []
     first_failure: Optional[dict[str, object]] = None
+    coverage_failed = False
+    coverage_targets_display: Optional[str] = env.get("COVERAGE_TARGETS")
+    coverage_threshold = env.get("COVERAGE_MIN")
+    if not coverage_targets_display and coverage_min:
+        coverage_targets_display = coverage_targets
+    if not coverage_threshold and coverage_min:
+        coverage_threshold = str(coverage_min)
     for group in groups:
         print("------------------------------------------------------------")
         print(f"{palette.blue}Stage: {group.title}{palette.reset}")
@@ -280,9 +329,31 @@ def _run_stage_plan(
                 overall_ok = False
                 if first_failure is None:
                     first_failure = record
+                    banner = f"[discriminator] First failure: [{stage.identifier}] {stage.description}"
+                    print(f"{palette.error}{banner}{palette.reset}")
+                    with open(latest_log_path, "a", encoding="utf-8") as fh:
+                        fh.write(banner + "\n")
+                if stage.identifier.startswith("04.") or "Coverage" in group.title:
+                    coverage_failed = True
     result = f"{palette.green}PASS{palette.reset}" if overall_ok else f"{palette.red}FAIL{palette.reset}"
     print(f"  Result: [{result}]")
-    _render_stage_summary(summary, overall_ok, first_failure, palette)
+    _render_stage_summary(summary, overall_ok, first_failure, palette, context, mode)
+    payload: dict[str, object] = {
+        "mode": mode,
+        "slug": slug,
+        "ok": overall_ok,
+        "coverage_failed": coverage_failed,
+        "coverage_targets": coverage_targets_display,
+        "coverage_threshold": coverage_threshold,
+        "first_failure": None,
+    }
+    if first_failure is not None:
+        payload["first_failure"] = {
+            "identifier": first_failure.get("identifier"),
+            "description": first_failure.get("description"),
+            "command": first_failure.get("command"),
+        }
+    _write_discriminator_result(context, payload)
     return overall_ok
 
 
@@ -507,7 +578,7 @@ def _execute_stage(
     print(f"\n  Question {stage.identifier}: {stage.description}")
     print(f"    Command: {stage.command}")
     stage_timeout = int(os.environ.get("DISCRIMINATOR_STAGE_TIMEOUT", "0") or "0")
-    timeout_enabled = _has_timeout_utility()
+    timeout_seconds = stage_timeout if stage_timeout > 0 else None
     cmd = ["bash", "-lc", stage.command]
     start = time.perf_counter()
     try:
@@ -517,7 +588,7 @@ def _execute_stage(
             env=env,
             capture_output=True,
             text=True,
-            timeout=stage_timeout if (stage_timeout > 0 and timeout_enabled) else None,
+            timeout=timeout_seconds,
         )
         output = (completed.stdout or "") + (completed.stderr or "")
     except subprocess.TimeoutExpired:
@@ -543,6 +614,8 @@ def _render_stage_summary(
     overall_ok: bool,
     first_failure: Optional[dict[str, object]],
     palette: SimpleNamespace,
+    context: RexContext,
+    mode: str,
 ) -> None:
     if not summary:
         return
@@ -570,9 +643,14 @@ def _render_stage_summary(
         print(f"\n{palette.yellow}Next step:{palette.reset} rerun the first failing command locally:")
         print(f"  {command}")
         print(f"Inspect {palette.cyan}./rex-codex logs --discriminator --lines 200{palette.reset} for full output.")
-
-
-_HAS_TIMEOUT: Optional[bool] = None
+    if mode == "global":
+        orphans = find_orphan_spec_slugs(context)
+        if orphans:
+            paths = ", ".join(f"tests/feature_specs/{slug}" for slug in sorted(orphans))
+            print(
+                f"{palette.yellow}[discriminator] Orphan spec shards detected:{palette.reset} {paths}\n"
+                f"  Run `./rex-codex card prune-specs` to tidy up."
+            )
 
 
 def _summarize_failure_reason(tail: object) -> str:
@@ -587,13 +665,6 @@ def _summarize_failure_reason(tail: object) -> str:
             continue
         return stripped[:160]
     return ""
-
-
-def _has_timeout_utility() -> bool:
-    global _HAS_TIMEOUT
-    if _HAS_TIMEOUT is None:
-        _HAS_TIMEOUT = shutil_which("timeout") is not None
-    return _HAS_TIMEOUT
 
 
 def shutil_which(name: str) -> Optional[str]:

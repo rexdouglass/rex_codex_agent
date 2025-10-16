@@ -1,0 +1,21 @@
+{
+  "feature": {
+    "active_card": "documents/feature_cards/hello_cli.md",
+    "active_slug": "hello_cli",
+    "updated_at": "2025-10-16T18:03:37Z"
+  },
+  "generator": {
+    "pass_durations": [
+      0.06,
+      0.07,
+      0.07,
+      0.06,
+      0.06,
+      0.06,
+      0.06,
+      0.06,
+      5.07,
+      12.07
+    ]
+  }
+}

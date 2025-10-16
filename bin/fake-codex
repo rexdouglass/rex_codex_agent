@@ -1,0 +1,265 @@
+#!/usr/bin/env python3
+"""
+Offline stub for ``npx @openai/codex`` so rex_codex_agent can run end-to-end tests.
+
+The agent invokes the Codex CLI via ``CODEX_BIN exec … -- <PROMPT>``. This stub
+recognises the specific prompts produced by the generator/critic:
+
+* When asked to "Produce a *unified git diff*", emit deterministic diffs that only
+  touch ``tests/feature_specs/<slug>/…``.
+* When the critic requests a decision, respond with ``DONE``.
+
+Any other call prints nothing to keep behaviour predictable.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import sys
+import time
+from typing import Iterable, List, Tuple
+
+
+DiffEntry = Tuple[str, List[str]]
+
+
+CONFTEST_TEMPLATE = """from __future__ import annotations
+
+import importlib.util
+import os
+import runpy
+import sys
+from pathlib import Path
+
+import pytest
+
+
+def _project_root() -> Path:
+    env_root = os.environ.get("ROOT")
+    if env_root:
+        candidate = Path(env_root).resolve()
+        if (candidate / "src").exists():
+            return candidate
+    here = Path(__file__).resolve()
+    for parent in (here,) + tuple(here.parents):
+        if (parent / "src").exists():
+            return parent
+    return Path.cwd().resolve()
+
+
+def _import_from_src(pkg: str):
+    root = _project_root()
+    module_file = root / "src" / pkg / "__init__.py"
+    if not module_file.exists():
+        raise FileNotFoundError(f"{module_file} not found")
+    spec = importlib.util.spec_from_file_location(pkg, str(module_file))
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader  # type: ignore[truthy-bool]
+    spec.loader.exec_module(module)  # type: ignore[attr-defined]
+    return module
+
+
+@pytest.fixture(scope="session")
+def hello():
+    return _import_from_src("hello")
+
+
+@pytest.fixture
+def run_app():
+    root = _project_root()
+
+    def _run(*args: str) -> None:
+        argv = ["hello", *args]
+        original_argv = sys.argv[:]
+        original_path = list(sys.path)
+        source_path = root / "src"
+        if str(source_path) not in sys.path:
+            sys.path.insert(0, str(source_path))
+        sys.argv = argv
+        try:
+            runpy.run_module("hello", run_name="__main__")
+        except SystemExit as exc:  # mimic CLI invocation
+            if exc.code not in (0, None):
+                raise
+        finally:
+            sys.argv = original_argv
+            sys.path[:] = original_path
+
+    return _run
+"""
+
+
+HELLO_GREET_TEST = """from __future__ import annotations
+
+
+def test_default_greeting(run_app, capsys):
+    run_app()
+    captured = capsys.readouterr()
+    assert captured.out == "Hello World\\n"
+    assert captured.err == ""
+
+
+def test_main_returns_zero(hello):
+    assert hello.main(["--quiet"]) == 0
+"""
+
+
+HELLO_CLI_TEST = """from __future__ import annotations
+
+import pytest
+
+
+def test_default_greeting(run_app, capsys):
+    '''AC#1 Run with default arguments and print `Hello World`.'''
+
+    run_app()
+    captured = capsys.readouterr()
+    assert captured.out == "Hello World\\n"
+    assert captured.err == ""
+
+
+def test_message_override(run_app, capsys):
+    '''AC#2 Accept `--message` to override the greeting text.'''
+
+    run_app("--message", "Hi there")
+    captured = capsys.readouterr()
+    assert captured.out == "Hi there\\n"
+    assert captured.err == ""
+
+
+@pytest.mark.parametrize("repeat", [2, 3])
+def test_repeat_behavior(run_app, capsys, repeat):
+    '''AC#2 Accept `--repeat` to control repetition.'''
+
+    run_app("--repeat", str(repeat))
+    captured = capsys.readouterr()
+    expected = ("Hello World\\n" * repeat)
+    assert captured.out == expected
+    assert captured.err == ""
+
+
+def test_quiet_mode_suppresses_output(run_app, capsys):
+    '''AC#3 Support `--quiet` to suppress output entirely.'''
+
+    run_app("--message", "Muted", "--quiet")
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+"""
+
+
+DEFAULT_TEST = """from __future__ import annotations
+
+
+def test_feature_imports(hello):
+    assert hasattr(hello, "main")
+"""
+
+
+def _extract_prompt(argv: list[str]) -> str | None:
+    try:
+        idx = argv.index("--")
+    except ValueError:
+        return None
+    if idx + 1 >= len(argv):
+        return None
+    return argv[idx + 1]
+
+
+def _slug_from_prompt(prompt: str) -> str:
+    match = re.search(r"(?im)^Feature slug:\s*([A-Za-z0-9._-]+)\s*$", prompt)
+    if not match:
+        return "feature"
+    return match.group(1)
+
+
+def _split_template(template: str) -> List[str]:
+    return template.strip("\n").split("\n")
+
+
+def _conftest_lines() -> List[str]:
+    return _split_template(CONFTEST_TEMPLATE)
+
+
+def _templates(slug: str) -> List[DiffEntry]:
+    normalized = slug.replace("-", "_")
+    conftest_lines = _conftest_lines()
+
+    templates: dict[str, List[DiffEntry]] = {
+        "hello_greet": [
+            (
+                "tests/feature_specs/hello_greet/conftest.py",
+                conftest_lines,
+            ),
+            (
+                "tests/feature_specs/hello_greet/test_greet.py",
+                _split_template(HELLO_GREET_TEST),
+            ),
+        ],
+        "hello_cli": [
+            (
+                "tests/feature_specs/hello_cli/conftest.py",
+                conftest_lines,
+            ),
+            (
+                "tests/feature_specs/hello_cli/test_cli.py",
+                _split_template(HELLO_CLI_TEST),
+            ),
+        ],
+    }
+
+    if normalized in templates:
+        return templates[normalized]
+
+    prefix = f"tests/feature_specs/{slug}"
+    return [
+        (
+            f"{prefix}/conftest.py",
+            conftest_lines,
+        ),
+        (
+            f"{prefix}/test_feature.py",
+            _split_template(DEFAULT_TEST),
+        ),
+    ]
+
+
+def _emit_diff(entries: Iterable[DiffEntry]) -> None:
+    first = True
+    for rel_path, lines in entries:
+        if not first:
+            print()
+        first = False
+        print(f"diff --git a/{rel_path} b/{rel_path}")
+        print("new file mode 100644")
+        print("--- /dev/null")
+        print(f"+++ b/{rel_path}")
+        print(f"@@ -0,0 +1,{len(lines)} @@")
+        for line in lines:
+            print(f"+{line}")
+    print()
+
+
+def main(argv: list[str]) -> int:
+    delay = float(os.environ.get("FAKE_CODEX_DELAY", "0") or 0)
+    prompt = _extract_prompt(argv)
+    if not prompt:
+        return 0
+    if delay > 0:
+        time.sleep(delay)
+    slug = _slug_from_prompt(prompt)
+
+    if "Produce a *unified git diff*" in prompt:
+        _emit_diff(_templates(slug))
+        return 0
+
+    if "Respond in ONE of two ways:" in prompt:
+        print("DONE")
+        return 0
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

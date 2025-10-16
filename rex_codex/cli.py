@@ -8,7 +8,17 @@ from pathlib import Path
 
 from . import __version__
 from .burn import burn_repo
-from .cards import create_card, discover_cards, lint_all_cards, sanitise_slug
+from .cards import (
+    archive_card,
+    create_card,
+    discover_cards,
+    lint_all_cards,
+    prune_spec_directories,
+    rename_card,
+    sanitise_slug,
+    spec_directory,
+    split_card,
+)
 from .discriminator import DiscriminatorOptions, run_discriminator
 from .doctor import run_doctor
 from .generator import GeneratorOptions, parse_statuses, run_generator
@@ -46,7 +56,14 @@ def build_parser() -> argparse.ArgumentParser:
     gen_parser.add_argument("--include-accepted", action="store_true", help="Consider cards with status: accepted")
     gen_parser.add_argument("--status", dest="statuses", default=None, help="Comma-separated statuses to include")
     gen_parser.add_argument("--each", action="store_true", help="Process each matching Feature Card sequentially")
+    gen_parser.add_argument("--reconcile", action="store_true", help="Report Spec Trace coverage without writing diffs")
     gen_parser.add_argument("--tail", type=int, default=0, help="Tail log output (N lines) when the generator fails")
+    gen_parser.add_argument(
+        "--ui",
+        choices=["monitor", "snapshot", "off", "auto"],
+        default=None,
+        help="Generator HUD mode (default: monitor when attached to a TTY)",
+    )
     gen_verbose = gen_parser.add_mutually_exclusive_group()
     gen_verbose.add_argument("--verbose", action="store_true", help="Print Codex diffs (default)")
     gen_verbose.add_argument("--quiet", action="store_true", help="Suppress Codex diff output")
@@ -66,6 +83,7 @@ def build_parser() -> argparse.ArgumentParser:
     disc_verbose.add_argument("--verbose", action="store_true", help="Print discriminator debug output (default)")
     disc_verbose.add_argument("--quiet", action="store_true", help="Reduce discriminator verbosity")
     disc_parser.add_argument("--tail", type=int, default=0, help="Tail log output (N lines) when the discriminator fails")
+    disc_parser.add_argument("--stage-timeout", type=int, default=None, help="Timeout (seconds) for each discriminator stage")
 
     # loop
     loop_parser = sub.add_parser("loop", help="Generator → discriminator orchestration")
@@ -88,6 +106,8 @@ def build_parser() -> argparse.ArgumentParser:
     loop_llm = loop_parser.add_mutually_exclusive_group()
     loop_llm.add_argument("--enable-llm", action="store_true", help="Allow guarded runtime edits via LLM")
     loop_llm.add_argument("--disable-llm", action="store_true", help="Disable LLM runtime edits")
+    loop_parser.add_argument("--stage-timeout", type=int, default=None, help="Timeout (seconds) applied to discriminator stages")
+    loop_parser.add_argument("--continue-on-fail", action="store_true", help="Process remaining Feature Cards even if one fails")
 
     # card commands
     card_parser = sub.add_parser("card", help="Feature Card helpers")
@@ -103,12 +123,38 @@ def build_parser() -> argparse.ArgumentParser:
 
     card_sub.add_parser("validate", help="Validate Feature Card formatting")
 
+    card_rename = card_sub.add_parser("rename", help="Rename a Feature Card and its spec shard")
+    card_rename.add_argument("old_slug")
+    card_rename.add_argument("new_slug")
+
+    card_split_parser = card_sub.add_parser("split", help="Split a Feature Card into two new cards")
+    card_split_parser.add_argument("source_slug")
+    card_split_parser.add_argument("slug_a")
+    card_split_parser.add_argument("slug_b")
+
+    card_archive_parser = card_sub.add_parser("archive", help="Mark a Feature Card as archived (status: archived)")
+    card_archive_parser.add_argument("slug")
+
+    card_prune = card_sub.add_parser("prune-specs", help="Remove orphan or archived spec shards")
+    card_prune.add_argument("--yes", action="store_true", help="Delete without confirmation prompts")
+    arch_group = card_prune.add_mutually_exclusive_group()
+    arch_group.add_argument("--archived", dest="include_archived", action="store_true", help="Include archived cards (default)")
+    arch_group.add_argument("--no-archived", dest="include_archived", action="store_false", help="Skip archived cards")
+    card_prune.set_defaults(include_archived=True)
+
     # logs & status
     logs_parser = sub.add_parser("logs", help="Tail recent discriminator/generator logs")
     logs_parser.add_argument("--generator", action="store_true", help="Show generator logs")
     logs_parser.add_argument("--discriminator", action="store_true", help="Show discriminator logs")
     logs_parser.add_argument("--lines", type=int, default=120, help="Number of log lines to display")
-    sub.add_parser("status", help="Show rex-codex status summary")
+    logs_parser.add_argument("--follow", action="store_true", help="Stream log output until interrupted")
+    status_parser = sub.add_parser("status", help="Show rex-codex status summary")
+    status_parser.add_argument("--json", action="store_true", help="Emit raw JSON summary")
+
+    hud_parser = sub.add_parser("hud", help="Render a one-shot HUD snapshot from event streams")
+    hud_parser.add_argument("phase", choices=["generator"], help="HUD phase to render")
+    hud_parser.add_argument("--slug", help="Feature slug to focus (defaults to active card)")
+    hud_parser.add_argument("--events", help="Override events JSONL path")
 
     # doctor
     sub.add_parser("doctor", help="Print environment diagnostics")
@@ -167,6 +213,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.verbose:
             options.verbose = True
         options.tail_lines = args.tail
+        options.reconcile_only = args.reconcile
+        if args.ui:
+            options.ui_mode = "monitor" if args.ui == "auto" else args.ui
         exit_code = run_generator(options, context=context)
         if exit_code != 0 and args.tail:
             show_latest_logs(context, lines=args.tail, generator=True)
@@ -191,6 +240,8 @@ def main(argv: list[str] | None = None) -> int:
         options.verbose = not args.quiet
         if args.verbose:
             options.verbose = True
+        if args.stage_timeout is not None:
+            options.stage_timeout = args.stage_timeout
         exit_code = run_discriminator(options, context=context)
         if exit_code != 0 and args.tail:
             show_latest_logs(context, lines=args.tail, discriminator=True)
@@ -231,6 +282,9 @@ def main(argv: list[str] | None = None) -> int:
             loop_opts.discriminator_options.disable_llm = False
         elif args.disable_llm:
             loop_opts.discriminator_options.disable_llm = True
+        if args.stage_timeout is not None:
+            loop_opts.discriminator_options.stage_timeout = args.stage_timeout
+        loop_opts.continue_on_fail = args.continue_on_fail
         return run_loop(loop_opts, context=context)
 
     if args.command == "card":
@@ -267,7 +321,33 @@ def main(argv: list[str] | None = None) -> int:
             for error in errors:
                 print(error)
             return 1
-        parser.error("card requires a sub-command (new/list/validate)")
+        if args.card_command == "rename":
+            card = rename_card(context, args.old_slug, args.new_slug)
+            spec_dir = spec_directory(context, card.slug)
+            print(f"[card] Renamed Feature Card → {card.slug} ({card.path})")
+            if spec_dir.exists():
+                print(f"[card] Spec shard relocated to {spec_dir}")
+            return 0
+        if args.card_command == "split":
+            card_a, card_b = split_card(context, args.source_slug, args.slug_a, args.slug_b)
+            print(f"[card] Created {card_a.slug} ({card_a.path})")
+            print(f"[card] Created {card_b.slug} ({card_b.path})")
+            print("[card] Review acceptance criteria for each new card and adjust tests as needed.")
+            return 0
+        if args.card_command == "archive":
+            card = archive_card(context, args.slug)
+            print(f"[card] Updated {card.path} to status: {card.status}")
+            return 0
+        if args.card_command == "prune-specs":
+            removed = prune_spec_directories(
+                context,
+                include_archived=args.include_archived,
+                assume_yes=args.yes,
+            )
+            if not removed:
+                print("[card prune-specs] No spec shards removed.")
+            return 0
+        parser.error("card requires a sub-command (new/list/validate/rename/split/archive/prune-specs)")
 
     if args.command == "logs":
         show_latest_logs(
@@ -275,15 +355,22 @@ def main(argv: list[str] | None = None) -> int:
             lines=args.lines,
             generator=args.generator,
             discriminator=args.discriminator,
+            follow=args.follow,
         )
         return 0
 
     if args.command == "status":
-        render_status(context)
+        render_status(context, json_output=getattr(args, "json", False))
         return 0
 
     if args.command == "doctor":
         run_doctor()
+        return 0
+
+    if args.command == "hud":
+        from .hud import render_hud
+
+        render_hud(phase=args.phase, slug=args.slug, events_file=args.events, context=context)
         return 0
 
     if args.command == "burn":

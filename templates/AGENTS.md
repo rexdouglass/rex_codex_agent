@@ -6,6 +6,7 @@ This repository follows a staged automation ladder that keeps default runs fast,
 - Runtime code lives under `src/` or `app/` (project-specific) and never imports from `tests/`.
 - Tests live in `tests/` (including `tests/enforcement/` and `tests/feature_specs/`).
 - Public modules expose stable contracts; tests verify behaviour but must not be imported by runtime.
+- `bin/fake-codex`, `scripts/selftest_loop.sh`, and `scripts/smoke_e2e.sh` stay executable; self-development loops must pass before changes merge or releases cut.
 
 ## Specs, Docs, and Types
 - Public callables require a docstring with an executable spec (doctest-style example or pytest-style spec case).
@@ -60,5 +61,14 @@ Stages 04–05 (DB/UI) are optional packs you can enable per project by extendin
 - `./rex-codex status` – inspect the active slug/card and last discriminator success metadata.
 - `./rex-codex burn --yes` – reset the working tree (keeps `.git` and, by default, `.rex_agent`).
 - `./rex-codex uninstall --force` – remove the agent (pair with `--keep-wrapper` to leave the shim).
+- `scripts/selftest_loop.sh` – run the fast offline self-development loop; export `SELFTEST_KEEP=1` to keep `.selftest_workspace/` for debugging.
+- `scripts/smoke_e2e.sh` – run the offline self-development loop; export `KEEP=1` to keep the temp repo for debugging.
+
+## Self-development Loop
+- `bin/fake-codex` emulates Codex and emits hermetic diffs limited to `tests/feature_specs/<slug>/`. Keep it executable so offline smoke runs work everywhere.
+- `scripts/selftest_loop.sh` resets `.selftest_workspace/`, runs the `hello_greet` and `hello_cli` Feature Cards with the Codex stub, appends logs/status/spec listings/runtime code to the latest audit file, and removes the workspace (`SELFTEST_KEEP=1` retains it for debugging).
+- `scripts/smoke_e2e.sh` provisions a temp repo, installs the current checkout, scaffolds the `hello_greet` and `hello_cli` Feature Cards, runs `./rex-codex loop --feature-only`, and executes the global discriminator pass. Set `KEEP=1` to retain the workspace for debugging.
+- Run the selftest loop before merges, release tags, or documentation updates; use the smoke harness to validate the broader flow. Treat failures as blockers—they indicate the agent can no longer bootstrap itself locally.
+- After both loops pass, repeat the Golden Path in your destination repo (e.g. your practice Pong game) to validate the workflow with real features.
 
 Keep this document updated when expectations shift. The automation loop assumes these guardrails are authoritative.

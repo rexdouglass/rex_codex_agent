@@ -6,6 +6,7 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
 - Run a disciplined **discriminator ladder** (smoke/unit → coverage ≥80% → optional security/package checks → style/type).
 - Optionally nibble at runtime code with **tight guardrails** (small, allowlisted patches only).
 - Capture logs, JUnit, and state in-repo so every pass is auditable.
+- Dogfood itself with deterministic **self-development loops** (`scripts/selftest_loop.sh`, `scripts/smoke_e2e.sh`, and `bin/fake-codex`) so every change proves the generator → discriminator pipeline still works in a fresh repo.
 
 > 🛠️ The agent intentionally targets **Linux shells (Bash 4+)**, **Python tooling**, and **OpenAI Codex** via `npx @openai/codex`. Windows support is via WSL; other ecosystems are out-of-scope.
 
@@ -19,6 +20,7 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
 - `python3` on PATH (the agent bootstraps a `.venv` with pytest/ruff/black/isort/flake8/mypy/pytest-cov).
 - `node` 18+ if you want LLM-assisted generator/discriminator flows (the discriminator runs offline by default via `DISABLE_LLM=1`).
 - Outbound network is optional: self-update now defaults **off** (`REX_AGENT_NO_UPDATE=1`). Flip to `0` to pull newer agent versions.
+- For dogfooding, keep `bin/fake-codex` executable and run `scripts/selftest_loop.sh` (fast two-card loop) plus `scripts/smoke_e2e.sh` regularly—these harnesses prove the agent can install itself into a clean repo and go green without network access.
 
 ---
 
@@ -49,6 +51,8 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
    - **Generator** converts the card into deterministic pytest specs under `tests/feature_specs/<slug>/`.
    - Each generator pass opens with a dashboard summarising the Feature Card (title, acceptance criteria, existing specs) and previews the proposed diff with per-test highlights before patches land.
 - **Discriminator** executes the staged ladder (health, smoke/unit, coverage ≥80%, optional pip-audit/bandit/build, style/type).
+  - Run just the feature shard: `./rex-codex discriminator --feature-only`
+  - Run the full ladder: `./rex-codex discriminator --global`
 - Runs now finish with a color-coded loop summary so you can see at a glance whether generator/discriminator passed, warned, or failed and why.
 - After each run, an audit snapshot is written to `for_external_GPT5_pro_audit/` and committed/pushed automatically so GPT5-Pro reviews have the latest scripts and docs.
    - Add `--explain` to preview the planned generator/discriminator phases before they run; `--no-self-update` skips the preflight update check.
@@ -66,6 +70,7 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
    - `./rex-codex status` – inspect the active slug/card and last discriminator success.
    - `./rex-codex logs` – tail the latest discriminator/generator output from `.codex_ci/`.
    - `./rex-codex card list` – list cards by status for quick triage.
+   - `./rex-codex card rename <old> <new>` / `card split` / `card archive` / `card prune-specs` – keep Feature Cards and spec shards tidy without manual git plumbing.
    - `./rex-codex doctor` – diagnose env issues.
    - `./rex-codex install --force` – re-clone the agent and re-run `init`/`doctor` automatically (add `--skip-init` / `--skip-doctor` to opt out).
    - `./rex-codex burn --dry-run` then `--yes` – wipe repo contents (keeps `.git`, optionally `.rex_agent`).
@@ -76,7 +81,18 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
 - `./rex-codex generator --tail 120` – replay Codex output and show the latest diff/log on failure (add `--quiet` to silence).
 - `./rex-codex loop --tail 120` – run generator + discriminator with live diff previews and automatic log tails.
 - `./rex-codex logs --generator --lines 200` – dump the most recent generator response/patch when you need manual inspection.
+- `scripts/selftest_loop.sh` – fast offline selftest with two feature cards; export `SELFTEST_KEEP=1` to inspect `.selftest_workspace/`.
+- `scripts/smoke_e2e.sh` – run the self-development loop end-to-end; set `KEEP=1` to preserve the temp repo for debugging.
 - `GENERATOR_PROGRESS_SECONDS=5 ./rex-codex loop` – tighten the Codex heartbeat interval (default 15s) so long passes show more frequent progress updates.
+
+**Focused troubleshooting**
+- Tail without hunting: `./rex-codex logs --generator --lines 200` or `./rex-codex logs --discriminator --lines 200`.
+- Follow logs live when debugging long runs: `./rex-codex logs --discriminator --follow`.
+- Re-run a shard while iterating: `./rex-codex discriminator --feature-only --single-pass`.
+- Promote to the full ladder when the shard is green: `./rex-codex discriminator --global`.
+- Cap runaway stages when debugging: `./rex-codex discriminator --stage-timeout 180` (or pass via `loop --stage-timeout`).
+- Keep LLM edits disabled by default (the loop exports `DISABLE_LLM=1`). Opt in with `./rex-codex discriminator --enable-llm --single-pass` or `DISABLE_LLM=0 ./rex-codex loop --discriminator-only` when ready.
+- When a stage fails, read `.codex_ci_latest.log` for the first failing command and rerun the suggested “next command”.
 
 ---
 
@@ -86,12 +102,12 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
 |---------|---------|-----------------|
 | `./rex-codex install` | Reinstall or refresh the agent in-place (auto-runs `init`/`doctor`). | `--force`, `--channel`, `--skip-init`, `--skip-doctor` |
 | `./rex-codex init` | Seed `.venv`, guardrails, Feature Card scaffolding, and `rex-agent.json`. | — |
-| `./rex-codex generator` | Generate deterministic pytest specs from the next `status: proposed` card. | `--single-pass`, `--max-passes`, `--focus`, `--status`, `--each`, `--tail`, `--quiet` |
-| `./rex-codex discriminator` | Run the staged ladder (feature shard via `--feature-only`, full sweep by default). | `--feature-only`, `--global`, `--single-pass`, `--enable-llm`, `--disable-llm`, `DISCRIMINATOR_MAX_PASSES`, `COVERAGE_MIN`, `PIP_AUDIT`, `BANDIT`, `PACKAGE_CHECK`, `MYPY_TARGETS`, `MYPY_INCLUDE_TESTS`, `--tail`, `--quiet` |
-| `./rex-codex loop` | Generator → feature shard → global sweep in one shot. | `--generator-only`, `--discriminator-only`, `--feature-only`, `--global-only`, `--each`, `--explain`, `--no-self-update`, `--enable-llm`, `--disable-llm`, `--tail`, `--quiet` |
-| `./rex-codex card` | `new`, `list`, `validate` helpers for Feature Cards. | `--status`, `--acceptance` (for `new`) |
-| `./rex-codex status` | Show the active slug/card and last discriminator success. | — |
-| `./rex-codex logs` | Tail the latest generator/discriminator logs from `.codex_ci/`. | `--generator`, `--discriminator`, `--lines` |
+| `./rex-codex generator` | Generate deterministic pytest specs from the next `status: proposed` card. | `--single-pass`, `--max-passes`, `--focus`, `--status`, `--each`, `--tail`, `--quiet`, `--reconcile` |
+| `./rex-codex discriminator` | Run the staged ladder (feature shard via `--feature-only`, full sweep by default). | `--feature-only`, `--global`, `--single-pass`, `--enable-llm`, `--disable-llm`, `DISCRIMINATOR_MAX_PASSES`, `COVERAGE_MIN`, `PIP_AUDIT`, `BANDIT`, `PACKAGE_CHECK`, `MYPY_TARGETS`, `MYPY_INCLUDE_TESTS`, `--tail`, `--quiet`, `--stage-timeout` |
+| `./rex-codex loop` | Generator → feature shard → global sweep in one shot. | `--generator-only`, `--discriminator-only`, `--feature-only`, `--global-only`, `--each`, `--explain`, `--no-self-update`, `--enable-llm`, `--disable-llm`, `--tail`, `--quiet`, `--stage-timeout`, `--continue-on-fail` |
+| `./rex-codex card` | Manage Feature Cards (`new`, `list`, `validate`, `rename`, `split`, `archive`, `prune-specs`). | `--status`, `--acceptance` (for `new`) |
+| `./rex-codex status` | Show the active slug/card and last discriminator success. | `--json` |
+| `./rex-codex logs` | Tail or follow the latest generator/discriminator logs from `.codex_ci/`. | `--generator`, `--discriminator`, `--lines`, `--follow` |
 | `./rex-codex doctor` | Print versions/paths for `python3`, `node`, and `docker`. | — |
 | `./rex-codex burn` | Wipe the repo (keeps `.git`; optional `--purge-agent`; supports `--dry-run`). | `--yes`, `--purge-agent`, `--dry-run` |
 | `./rex-codex uninstall` | Remove `.rex_agent/` and optionally the wrapper. | `--force`, `--keep-wrapper` |
@@ -125,6 +141,7 @@ The agent also tracks state in `rex-agent.json` (active slug/card, last discrimi
 
 - Discovers cards by status; prompt instructs the Codex CLI to output a **unified diff** limited to `tests/feature_specs/<slug>/…` and the matching card.
 - Prints a concise dashboard before each pass (Feature Card summary, acceptance criteria, existing specs) and a diff summary that calls out new/updated tests so you can see the plan at a glance.
+- Maintains a Spec Trace block linking each acceptance criterion to the generated tests and appends it to the card; use `./rex-codex generator --reconcile` to review coverage and orphaned specs without invoking the Codex CLI.
 - Warns when Feature Cards exist but their `status:` values miss the requested set (useful for catching typos like `propsed`).
 - Before applying a diff it enforces:
   - Allowed-path filter.
@@ -133,6 +150,7 @@ The agent also tracks state in `rex-agent.json` (active slug/card, last discrimi
   - Card guard: only appends in `## Links` / `## Spec Trace`, never mutates `status:`.
 - After each pass it runs pytest on the spec shard and feeds logs to a “critic” loop until the card is marked `DONE` or max passes hit.
 - Long Codex calls surface elapsed-time heartbeats (default every 15 seconds, configurable via `GENERATOR_PROGRESS_SECONDS`) so the loop never sits silent during a pass.
+- Stores the last few pass durations and prints a quick ETA hint when recent iterations averaged ≥20 s, so slow Codex calls come with expectations.
 
 ---
 
@@ -162,6 +180,16 @@ Guardrails:
   - `documents/feature_cards/README.md` – how to structure cards.
   - `tests/enforcement/` – enforcement specs for repo hygiene.
 - Self-update defaults off; set `REX_AGENT_NO_UPDATE=0` if you want automatic pulls (channels: `stable`, `main`, `<tag>`).
+
+---
+
+## Self-development Loop
+
+- `bin/fake-codex` emulates `npx @openai/codex` and emits hermetic diffs limited to `tests/feature_specs/<slug>/`. Keep it executable so offline runs remain available.
+- `scripts/selftest_loop.sh` resets `.selftest_workspace/`, installs the current checkout, exercises two feature cards (`hello_greet`, `hello_cli`) covering the default greeting and CLI flags, appends the command log/status/spec listing/runtime code to the latest audit file, then removes the workspace (set `SELFTEST_KEEP=1` to inspect).
+- `scripts/smoke_e2e.sh` creates a throwaway repo, installs the current checkout via `scripts/install.sh`, scaffolds the `hello_greet` and `hello_cli` Feature Cards, and runs `./rex-codex loop --feature-only` followed by the global discriminator sweep (`KEEP=1` preserves the temp repo).
+- Run the selftest loop before landing changes, bumping `VERSION`, or publishing docs; treat failures as release blockers. Follow up with the broader smoke harness as needed to validate longer paths.
+- Once both pass, repeat the documented Golden Path in a fresh repo (e.g. your practice Pong game) to validate real-world usage with or without the Codex stub.
 
 ---
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import difflib
 import os
 import re
@@ -14,7 +15,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .cards import FeatureCard, discover_cards, load_rex_agent, update_active_card
 from .config import (
@@ -38,6 +39,9 @@ from .utils import (
     repo_root,
     run,
 )
+from .events import emit_event, events_path
+from .hud import generator_snapshot_text
+from .generator_ui import GeneratorHUD
 
 PROGRESS_INTERVAL_SECONDS = max(5, int(os.environ.get("GENERATOR_PROGRESS_SECONDS", "15")))
 
@@ -128,10 +132,12 @@ def _render_generator_dashboard(
     focus: str,
     passes: int,
     options: GeneratorOptions,
+    metadata: Optional[Dict[str, object]] = None,
+    existing_specs: Optional[List[str]] = None,
 ) -> None:
     palette = _ansi_palette()
-    metadata = _extract_card_metadata(card.path)
-    existing_specs = _list_existing_specs(specs_dir)
+    metadata = metadata or _extract_card_metadata(card.path)
+    existing_specs = existing_specs or _list_existing_specs(specs_dir)
     header = f"{palette.header}Generator Dashboard{palette.reset}"
     divider = "-" * 62
     print(f"\n{header}")
@@ -216,6 +222,50 @@ def _summarize_diff(diff_text: str) -> Tuple[List[Dict[str, object]], Dict[str, 
     return entries, totals
 
 
+@dataclass
+class _TestMetadata:
+    name: str
+    rel_path: Path
+    docstring: str
+    normalized_name: str
+    normalized_doc: str
+    tokens: set[str]
+
+    @property
+    def display(self) -> str:
+        return f"{self.rel_path.as_posix()}::{self.name}"
+
+
+@dataclass
+class _SpecTraceEntry:
+    index: int
+    text: str
+    tests: List[_TestMetadata]
+
+
+@dataclass
+class _SpecTraceResult:
+    entries: List[_SpecTraceEntry]
+    missing: List[_SpecTraceEntry]
+    orphans: List[_TestMetadata]
+    section_lines: List[str]
+
+
+def _spec_trace_payload(result: _SpecTraceResult) -> Dict[str, Any]:
+    def _entry_payload(entry: _SpecTraceEntry) -> Dict[str, Any]:
+        return {
+            "index": entry.index,
+            "text": entry.text,
+            "tests": [test.display for test in entry.tests],
+        }
+
+    return {
+        "entries": [_entry_payload(entry) for entry in result.entries],
+        "missing": [_entry_payload(entry) for entry in result.missing],
+        "orphans": [orphan.display for orphan in result.orphans],
+    }
+
+
 def _print_diff_summary(diff_text: str) -> None:
     entries, totals = _summarize_diff(diff_text)
     if not entries:
@@ -255,6 +305,221 @@ def _print_diff_summary(diff_text: str) -> None:
                 print(f"      {label} tests: {joined}")
 
 
+def _normalize_spec_text(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", text.lower())
+
+
+def _tokenize_spec_text(text: str) -> set[str]:
+    return {token for token in re.split(r"[^a-z0-9]+", text.lower()) if token}
+
+
+def _collect_test_metadata(root: Path, specs_dir: Path) -> List[_TestMetadata]:
+    if not specs_dir.exists():
+        return []
+    results: List[_TestMetadata] = []
+    for path in sorted(specs_dir.rglob("*.py")):
+        try:
+            source = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        try:
+            tree = ast.parse(source, filename=str(path))
+        except SyntaxError:
+            continue
+        rel_path = path.relative_to(root)
+        for node in tree.body:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if not node.name.startswith("test"):
+                    continue
+                docstring = ast.get_docstring(node) or ""
+                normalized_name = _normalize_spec_text(node.name)
+                normalized_doc = _normalize_spec_text(docstring)
+                tokens = _tokenize_spec_text(node.name) | _tokenize_spec_text(docstring)
+                results.append(
+                    _TestMetadata(
+                        name=node.name,
+                        rel_path=rel_path,
+                        docstring=docstring.strip(),
+                        normalized_name=normalized_name,
+                        normalized_doc=normalized_doc,
+                        tokens=tokens,
+                    )
+                )
+    return results
+
+
+def _bullet_matches(
+    bullet_norm: str,
+    bullet_tokens: set[str],
+    candidate: _TestMetadata,
+) -> bool:
+    if not bullet_norm and not bullet_tokens:
+        return False
+    if bullet_norm and bullet_norm in candidate.normalized_doc:
+        return True
+    if bullet_norm and bullet_norm in candidate.normalized_name:
+        return True
+    if not bullet_tokens:
+        return False
+    shared = bullet_tokens & candidate.tokens
+    if shared == bullet_tokens:
+        return True
+    if len(shared) >= max(1, len(bullet_tokens) - 1):
+        return True
+    return False
+
+
+def _build_spec_trace_result(
+    *,
+    card: FeatureCard,
+    slug: str,
+    context: RexContext,
+) -> Optional[_SpecTraceResult]:
+    metadata = _extract_card_metadata(card.path)
+    acceptance = metadata.get("acceptance") or []
+    root = context.root
+    specs_dir = root / "tests" / "feature_specs" / slug
+    tests = _collect_test_metadata(root, specs_dir)
+    if not acceptance and not tests:
+        return None
+
+    unmatched = {test.display: test for test in tests}
+    entries: List[_SpecTraceEntry] = []
+    for index, text in enumerate(acceptance, start=1):
+        bullet_norm = _normalize_spec_text(text)
+        bullet_tokens = _tokenize_spec_text(text)
+        matches = [
+            candidate
+            for candidate in tests
+            if _bullet_matches(bullet_norm, bullet_tokens, candidate)
+        ]
+        for matched in matches:
+            unmatched.pop(matched.display, None)
+        entries.append(_SpecTraceEntry(index=index, text=text, tests=sorted(matches, key=lambda c: c.display)))
+
+    section_lines: List[str] = []
+    if entries:
+        for entry in entries:
+            section_lines.append(f"- [AC#{entry.index}] \"{entry.text}\"")
+            if entry.tests:
+                for matched in entry.tests:
+                    section_lines.append(f"  -> {matched.display}")
+            else:
+                section_lines.append("  -> (missing)")
+    else:
+        section_lines.append("- (no acceptance criteria listed)")
+
+    missing = [entry for entry in entries if not entry.tests]
+    orphans = sorted(unmatched.values(), key=lambda item: item.display)
+    return _SpecTraceResult(entries=entries, missing=missing, orphans=orphans, section_lines=section_lines)
+
+
+def _replace_card_section(card_path: Path, heading: str, content_lines: Sequence[str]) -> bool:
+    try:
+        original = card_path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    lines = original.splitlines()
+    heading_lower = f"## {heading}".lower()
+    start_idx: Optional[int] = None
+    for idx, line in enumerate(lines):
+        if line.strip().lower() == heading_lower:
+            start_idx = idx
+            break
+    if start_idx is None:
+        # Append heading at the end
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.append(f"## {heading}")
+        start_idx = len(lines) - 1
+        lines.append("")
+    end_idx = start_idx + 1
+    while end_idx < len(lines) and not lines[end_idx].strip().startswith("## "):
+        end_idx += 1
+
+    replacement: List[str] = [""]
+    replacement.extend(content_lines)
+    if content_lines:
+        replacement.append("")
+    new_lines = lines[: start_idx + 1] + replacement + lines[end_idx:]
+
+    # Remove duplicate trailing blank lines
+    while len(new_lines) > 1 and not new_lines[-1].strip() and not new_lines[-2].strip():
+        new_lines.pop()
+
+    updated = "\n".join(new_lines)
+    if original.rstrip("\n") == updated.rstrip("\n"):
+        return False
+    card_path.write_text(updated + "\n", encoding="utf-8")
+    return True
+
+
+def _update_spec_trace(
+    *,
+    card: FeatureCard,
+    slug: str,
+    context: RexContext,
+) -> Tuple[Optional[_SpecTraceResult], bool]:
+    result = _build_spec_trace_result(card=card, slug=slug, context=context)
+    if result is None:
+        return None, False
+    changed = _replace_card_section(card.path, "Spec Trace", result.section_lines)
+    return result, changed
+
+
+def _print_spec_trace_result(result: _SpecTraceResult) -> None:
+    palette = _ansi_palette()
+    print(f"{palette.accent}Spec Trace coverage{palette.reset}:")
+    if not result.entries:
+        print("  (no acceptance criteria listed)")
+    for entry in result.entries:
+        label = f"[AC#{entry.index}] {entry.text}"
+        print(f"  {label}")
+        if entry.tests:
+            for matched in entry.tests:
+                print(f"      -> {matched.display}")
+        else:
+            print(f"      -> {palette.warning}(missing){palette.reset}")
+    if result.missing:
+        for entry in result.missing:
+            print(
+                f"{palette.warning}[generator] Acceptance criterion lacks coverage:{palette.reset} "
+                f"[AC#{entry.index}] {entry.text}"
+            )
+    if result.orphans:
+        print(
+            f"{palette.warning}[generator] The following tests do not map to any acceptance bullet:{palette.reset}"
+        )
+        for orphan in result.orphans:
+            hint = f"docstring: {orphan.docstring}" if orphan.docstring else "no docstring"
+            print(f"      - {orphan.display} ({hint})")
+
+
+def _load_pass_durations(context: RexContext) -> List[float]:
+    data = load_json(context.rex_agent_file)
+    generator_state = data.get("generator", {})
+    durations = generator_state.get("pass_durations", [])
+    if isinstance(durations, list):
+        return [float(value) for value in durations if isinstance(value, (int, float))]
+    return []
+
+
+def _average_pass_duration(context: RexContext) -> Optional[float]:
+    durations = _load_pass_durations(context)
+    if len(durations) < 2:
+        return None
+    return sum(durations) / len(durations)
+
+
+def _record_pass_duration(context: RexContext, seconds: float) -> None:
+    data = load_json(context.rex_agent_file)
+    generator_state = data.setdefault("generator", {})
+    durations = generator_state.get("pass_durations", [])
+    if not isinstance(durations, list):
+        durations = []
+    durations.append(round(seconds, 2))
+    generator_state["pass_durations"] = durations[-10:]
+    dump_json(context.rex_agent_file, data)
 def _emit_codex_updates(chunk: str, palette: SimpleNamespace, last_update: str) -> str:
     lines = [line.strip() for line in chunk.splitlines() if line.strip()]
     if not lines:
@@ -297,6 +562,17 @@ def _diagnose_missing_cards(statuses: List[str], context: RexContext) -> None:
                 break
         status_display = f"status={card.status}"
         print(f"  - {card.slug}: {status_display}{suggestion}")
+def _default_ui_hz() -> float:
+    raw = os.environ.get("GENERATOR_UI_HZ")
+    if raw is None:
+        return 1.0
+    try:
+        value = float(raw)
+    except ValueError:
+        return 5.0
+    return value if value > 0 else 5.0
+
+
 @dataclass
 class GeneratorOptions:
     continuous: bool = True
@@ -310,6 +586,9 @@ class GeneratorOptions:
     codex_model: str = os.environ.get("MODEL", "")
     verbose: bool = True
     tail_lines: int = 0
+    reconcile_only: bool = False
+    ui_mode: str = os.environ.get("GENERATOR_UI", "monitor")
+    ui_refresh_hz: float = field(default_factory=_default_ui_hz)
 
 
 @dataclass
@@ -339,8 +618,15 @@ def _run_codex_with_progress(
     cwd: Path,
     verbose: bool,
     progress_label: str,
+    slug: str | None = None,
 ) -> _CodexResult:
     start = time.time()
+    emit_event(
+        "generator",
+        "codex_started",
+        slug=slug,
+        command=list(cmd[:-1]) + ["<prompt>"] if cmd else [],
+    )
     process = subprocess.Popen(
         cmd,
         cwd=cwd,
@@ -367,26 +653,105 @@ def _run_codex_with_progress(
                 stderr_buffer.append(stderr)
             break
         except subprocess.TimeoutExpired as exc:
-            if exc.stdout:
-                chunk = exc.stdout.decode() if not isinstance(exc.stdout, str) else exc.stdout
+            # exc.output / exc.stderr contain partial data when text=True and pipes are used
+            if exc.output:
+                chunk = exc.output if isinstance(exc.output, str) else exc.output.decode()
                 stdout_buffer.append(chunk)
                 if verbose:
                     last_update = _emit_codex_updates(chunk, palette, last_update)
             if exc.stderr:
-                chunk_err = exc.stderr.decode() if not isinstance(exc.stderr, str) else exc.stderr
+                chunk_err = exc.stderr if isinstance(exc.stderr, str) else exc.stderr.decode()
                 stderr_buffer.append(chunk_err)
+            elapsed = int(time.time() - start)
             if verbose:
-                elapsed = int(time.time() - start)
                 print(f"[generator] {progress_label}… {elapsed}s elapsed", flush=True)
+            emit_event(
+                "generator",
+                "codex_heartbeat",
+                slug=slug,
+                seconds=elapsed,
+                progress_label=progress_label,
+            )
     elapsed_total = int(time.time() - start)
     stdout_combined = "".join(stdout_buffer)
     stderr_combined = "".join(stderr_buffer)
+    emit_event(
+        "generator",
+        "codex_completed",
+        slug=slug,
+        returncode=int(process.returncode or 0),
+        elapsed_seconds=elapsed_total,
+    )
     return _CodexResult(
         returncode=process.returncode or 0,
         stdout=stdout_combined,
         stderr=stderr_combined,
         elapsed_seconds=elapsed_total,
     )
+
+
+def _run_card_with_ui(card: FeatureCard, options: GeneratorOptions, context: RexContext) -> int:
+    ui_mode = (options.ui_mode or "monitor").lower()
+    if ui_mode in {"auto", "plain"}:
+        ui_mode = "monitor"
+    options.ui_mode = ui_mode
+
+    if options.reconcile_only:
+        return _process_card(card, options, context)
+
+    events_file = events_path()
+    if ui_mode != "off":
+        try:
+            events_file.unlink()
+        except FileNotFoundError:
+            pass
+
+    if ui_mode == "snapshot":
+        exit_code = _process_card(card, options, context)
+        try:
+            snapshot = generator_snapshot_text(card.slug, events_file)
+            if snapshot:
+                print(snapshot, end="")
+        except Exception:
+            pass
+        status_label = "PASS" if exit_code == 0 else f"EXIT {exit_code}"
+        console_log = context.codex_ci_dir / f"generator_console_{card.slug}.log"
+        print(f"[generator] Finished {card.slug} ({status_label}). Console log: {console_log}")
+        return exit_code
+
+    if ui_mode == "off":
+        return _process_card(card, options, context)
+
+    hud = GeneratorHUD(
+        slug=card.slug,
+        codex_ci_dir=context.codex_ci_dir,
+        ui_mode=ui_mode,
+        refresh_hz=options.ui_refresh_hz,
+    )
+    if not hud.enabled:
+        exit_code = _process_card(card, options, context)
+        try:
+            snapshot = generator_snapshot_text(card.slug, events_file)
+            if snapshot:
+                print(snapshot, end="")
+        except Exception:
+            pass
+        status_label = "PASS" if exit_code == 0 else f"EXIT {exit_code}"
+        console_log = context.codex_ci_dir / f"generator_console_{card.slug}.log"
+        print(f"[generator] Finished {card.slug} ({status_label}). Console log: {console_log}")
+        return exit_code
+
+    exit_code = 0
+    with hud:
+        exit_code = _process_card(card, options, context)
+    try:
+        snapshot = generator_snapshot_text(card.slug, events_file)
+        if snapshot:
+            print(snapshot, end="")
+    except Exception:
+        pass
+    hud.print_footer(exit_code)
+    return exit_code
 
 
 def run_generator(options: GeneratorOptions, *, context: RexContext | None = None) -> int:
@@ -424,14 +789,22 @@ def run_generator(options: GeneratorOptions, *, context: RexContext | None = Non
                 _diagnose_missing_cards(options.statuses, context)
             return 1
 
+        if options.reconcile_only:
+            targets = cards if options.iterate_all else [cards[0]]
+            exit_status = 0
+            for card in targets:
+                exit_status = max(exit_status, _reconcile_card(card, context))
+            return exit_status
+
         if options.iterate_all:
             for card in cards:
                 print(f"[generator] === Processing card {card.path} ===")
-                if _process_card(card, options, context) != 0:
-                    return 1
+                exit_code = _run_card_with_ui(card, options, context)
+                if exit_code != 0:
+                    return exit_code
             return 0
 
-        return _process_card(cards[0], options, context)
+        return _run_card_with_ui(cards[0], options, context)
 
 
 def _process_card(card: FeatureCard, options: GeneratorOptions, context: RexContext) -> int:
@@ -440,6 +813,8 @@ def _process_card(card: FeatureCard, options: GeneratorOptions, context: RexCont
     focus = options.focus
     passes = options.max_passes if options.continuous else 1
     specs_dir = context.root / "tests" / "feature_specs" / slug
+    metadata = _extract_card_metadata(card.path)
+    existing_specs = _list_existing_specs(specs_dir)
 
     update_active_card(context, card=card)
     _render_generator_dashboard(
@@ -448,11 +823,42 @@ def _process_card(card: FeatureCard, options: GeneratorOptions, context: RexCont
         focus=focus,
         passes=passes,
         options=options,
+        metadata=metadata,
+        existing_specs=existing_specs,
+    )
+    emit_event(
+        "generator",
+        "feature_started",
+        slug=slug,
+        title=str(metadata.get("title", card.slug)),
+        status=status,
+        card_path=str(card.relative_path),
+        summary=metadata.get("summary"),
+        acceptance=metadata.get("acceptance") or [],
+        existing_specs=existing_specs,
+        focus=focus,
+        passes=passes,
+        continuous=options.continuous,
     )
 
     for iteration in range(1, passes + 1):
+        avg_duration = _average_pass_duration(context)
+        if avg_duration and avg_duration >= 20:
+            print(
+                f"[generator] Recent passes averaged {avg_duration:.1f}s; Codex may report progress more slowly."
+            )
         print(f"[generator] Iteration {iteration}/{passes} (slug: {slug}, status: {status})")
-        exit_code, critic_feedback = _run_once(
+        iteration_start = time.perf_counter()
+        emit_event(
+            "generator",
+            "iteration_started",
+            slug=slug,
+            iteration=iteration,
+            total_passes=passes,
+            focus=focus,
+            status=status,
+        )
+        exit_code, _ = _run_once(
             card=card,
             slug=slug,
             status=status,
@@ -462,7 +868,26 @@ def _process_card(card: FeatureCard, options: GeneratorOptions, context: RexCont
             options=options,
             context=context,
         )
+        elapsed = time.perf_counter() - iteration_start
+        if exit_code == 0:
+            _record_pass_duration(context, elapsed)
+        emit_event(
+            "generator",
+            "iteration_completed",
+            slug=slug,
+            iteration=iteration,
+            total_passes=passes,
+            exit_code=exit_code,
+            elapsed_seconds=round(elapsed, 2),
+        )
         if exit_code != 0:
+            emit_event(
+                "generator",
+                "feature_failed",
+                slug=slug,
+                iteration=iteration,
+                exit_code=exit_code,
+            )
             return exit_code
 
         _run_pytest_snapshot(slug, context)
@@ -475,15 +900,53 @@ def _process_card(card: FeatureCard, options: GeneratorOptions, context: RexCont
         )
         if critic_ok:
             print(f"[generator] Critic returned DONE after pass {iteration}")
+            emit_event(
+                "generator",
+                "critic_guidance",
+                slug=slug,
+                iteration=iteration,
+                done=True,
+                guidance="DONE",
+            )
+            emit_event(
+                "generator",
+                "feature_completed",
+                slug=slug,
+                iteration=iteration,
+            )
             return 0
         if not critic_focus:
             print("[generator] Critic response empty; stopping.")
+            emit_event(
+                "generator",
+                "critic_guidance",
+                slug=slug,
+                iteration=iteration,
+                done=False,
+                guidance="",
+            )
             return 5
         print("[generator] Critic requested coverage updates:")
         print(critic_focus)
+        emit_event(
+            "generator",
+            "critic_guidance",
+            slug=slug,
+            iteration=iteration,
+            done=False,
+            guidance=critic_focus,
+        )
         focus = critic_focus
 
     print(f"[generator] Hit max passes ({passes}) without critic approval.")
+    emit_event(
+        "generator",
+        "feature_failed",
+        slug=slug,
+        iteration=passes,
+        exit_code=6,
+        reason="max_passes_exhausted",
+    )
     return 6
 
 
@@ -509,6 +972,8 @@ def _run_once(
             baseline_card_text = card_path.read_text(encoding="utf-8")
         except OSError:
             baseline_card_text = None
+    spec_trace_result: Optional[_SpecTraceResult] = None
+    card_trace_changed = False
 
     prompt_path = context.codex_ci_dir / "generator_prompt.txt"
     response_path = context.codex_ci_dir / "generator_response.log"
@@ -533,6 +998,7 @@ def _run_once(
         cwd=root,
         verbose=options.verbose,
         progress_label=f"Codex CLI running (pass {generation_pass}/{total_passes})",
+        slug=slug,
     )
     response_path.write_text(
         (completed.stdout or "") + ("\n" if completed.stdout else ""),
@@ -551,6 +1017,14 @@ def _run_once(
 
     diff_text = _extract_diff(response_path, slug)
     patch_path.write_text(diff_text, encoding="utf-8")
+    entries, totals = _summarize_diff(diff_text)
+    emit_event(
+        "generator",
+        "diff_summary",
+        slug=slug,
+        files=entries,
+        totals=dict(totals),
+    )
     if not diff_text.strip():
         print("[generator] Codex response did not contain a usable diff")
         return 3, None
@@ -581,6 +1055,9 @@ def _run_once(
     if options.verbose:
         print("[generator] Diff applied successfully.")
 
+    if card_path.exists():
+        spec_trace_result, card_trace_changed = _update_spec_trace(card=card, slug=slug, context=context)
+
     if not _guard_card_edits(slug, root, baseline_card_text):
         _revert_generated_files(slug, root)
         return 7, None
@@ -589,9 +1066,22 @@ def _run_once(
         _revert_generated_files(slug, root)
         return 7, None
 
+    if card_trace_changed:
+        run(["git", "add", str(card_path)], cwd=root, check=False)
+    if spec_trace_result:
+        _print_spec_trace_result(spec_trace_result)
+        emit_event(
+            "generator",
+            "spec_trace_update",
+            slug=slug,
+            changed=card_trace_changed,
+            coverage=_spec_trace_payload(spec_trace_result),
+        )
+
     if status == "proposed":
         _update_metadata(card, slug, context)
     print(f"[generator] Specs updated from {card.path}")
+    emit_event("generator", "feature_specs_updated", slug=slug)
     return 0, None
 
 
@@ -652,6 +1142,14 @@ def _append_existing_tests(slug: str, context: RexContext) -> str:
     return "\n".join(output)
 
 
+def _normalize_unified_diff(diff_text: str) -> str:
+    """Normalize line endings and ensure git-apply-friendly trailing newline."""
+    normalized = diff_text.replace("\r\n", "\n").replace("\r", "\n")
+    if normalized and not normalized.endswith("\n"):
+        normalized += "\n"
+    return normalized
+
+
 def _extract_diff(response_path: Path, slug: str) -> str:
     text = response_path.read_text(encoding="utf-8", errors="replace")
     pattern = re.compile(r"^diff --git .*$", re.MULTILINE)
@@ -673,8 +1171,8 @@ def _extract_diff(response_path: Path, slug: str) -> str:
             candidate.startswith(allowed_prefix) or candidate == allowed_doc
             for candidate in (a_path, b_path)
         ):
-            segments.append(block.strip())
-    return "\n\n".join(segments)
+            segments.append(block.rstrip("\n"))
+    return _normalize_unified_diff("\n\n".join(segments))
 
 
 def _enforce_patch_size(diff_text: str) -> bool:
@@ -787,12 +1285,20 @@ def _guard_card_edits(slug: str, root: Path, baseline_text: Optional[str]) -> bo
 
     allowed_headers = {"## Links", "## Spec Trace"}
 
-    def nearest_header(idx: int) -> Optional[str]:
-        for pos in range(idx - 1, -1, -1):
-            stripped = after_lines[pos].strip()
+    def nearest_header(lines: List[str], idx: int) -> Optional[str]:
+        for pos in range(min(idx, len(lines)) - 1, -1, -1):
+            stripped = lines[pos].strip()
             if stripped.startswith("## "):
                 return stripped
         return None
+
+    def header_key(header: Optional[str]) -> Optional[str]:
+        if header is None:
+            return None
+        return next(
+            (h for h in allowed_headers if header.lower().startswith(h.lower())),
+            None,
+        )
 
     sm = difflib.SequenceMatcher(a=before_lines, b=after_lines)
     for tag, i1, i2, j1, j2 in sm.get_opcodes():
@@ -803,26 +1309,34 @@ def _guard_card_edits(slug: str, root: Path, baseline_text: Optional[str]) -> bo
         if any(re.search(r"\bstatus\s*:", line, flags=re.IGNORECASE) for line in removed + added):
             print("[generator] Card edit touches status line; abort.")
             return False
-        if tag in {"delete", "replace"}:
-            print("[generator] Card edits may only append new lines inside allowed sections.")
-            return False
+        header_before = header_key(nearest_header(before_lines, i1))
+        header_after = header_key(nearest_header(after_lines, j1))
+        allowed_here = header_before or header_after
         if tag == "insert":
-            header = nearest_header(j1)
-            if header is None and added:
-                candidate = added[0].strip()
-                if candidate.startswith("## "):
-                    header = candidate
-            if header is None:
-                print("[generator] Card edits must appear under an allowed section.")
+            if not allowed_here:
+                header = nearest_header(after_lines, j1)
+                if header is None and added:
+                    candidate = added[0].strip()
+                    if candidate.startswith("## "):
+                        header = candidate
+                    header_after = header_key(header)
+                    allowed_here = header_after
+            if not allowed_here:
+                header = nearest_header(after_lines, j1)
+                if header is None:
+                    print("[generator] Card edits must appear under an allowed section.")
+                else:
+                    print(f"[generator] Card edits under section '{header}' are not permitted.")
                 return False
-            header_key = next(
-                (h for h in allowed_headers if header.lower().startswith(h.lower())),
-                None,
-            )
-            if header_key is None:
-                print(f"[generator] Card edits under section '{header}' are not permitted.")
+        elif tag in {"delete", "replace"}:
+            if not allowed_here:
+                header = nearest_header(before_lines, i1)
+                if header is None:
+                    print("[generator] Card edits may only modify allowed sections.")
+                else:
+                    print(f"[generator] Card edits under section '{header}' are not permitted.")
                 return False
-            # Inserted lines are otherwise free-form (links, trace entries, blank lines).
+            # Modifications within allowed sections are permitted.
     return True
 
 
@@ -872,20 +1386,64 @@ def _run_pytest_snapshot(slug: str, context: RexContext) -> None:
             f"[generator] No tests/feature_specs/{slug} directory yet; skipping pytest snapshot.\n",
             encoding="utf-8",
         )
+        emit_event(
+            "generator",
+            "pytest_snapshot",
+            slug=slug,
+            status="skipped",
+            reason="no_specs_dir",
+        )
         return
     ensure_python(context, quiet=True)
     env = activate_venv(context)
     env["PYTHONHASHSEED"] = env.get("PYTHONHASHSEED", "0")
     timeout_sec = int(os.environ.get("GENERATOR_SNAPSHOT_TIMEOUT", "300"))
     pytest_cmd = ["pytest", str(specs_dir), "-q", "-x", "--maxfail=1"]
+    def _tail(text: str, limit: int = 4000) -> str:
+        if len(text) <= limit:
+            return text
+        return text[-limit:]
+
     try:
-        run(pytest_cmd, cwd=context.root, env=env, check=True)
+        completed = subprocess.run(
+            pytest_cmd,
+            cwd=context.root,
+            env=env,
+            text=True,
+            capture_output=True,
+            timeout=timeout_sec,
+            check=True,
+        )
         log.write_text("", encoding="utf-8")
+        emit_event(
+            "generator",
+            "pytest_snapshot",
+            slug=slug,
+            status="passed",
+            command=pytest_cmd,
+            output=_tail((completed.stdout or "") + (completed.stderr or "")),
+        )
+    except subprocess.TimeoutExpired:
+        log.write_text(f"[generator] Pytest snapshot timed out after {timeout_sec}s\n", encoding="utf-8")
+        emit_event(
+            "generator",
+            "pytest_snapshot",
+            slug=slug,
+            status="timeout",
+            command=pytest_cmd,
+            timeout_seconds=timeout_sec,
+        )
     except subprocess.CalledProcessError as exc:
         output = (exc.stdout or "") + (exc.stderr or "")
-        if exc.returncode == 124:
-            output += f"\n[generator] Pytest snapshot timed out after {timeout_sec}s\n"
         log.write_text(output, encoding="utf-8")
+        emit_event(
+            "generator",
+            "pytest_snapshot",
+            slug=slug,
+            status="failed",
+            command=pytest_cmd,
+            output=_tail(output),
+        )
 
 
 def _run_critic(
@@ -981,6 +1539,21 @@ def _run_critic(
     if normalized == "DONE":
         return True, ""
     return False, trimmed
+
+
+def _reconcile_card(card: FeatureCard, context: RexContext) -> int:
+    palette = _ansi_palette()
+    print(
+        f"\n{palette.accent}Reconcile Feature Card{palette.reset}: "
+        f"{card.slug} ({context.relative(card.path)})"
+    )
+    update_active_card(context, card=card)
+    result = _build_spec_trace_result(card=card, slug=card.slug, context=context)
+    if result is None:
+        print("  No acceptance criteria or spec shard detected yet.")
+        return 0
+    _print_spec_trace_result(result)
+    return 1 if (result.missing or result.orphans) else 0
 
 
 def _update_metadata(card: FeatureCard, slug: str, context: RexContext) -> None:

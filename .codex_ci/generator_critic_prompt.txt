@@ -1,0 +1,274 @@
+You are reviewing pytest specs that were just generated for the following Feature Card.
+Decide whether the tests fully capture the acceptance criteria and obvious negative cases.
+Respond in ONE of two ways:
+1. `DONE` (exact uppercase word) if coverage is sufficient.
+2. `TODO:` followed by bullet items describing additional scenarios to cover.
+Do NOT provide code; only guidance.
+
+--- GENERATOR PASS ---
+1
+
+Feature slug: hello_cli
+
+--- FEATURE CARD ---
+# Hello CLI
+
+status: proposed
+
+## Summary
+
+Provide a simple command-line greeting that demonstrates the generator HUD.
+
+## Acceptance Criteria
+
+- Run with default arguments and print `Hello World`.
+- Accept `--message` to override the greeting text.
+- Support `--quiet` to suppress output entirely.
+
+## Links
+
+- (pending)
+
+## Spec Trace
+
+- [AC#1] "Run with default arguments and print `Hello World`."
+  -> tests/feature_specs/hello_cli/test_cli.py::test_default_greeting
+- [AC#2] "Accept `--message` to override the greeting text."
+  -> tests/feature_specs/hello_cli/test_cli.py::test_message_override
+- [AC#3] "Support `--quiet` to suppress output entirely."
+  -> tests/feature_specs/hello_cli/test_cli.py::test_quiet_mode_suppresses_output
+
+
+
+--- CURRENT TEST FILES ---
+### /media/skynet3/8tb_a1/rex_codex_agent/tests/feature_specs/hello_cli/conftest.py
+from __future__ import annotations
+
+import importlib.util
+import os
+import runpy
+import sys
+from pathlib import Path
+
+import pytest
+
+
+def _project_root() -> Path:
+    env_root = os.environ.get("ROOT")
+    if env_root:
+        candidate = Path(env_root).resolve()
+        if (candidate / "src").exists():
+            return candidate
+    here = Path(__file__).resolve()
+    for parent in (here,) + tuple(here.parents):
+        if (parent / "src").exists():
+            return parent
+    return Path.cwd().resolve()
+
+
+def _import_from_src(pkg: str):
+    root = _project_root()
+    module_file = root / "src" / pkg / "__init__.py"
+    if not module_file.exists():
+        raise FileNotFoundError(f"{module_file} not found")
+    spec = importlib.util.spec_from_file_location(pkg, str(module_file))
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader  # type: ignore[truthy-bool]
+    spec.loader.exec_module(module)  # type: ignore[attr-defined]
+    return module
+
+
+@pytest.fixture(scope="session")
+def hello():
+    return _import_from_src("hello")
+
+
+@pytest.fixture
+def run_app():
+    root = _project_root()
+
+    def _run(*args: str) -> None:
+        argv = ["hello", *args]
+        original_argv = sys.argv[:]
+        original_path = list(sys.path)
+        source_path = root / "src"
+        if str(source_path) not in sys.path:
+            sys.path.insert(0, str(source_path))
+        sys.argv = argv
+        try:
+            runpy.run_module("hello", run_name="__main__")
+        except SystemExit as exc:  # mimic CLI invocation
+            if exc.code not in (0, None):
+                raise
+        finally:
+            sys.argv = original_argv
+            sys.path[:] = original_path
+
+    return _run
+
+
+### /media/skynet3/8tb_a1/rex_codex_agent/tests/feature_specs/hello_cli/test_cli.py
+from __future__ import annotations
+
+import pytest
+
+
+def test_default_greeting(run_app, capsys):
+    '''AC#1 Run with default arguments and print `Hello World`.'''
+
+    run_app()
+    captured = capsys.readouterr()
+    assert captured.out == "Hello World\n"
+    assert captured.err == ""
+
+
+def test_message_override(run_app, capsys):
+    '''AC#2 Accept `--message` to override the greeting text.'''
+
+    run_app("--message", "Hi there")
+    captured = capsys.readouterr()
+    assert captured.out == "Hi there\n"
+    assert captured.err == ""
+
+
+@pytest.mark.parametrize("repeat", [2, 3])
+def test_repeat_behavior(run_app, capsys, repeat):
+    '''AC#2 Accept `--repeat` to control repetition.'''
+
+    run_app("--repeat", str(repeat))
+    captured = capsys.readouterr()
+    expected = ("Hello World\n" * repeat)
+    assert captured.out == expected
+    assert captured.err == ""
+
+
+def test_quiet_mode_suppresses_output(run_app, capsys):
+    '''AC#3 Support `--quiet` to suppress output entirely.'''
+
+    run_app("--message", "Muted", "--quiet")
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+
+--- END TEST FILES ---
+--- MOST RECENT DISCRIMINATOR LOG (tail) ---
+            pytest.skip("REX_SRC not exported; generator helper unavailable outside rex-codex executor")
+    
+        _write(f"{line}\n\nTitle: Demo\n")
+        command = f"source \"{rex_src}/lib/generator.sh\"; generator_card_status {CARD}"
+        result = _call(command)
+>       assert result.returncode == 0, result.stderr
+E       AssertionError: bash: line 1: /media/skynet3/8tb_a1/rex_codex_agent/.rex_agent/src/lib/generator.sh: No such file or directory
+E         bash: line 1: generator_card_status: command not found
+E         
+E       assert 127 == 0
+E        +  where 127 = CompletedProcess(args=['bash', '-lc', 'source "/media/skynet3/8tb_a1/rex_codex_agent/.rex_agent/src/lib/generator.sh";.../.rex_agent/src/lib/generator.sh: No such file or directory\nbash: line 1: generator_card_status: command not found\n').returncode
+
+templates/tests/enforcement/test_feature_card_status_parsing.py:44: AssertionError
+_ test_generator_card_status_respects_whitespace_and_case[ Status: Accepted-accepted] _
+
+line = ' Status: Accepted', expected = 'accepted'
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "line, expected",
+        [
+            ("status: proposed", "proposed"),
+            (" Status: Accepted", "accepted"),
+            ("\tstatus:REVIEW", "review"),
+        ],
+    )
+    def test_generator_card_status_respects_whitespace_and_case(line: str, expected: str) -> None:
+        rex_src = os.environ.get("REX_SRC")
+        if not rex_src:
+            pytest.skip("REX_SRC not exported; generator helper unavailable outside rex-codex executor")
+    
+        _write(f"{line}\n\nTitle: Demo\n")
+        command = f"source \"{rex_src}/lib/generator.sh\"; generator_card_status {CARD}"
+        result = _call(command)
+>       assert result.returncode == 0, result.stderr
+E       AssertionError: bash: line 1: /media/skynet3/8tb_a1/rex_codex_agent/.rex_agent/src/lib/generator.sh: No such file or directory
+E         bash: line 1: generator_card_status: command not found
+E         
+E       assert 127 == 0
+E        +  where 127 = CompletedProcess(args=['bash', '-lc', 'source "/media/skynet3/8tb_a1/rex_codex_agent/.rex_agent/src/lib/generator.sh";.../.rex_agent/src/lib/generator.sh: No such file or directory\nbash: line 1: generator_card_status: command not found\n').returncode
+
+templates/tests/enforcement/test_feature_card_status_parsing.py:44: AssertionError
+_ test_generator_card_status_respects_whitespace_and_case[\tstatus:REVIEW-review] _
+
+line = '\tstatus:REVIEW', expected = 'review'
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize(
+        "line, expected",
+        [
+            ("status: proposed", "proposed"),
+            (" Status: Accepted", "accepted"),
+            ("\tstatus:REVIEW", "review"),
+        ],
+    )
+    def test_generator_card_status_respects_whitespace_and_case(line: str, expected: str) -> None:
+        rex_src = os.environ.get("REX_SRC")
+        if not rex_src:
+            pytest.skip("REX_SRC not exported; generator helper unavailable outside rex-codex executor")
+    
+        _write(f"{line}\n\nTitle: Demo\n")
+        command = f"source \"{rex_src}/lib/generator.sh\"; generator_card_status {CARD}"
+        result = _call(command)
+>       assert result.returncode == 0, result.stderr
+E       AssertionError: bash: line 1: /media/skynet3/8tb_a1/rex_codex_agent/.rex_agent/src/lib/generator.sh: No such file or directory
+E         bash: line 1: generator_card_status: command not found
+E         
+E       assert 127 == 0
+E        +  where 127 = CompletedProcess(args=['bash', '-lc', 'source "/media/skynet3/8tb_a1/rex_codex_agent/.rex_agent/src/lib/generator.sh";.../.rex_agent/src/lib/generator.sh: No such file or directory\nbash: line 1: generator_card_status: command not found\n').returncode
+
+templates/tests/enforcement/test_feature_card_status_parsing.py:44: AssertionError
+=============================== warnings summary ===============================
+templates/tests/enforcement/test_docs_cli_sync.py:11
+  /media/skynet3/8tb_a1/rex_codex_agent/templates/tests/enforcement/test_docs_cli_sync.py:11: PytestUnknownMarkWarning: Unknown pytest.mark.unit - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.unit
+
+templates/tests/enforcement/test_docs_cli_sync.py:19
+  /media/skynet3/8tb_a1/rex_codex_agent/templates/tests/enforcement/test_docs_cli_sync.py:19: PytestUnknownMarkWarning: Unknown pytest.mark.unit - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.unit
+
+templates/tests/enforcement/test_feature_card_status_parsing.py:27
+  /media/skynet3/8tb_a1/rex_codex_agent/templates/tests/enforcement/test_feature_card_status_parsing.py:27: PytestUnknownMarkWarning: Unknown pytest.mark.unit - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.unit
+
+templates/tests/enforcement/test_runtime_boundary.py:25
+  /media/skynet3/8tb_a1/rex_codex_agent/templates/tests/enforcement/test_runtime_boundary.py:25: PytestUnknownMarkWarning: Unknown pytest.mark.unit - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.unit
+
+templates/tests/enforcement/test_specs.py:47
+  /media/skynet3/8tb_a1/rex_codex_agent/templates/tests/enforcement/test_specs.py:47: PytestUnknownMarkWarning: Unknown pytest.mark.unit - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.unit
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+- generated xml file: /media/skynet3/8tb_a1/rex_codex_agent/.codex_ci/discriminator_global_unit.xml -
+=========================== short test summary info ============================
+SKIPPED [1] templates/tests/enforcement/test_runtime_boundary.py:29: No runtime modules to audit yet
+SKIPPED [1] templates/tests/enforcement/test_specs.py:51: No runtime modules to audit yet
+FAILED templates/tests/enforcement/test_docs_cli_sync.py::test_readme_mentions_loop_and_discriminator_flags
+FAILED templates/tests/enforcement/test_feature_card_status_parsing.py::test_generator_card_status_respects_whitespace_and_case[status: proposed-proposed]
+FAILED templates/tests/enforcement/test_feature_card_status_parsing.py::test_generator_card_status_respects_whitespace_and_case[ Status: Accepted-accepted]
+FAILED templates/tests/enforcement/test_feature_card_status_parsing.py::test_generator_card_status_respects_whitespace_and_case[\tstatus:REVIEW-review]
+4 failed, 1 passed, 2 skipped, 5 warnings in 0.45s
+/usr/lib/python3/dist-packages/_pytest/config/__init__.py:331: PluggyTeardownRaisedWarning: A plugin raised an exception during an old-style hookwrapper teardown.
+Plugin: helpconfig, Hook: pytest_cmdline_parse
+UsageError: usage: pytest [options] [file_or_dir] [file_or_dir] [...]
+pytest: error: unrecognized arguments: --cov=. --cov-report=term --cov-fail-under=80
+  inifile: None
+  rootdir: /media/skynet3/8tb_a1/rex_codex_agent
+For more information see https://pluggy.readthedocs.io/en/stable/api_reference.html#pluggy.PluggyTeardownRaisedWarning
+  config = pluginmanager.hook.pytest_cmdline_parse(
+ERROR: usage: pytest [options] [file_or_dir] [file_or_dir] [...]
+pytest: error: unrecognized arguments: --cov=. --cov-report=term --cov-fail-under=80
+  inifile: None
+  rootdir: /media/skynet3/8tb_a1/rex_codex_agent
+
+bash: line 1: black: command not found
+bash: line 1: isort: command not found
+bash: line 1: ruff: command not found
+bash: line 1: flake8: command not found
+bash: line 1: mypy: command not found

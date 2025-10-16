@@ -5,7 +5,7 @@ from __future__ import annotations
 from .utils import which
 
 
-TOOLS = ("python3", "node", "docker")
+TOOLS = ("python3", "node", "npx", "docker")
 
 
 def run_doctor() -> None:
@@ -15,4 +15,3 @@ def run_doctor() -> None:
             print(f"[doctor] {tool}: {path}")
         else:
             print(f"[doctor] {tool}: missing (install or add to PATH)")
-

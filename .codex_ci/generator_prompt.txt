@@ -1,3 +1,26 @@
+You are a senior test architect.
+Produce a *unified git diff* that adds deterministic pytest specs under tests/feature_specs/<feature>/.
+Only touch:
+- tests/feature_specs/<feature>/...
+- documents/feature_cards/<same-card>.md  (to update state/links once tests are created)
+
+Guardrails:
+- Follow AGENTS.md. Do NOT modify runtime.
+- Tests must import the intended module so first failure is ModuleNotFoundError.
+- Force offline defaults (no network/time.sleep).
+- Include happy-path, env toggle, and explicit error coverage.
+Diff contract: unified diff only (start each file with 'diff --git').
+Determinism:
+- Avoid non-determinism (seed randomness, freeze time, avoid sleeps and network).
+- Prefer explicit assertions and minimal fixtures; ensure failures point to the right module.
+
+Feature slug: hello_cli
+All updates must remain under tests/feature_specs/hello_cli/ and the card document.
+
+--- PASS NUMBER ---
+1
+
+--- BEGIN AGENTS.md EXCERPT ---
 # rex_codex_agent · Operations Guide
 
 This repository ships the **Codex-first automation scaffold** that installs via `./rex-codex`. It is deliberately opinionated:
@@ -134,3 +157,38 @@ Keep these expectations visible—both docs and templates must reinforce them so
 - Verify templates (`templates/AGENTS.md`, `templates/documents/feature_cards/README.md`, enforcement tests) reflect new behaviour before cutting a release.
 
 Keep the guardrails tight, prefer explicit documentation, and remember every change should reduce ambiguity for future Codex audits.***
+
+--- END AGENTS.md EXCERPT ---
+
+--- BEGIN FEATURE CARD ---
+# Hello CLI
+
+status: proposed
+
+## Summary
+
+Provide a simple command-line greeting that demonstrates the generator HUD.
+
+## Acceptance Criteria
+
+- Run with default arguments and print `Hello World`.
+- Accept `--message` to override the greeting text.
+- Support `--quiet` to suppress output entirely.
+
+## Links
+
+- (pending)
+
+## Spec Trace
+
+- [AC#1] "Run with default arguments and print `Hello World`."
+  -> (missing)
+- [AC#2] "Accept `--message` to override the greeting text."
+  -> (missing)
+- [AC#3] "Support `--quiet` to suppress output entirely."
+  -> (missing)
+
+
+--- END FEATURE CARD ---
+
+--- EXISTING TEST FILES ---

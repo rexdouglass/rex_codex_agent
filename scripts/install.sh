@@ -110,7 +110,12 @@ ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 REX_HOME="$ROOT/.rex_agent"
 REX_SRC="$REX_HOME/src"
 export REX_HOME REX_SRC ROOT
-exec bash "$REX_SRC/bin/rex-codex" "$@"
+if [[ -x "$REX_SRC/bin/rex-codex" ]]; then
+  exec bash "$REX_SRC/bin/rex-codex" "$@"
+else
+  export PYTHONPATH="${REX_SRC}:${PYTHONPATH:-}"
+  exec python3 -m rex_codex "$@"
+fi
 WRAP
 chmod +x "$WRAPPER"
 
