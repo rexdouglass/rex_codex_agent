@@ -7,6 +7,7 @@ import difflib
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -32,6 +33,7 @@ from .utils import (
     ensure_requirements_installed,
     load_json,
     lock_file,
+    repo_root,
     run,
     which,
 )
@@ -668,12 +670,18 @@ def _default_popout_enabled() -> bool:
 def _default_popout_linger() -> float:
     raw = os.environ.get("GENERATOR_UI_LINGER")
     if raw is None:
+        if repo_root().name == "rex_codex_agent":
+            return 30.0
         return 5.0
     try:
         value = float(raw)
     except ValueError:
         return 5.0
     return max(0.0, value)
+
+
+def _default_scrub_specs_flag() -> Optional[bool]:
+    return _parse_env_toggle(os.environ.get("GENERATOR_SCRUB_SPECS"))
 
 
 @dataclass
@@ -694,6 +702,7 @@ class GeneratorOptions:
     ui_refresh_hz: float = field(default_factory=_default_ui_hz)
     spawn_popout: bool = field(default_factory=_default_popout_enabled)
     popout_linger: float = field(default_factory=_default_popout_linger)
+    scrub_specs: Optional[bool] = field(default_factory=_default_scrub_specs_flag)
 
 
 @dataclass
@@ -786,6 +795,20 @@ def _spawn_generator_popout(
     process, exe = launched
     print(f"[generator] HUD popout launched via {exe}.")
     return process
+
+
+def _should_scrub_specs(context: RexContext, option: Optional[bool]) -> bool:
+    if option is not None:
+        return option
+    return context.root.name == "rex_codex_agent"
+
+
+def _scrub_spec_directory(slug: str, context: RexContext) -> None:
+    specs_dir = context.root / "tests" / "feature_specs" / slug
+    if not specs_dir.exists():
+        return
+    print(f"[generator] Scrubbing spec shard: {context.relative(specs_dir)}")
+    shutil.rmtree(specs_dir, ignore_errors=True)
 
 
 def _run_codex_with_progress(
@@ -885,6 +908,9 @@ def _run_card_with_ui(
     if options.reconcile_only:
         return _process_card(card, options, context)
 
+    if _should_scrub_specs(context, options.scrub_specs):
+        _scrub_spec_directory(card.slug, context)
+
     events_file = events_path()
     if ui_mode != "off":
         try:
@@ -970,6 +996,8 @@ def run_generator(
             options.verbose = env_verbose.lower() not in {"0", "false", ""}
         requirements_template = AGENT_SRC / "templates" / "requirements-dev.txt"
         ensure_requirements_installed(context, requirements_template)
+        if options.scrub_specs is None:
+            options.scrub_specs = _should_scrub_specs(context, None)
         cards: List[FeatureCard]
         if options.card_path:
             if not options.card_path.exists():

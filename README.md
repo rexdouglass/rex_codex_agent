@@ -57,7 +57,8 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
 - After each run, an audit snapshot is written to `for_external_GPT5_pro_audit/` and committed/pushed automatically so GPT5-Pro reviews have the latest scripts and docs.
    - Add `--explain` to preview the planned generator/discriminator phases before they run; `--no-self-update` skips the preflight update check.
    - Need a targeted rerun? `./rex-codex discriminator --feature-only` handles the shard; `./rex-codex discriminator --global` runs the full ladder.
-   - Monitor mode (`--ui monitor`, default) keeps a single refreshed HUD in the active terminal. When the command runs inside VS Code we also auto-launch a popout terminal so you can watch the HUD in a standalone window (override with `--ui popout`, `--no-popout`, or `GENERATOR_UI_POPOUT=0`). Prefer a static frame? Use `--ui snapshot`, or `--ui off` to silence HUD output entirely.
+   - Monitor mode (`--ui monitor`, default) keeps a single refreshed HUD in the active terminal. When the command runs inside VS Code we also auto-launch a popout terminal so you can watch the HUD in a standalone window (override with `--ui popout`, `--no-popout`, or `GENERATOR_UI_POPOUT=0`). For the bundled `hello_…` specs we automatically scrub `tests/feature_specs/<slug>/` before each generator run so you always watch the toy project rebuilt from scratch; disable with `GENERATOR_SCRUB_SPECS=0` if you need to preserve prior artifacts. Prefer a static frame? Use `--ui snapshot`, or `--ui off` to silence HUD output entirely.
+   - Popout HUD windows linger for ~30 s after completion so you can review the final state; tune via `GENERATOR_UI_LINGER`.
    - Grab the latest HUD frame without a TTY (perfect for `watch -d` or CI artifacts), or stream it live with `--follow`:
      ```bash
      ./bin/rex-codex hud generator --slug <slug>

@@ -129,7 +129,19 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         help="Disable generator HUD popout behaviour",
     )
-    gen_parser.set_defaults(popout=None)
+    gen_parser.add_argument(
+        "--scrub-specs",
+        dest="scrub_specs",
+        action="store_true",
+        help="Delete the spec shard before generating",
+    )
+    gen_parser.add_argument(
+        "--no-scrub-specs",
+        dest="scrub_specs",
+        action="store_false",
+        help="Retain existing spec files before generating",
+    )
+    gen_parser.set_defaults(popout=None, scrub_specs=None)
     gen_parser.add_argument(
         "--popout-linger",
         type=float,
@@ -243,7 +255,19 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_false",
         help="Disable generator HUD popout behaviour",
     )
-    loop_parser.set_defaults(popout=None)
+    loop_parser.add_argument(
+        "--scrub-specs",
+        dest="scrub_specs",
+        action="store_true",
+        help="Delete the spec shard before generating",
+    )
+    loop_parser.add_argument(
+        "--no-scrub-specs",
+        dest="scrub_specs",
+        action="store_false",
+        help="Retain existing spec files before generating",
+    )
+    loop_parser.set_defaults(popout=None, scrub_specs=None)
     loop_parser.add_argument(
         "--popout-linger",
         type=float,
@@ -459,6 +483,8 @@ def main(argv: list[str] | None = None) -> int:
             options.spawn_popout = args.popout
         if args.popout_linger is not None:
             options.popout_linger = args.popout_linger
+        if args.scrub_specs is not None:
+            options.scrub_specs = args.scrub_specs
         exit_code = run_generator(options, context=context)
         if exit_code != 0 and args.tail:
             show_latest_logs(context, lines=args.tail, generator=True)
@@ -533,6 +559,8 @@ def main(argv: list[str] | None = None) -> int:
             loop_opts.generator_options.spawn_popout = args.popout
         if args.popout_linger is not None:
             loop_opts.generator_options.popout_linger = args.popout_linger
+        if args.scrub_specs is not None:
+            loop_opts.generator_options.scrub_specs = args.scrub_specs
         if args.stage_timeout is not None:
             loop_opts.discriminator_options.stage_timeout = args.stage_timeout
         loop_opts.continue_on_fail = args.continue_on_fail

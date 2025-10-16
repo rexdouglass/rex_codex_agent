@@ -13,18 +13,20 @@ def test_install_parser_accepts_force_and_channel() -> None:
 
 def test_generator_parser_quiet_and_tail() -> None:
     parser = build_parser()
-    args = parser.parse_args(["generator", "--quiet", "--tail", "200"])
+    args = parser.parse_args(["generator", "--quiet", "--tail", "200", "--scrub-specs"])
     assert args.command == "generator"
     assert args.quiet is True
     assert args.tail == 200
+    assert args.scrub_specs is True
 
 
 def test_loop_parser_quiet_and_tail() -> None:
     parser = build_parser()
-    args = parser.parse_args(["loop", "--quiet", "--tail", "150"])
+    args = parser.parse_args(["loop", "--quiet", "--tail", "150", "--no-scrub-specs"])
     assert args.command == "loop"
     assert args.quiet is True
     assert args.tail == 150
+    assert args.scrub_specs is False
 
 
 def test_discriminator_parser_quiet_and_tail() -> None:
