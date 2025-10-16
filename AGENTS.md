@@ -8,6 +8,8 @@ This repository ships the **Codex-first automation scaffold** that installs via 
 - **Audit goals:**
   1. Maintain a folder named `for_external_GPT5_pro_audit/` in each working repository.
   2. After every interaction, commit and push the current state of the repository and drop into that folder a concatenated snapshot of every important script/markdown/readme file, each prefixed with its absolute path.
+  3. Snapshots **must** be generated via the built-in helper (`rex_codex.utils.create_audit_snapshot(RexContext.discover())` or an equivalent CLI hook); never hand-roll or trim the audit output.
+  4. Treat audits as part of the conversational handshake—produce a fresh snapshot at the end of every operator interaction before yielding control.
 - **Self-development loop:** `bin/fake-codex`, `scripts/selftest_loop.sh`, and `scripts/smoke_e2e.sh` must stay executable and green. We dogfood the agent by reinstalling it into clean workspaces and running the generator → discriminator pipeline offline.
 
 The Bash wrapper is now a shim; all orchestration lives in the Python package `rex_codex` so we can unit-test and extend behaviour without shell metaprogramming.
@@ -38,8 +40,9 @@ Keep these expectations visible—both docs and templates must reinforce them so
    - Keeps diffs under `tests/feature_specs/<slug>/…` (tests only) and appends links/trace in the card.
    - Prints a dashboard summarising the Feature Card (acceptance criteria, existing specs) and previews the diff with new/updated tests before applying patches so operators can follow along in one screen.
    - Enforces patch-size limits (default 6 files / 300 lines).
-   - Warns when cards exist but their `status:` values don't match the requested set (e.g. typos like `propsed`) so operators can repair metadata quickly.
-   - Runs an AST hermeticity scan that bans network, subprocess, clock, and entropy **calls** (`requests.get`, `subprocess.run`, `time.sleep`, `uuid.uuid4`, `os.urandom`, `secrets`, `numpy.random`…), plus unconditional skip/xfail.
+- Warns when cards exist but their `status:` values don't match the requested set (e.g. typos like `propsed`) so operators can repair metadata quickly.
+- Runs an AST hermeticity scan that bans network, subprocess, clock, and entropy **calls** (`requests.get`, `subprocess.run`, `time.sleep`, `uuid.uuid4`, `os.urandom`, `secrets`, `numpy.random`…), plus unconditional skip/xfail.
+- Tag every spec with its acceptance target using either `"""AC#<n> …"""` docstrings or `@pytest.mark.ac(<n>)`. The Spec Trace, HUD coverage bar, and audit snapshots rely on these markers to keep acceptance → tests → pass/fail traceable.
 5. **Run the discriminator ladder**
    ```bash
    ./rex-codex discriminator --feature-only   # smoke/unit on the spec shard (pytest -x --maxfail=1)
@@ -55,6 +58,8 @@ Keep these expectations visible—both docs and templates must reinforce them so
   ```
    The loop finishes with a two-line scoreboard (generator vs discriminator) so operators immediately know which phase passed, warned, or failed.
    Every invocation also generates `for_external_GPT5_pro_audit/audit_<timestamp>.md`, stages all changes, and pushes the repository so external GPT5-Pro audits can start from the latest state.
+   Monitor mode (`--ui monitor`, default) keeps the HUD in a single refreshed screen. Use `--ui snapshot` for a one-off frame or `--ui off` to suppress HUD output during scripted runs.
+   Need the latest frame without attaching to TTY? Call the single-shot helpers (handy for `watch -d` in CI): `./bin/rex-codex hud generator --slug <slug>` and `./bin/rex-codex hud discriminator --slug <slug>`.
 7. **Promote the Feature Card**
    - When the repo is green, edit the card to `status: accepted` (generator never changes statuses). Commit your changes.
 

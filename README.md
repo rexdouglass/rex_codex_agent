@@ -57,6 +57,12 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
 - After each run, an audit snapshot is written to `for_external_GPT5_pro_audit/` and committed/pushed automatically so GPT5-Pro reviews have the latest scripts and docs.
    - Add `--explain` to preview the planned generator/discriminator phases before they run; `--no-self-update` skips the preflight update check.
    - Need a targeted rerun? `./rex-codex discriminator --feature-only` handles the shard; `./rex-codex discriminator --global` runs the full ladder.
+   - Monitor mode (`--ui monitor`, default) keeps a single refreshed HUD in the active terminal. Prefer a static frame? Use `--ui snapshot`, or `--ui off` to silence HUD output entirely.
+   - Grab the latest HUD frame without a TTY (perfect for `watch -d` or CI artifacts):
+     ```bash
+     ./bin/rex-codex hud generator --slug <slug>
+     ./bin/rex-codex hud discriminator --slug <slug>
+     ```
 
 5. **Implement runtime code until green**
    - Edit modules under `src/...` (or your package directories).
@@ -142,6 +148,7 @@ The agent also tracks state in `rex-agent.json` (active slug/card, last discrimi
 - Discovers cards by status; prompt instructs the Codex CLI to output a **unified diff** limited to `tests/feature_specs/<slug>/…` and the matching card.
 - Prints a concise dashboard before each pass (Feature Card summary, acceptance criteria, existing specs) and a diff summary that calls out new/updated tests so you can see the plan at a glance.
 - Maintains a Spec Trace block linking each acceptance criterion to the generated tests and appends it to the card; use `./rex-codex generator --reconcile` to review coverage and orphaned specs without invoking the Codex CLI.
+- Instrument spec files so coverage stays trustworthy: tag docstrings with `AC#<n>` or decorate tests with `@pytest.mark.ac(n)` to link them to acceptance bullets. Unmapped tests surface as orphans, and the HUD’s Feature Coverage Index (FCI) updates automatically as linked tests pass or fail.
 - Warns when Feature Cards exist but their `status:` values miss the requested set (useful for catching typos like `propsed`).
 - Before applying a diff it enforces:
   - Allowed-path filter.
