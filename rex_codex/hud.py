@@ -104,10 +104,17 @@ def _follow_generator_hud(
                 for event in reversed(events):
                     if event.get("slug") not in (slug, None):
                         continue
-                    if event.get("type") in {"feature_completed", "feature_failed"}:
+                    etype = event.get("type")
+                    if etype in {"feature_completed", "feature_failed"}:
                         if done_since is None:
                             done_since = time.monotonic()
                         break
+                    if etype == "iteration_completed":
+                        exit_code = event.get("data", {}).get("exit_code")
+                        if exit_code is not None:
+                            if done_since is None:
+                                done_since = time.monotonic()
+                            break
                 else:
                     done_since = None
             else:
@@ -409,7 +416,9 @@ def render_hud(
         return
     if phase == "discriminator":
         if follow:
-            raise SystemExit("[hud] --follow is currently supported for generator only.")
+            raise SystemExit(
+                "[hud] --follow is currently supported for generator only."
+            )
         snapshot = discriminator_snapshot_text(slug, path)
         if not snapshot:
             print(f"[hud] No discriminator events recorded yet at {path}.")

@@ -5,8 +5,8 @@ from __future__ import annotations
 import ast
 import difflib
 import os
-import shlex
 import re
+import shlex
 import subprocess
 import sys
 import textwrap
@@ -748,9 +748,7 @@ def _launch_terminal(
         exe_path = which(exe)
         if not exe_path:
             continue
-        argv = _format_terminal_args(
-            exe_path, tokens, title=title, command=command
-        )
+        argv = _format_terminal_args(exe_path, tokens, title=title, command=command)
         try:
             proc = subprocess.Popen(argv, start_new_session=True)
             return proc, exe

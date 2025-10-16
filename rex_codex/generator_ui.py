@@ -180,6 +180,9 @@ class GeneratorHUDModel:
             exit_code = data.get("exit_code")
             if exit_code not in (0, None):
                 self._add_message(f"Iteration ended with exit code {exit_code}")
+                self.feature_outcome = "failed"
+            elif exit_code == 0:
+                self.feature_outcome = "completed"
         elif etype == "codex_started":
             self.codex_status = "running"
             self.codex_returncode = None
