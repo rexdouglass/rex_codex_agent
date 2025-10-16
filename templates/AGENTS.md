@@ -58,6 +58,7 @@ Stages 04–05 (DB/UI) are optional packs you can enable per project by extendin
 - `./rex-codex discriminator --feature-only --tail 120` (or `--global`) – run the shard/full ladder with automatic log tails (add `--quiet` for silence).
 - `./rex-codex loop --tail 120` – generator → feature shard → global sweep (use `--each`, `--status accepted`, `--skip-feature`, or `--skip-global` to tweak).
 - `./rex-codex logs --generator --lines 200` – dump the latest generator response/patch without spelunking.
+- `.codex_ci/` holds the latest stage logs; use `./rex-codex logs --generator/--discriminator --lines 200` to surface them without poking in the filesystem.
 - `./rex-codex status` – inspect the active slug/card and last discriminator success metadata.
 - `./rex-codex burn --yes` – reset the working tree (keeps `.git` and, by default, `.rex_agent`).
 - `./rex-codex uninstall --force` – remove the agent (pair with `--keep-wrapper` to leave the shim).
@@ -70,5 +71,6 @@ Stages 04–05 (DB/UI) are optional packs you can enable per project by extendin
 - `scripts/smoke_e2e.sh` provisions a temp repo, installs the current checkout, scaffolds the `hello_greet` and `hello_cli` Feature Cards, runs `./rex-codex loop --feature-only`, and executes the global discriminator pass. Set `KEEP=1` to retain the workspace for debugging.
 - Run the selftest loop before merges, release tags, or documentation updates; use the smoke harness to validate the broader flow. Treat failures as blockers—they indicate the agent can no longer bootstrap itself locally.
 - After both loops pass, repeat the Golden Path in your destination repo (e.g. your practice Pong game) to validate the workflow with real features.
+- Every selftest invocation appends its command log and generated sources to the latest `for_external_GPT5_pro_audit/audit_*.md` snapshot—leave that audit update in place so external reviewers can replay the evidence.
 
 Keep this document updated when expectations shift. The automation loop assumes these guardrails are authoritative.

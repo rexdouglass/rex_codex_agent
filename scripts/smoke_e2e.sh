@@ -40,17 +40,33 @@ mkdir -p src/hello
 cat > src/hello/__init__.py <<'PY'
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import argparse
-from typing import Sequence
 
 DEFAULT_MESSAGE = "Hello World"
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Print a configurable greeting.")
-    parser.add_argument("--message", default=DEFAULT_MESSAGE, help="Override the greeting message.")
-    parser.add_argument("--repeat", type=int, default=1, help="Number of times to print the greeting.")
-    parser.add_argument("--quiet", action="store_true", help="Suppress output.")
+    parser = argparse.ArgumentParser(
+        description="Print a configurable greeting."
+    )
+    parser.add_argument(
+        "--message",
+        default=DEFAULT_MESSAGE,
+        help="Override the greeting message.",
+    )
+    parser.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="Number of times to print the greeting.",
+    )
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress output.",
+    )
     return parser
 
 

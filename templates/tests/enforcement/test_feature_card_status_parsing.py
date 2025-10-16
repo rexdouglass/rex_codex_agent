@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import textwrap
-import pytest
 
+import pytest
 from rex_codex.cards import read_status
 
 
@@ -15,7 +15,9 @@ from rex_codex.cards import read_status
         ("\tstatus:REVIEW", "review"),
     ],
 )
-def test_generator_card_status_respects_whitespace_and_case(tmp_path, line: str, expected: str) -> None:
+def test_generator_card_status_respects_whitespace_and_case(
+    tmp_path, line: str, expected: str
+) -> None:
     card = tmp_path / "demo_card.md"
     card.write_text(
         textwrap.dedent(
