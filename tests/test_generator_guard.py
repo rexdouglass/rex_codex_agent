@@ -4,7 +4,6 @@ import textwrap
 from pathlib import Path
 
 import pytest
-
 from rex_codex.generator import _guard_card_edits
 
 

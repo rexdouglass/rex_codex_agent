@@ -4,7 +4,6 @@ import threading
 from types import SimpleNamespace
 
 import pytest
-
 import rex_codex.discriminator as disc
 
 
