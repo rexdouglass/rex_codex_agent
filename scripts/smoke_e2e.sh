@@ -52,9 +52,7 @@ DEFAULT_MESSAGE = "Hello World"
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Print a configurable greeting."
-    )
+    parser = argparse.ArgumentParser(description="Print a configurable greeting.")
     parser.add_argument(
         "--message",
         default=DEFAULT_MESSAGE,
