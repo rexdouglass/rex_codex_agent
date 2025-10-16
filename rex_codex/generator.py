@@ -258,6 +258,7 @@ def _spec_trace_payload(result: _SpecTraceResult) -> Dict[str, Any]:
             "index": entry.index,
             "text": entry.text,
             "tests": [test.display for test in entry.tests],
+            "status": "covered" if entry.tests else "missing",
         }
 
     return {
@@ -452,10 +453,10 @@ def _build_spec_trace_result(
         for entry in entries:
             section_lines.append(f"- [AC#{entry.index}] \"{entry.text}\"")
             if entry.tests:
-                for matched in entry.tests:
-                    section_lines.append(f"  -> {matched.display}")
+                for linked_test in entry.tests:
+                    section_lines.append(f"  -> [AC#{entry.index}] {linked_test.display}")
             else:
-                section_lines.append("  -> (missing)")
+                section_lines.append(f"  -> [AC#{entry.index}] (missing)")
     else:
         section_lines.append("- (no acceptance criteria listed)")
 
