@@ -31,6 +31,9 @@ This repository ships the **Codex-first automation scaffold** that installs via 
 - **Audit goals:**
   1. Maintain a folder named `for_external_GPT5_pro_audit/` in each working repository.
   2. After every interaction, commit and push the current state of the repository and drop into that folder a concatenated snapshot of every important script/markdown/readme file, each prefixed with its absolute path.
+  3. Snapshots **must** be generated via the built-in helper (`rex_codex.utils.create_audit_snapshot(RexContext.discover())` or an equivalent CLI hook); never hand-roll or trim the audit output.
+  4. Treat audits as part of the conversational handshake—produce a fresh snapshot at the end of every operator interaction before yielding control.
+  5. Before producing the final snapshot, run `scripts/selftest_loop.sh` (with the bundled Codex stub) so the repo proves it can regenerate the `hello_greet` / `hello_cli` specs end-to-end. The script appends its logs, status, and generated source listings to the latest audit file—commit that updated audit so external GPT5-Pro review sees the full trace.
 - **Self-development loop:** `bin/fake-codex`, `scripts/selftest_loop.sh`, and `scripts/smoke_e2e.sh` must stay executable and green. We dogfood the agent by reinstalling it into clean workspaces and running the generator → discriminator pipeline offline.
 
 The Bash wrapper is now a shim; all orchestration lives in the Python package `rex_codex` so we can unit-test and extend behaviour without shell metaprogramming.
@@ -61,8 +64,9 @@ Keep these expectations visible—both docs and templates must reinforce them so
    - Keeps diffs under `tests/feature_specs/<slug>/…` (tests only) and appends links/trace in the card.
    - Prints a dashboard summarising the Feature Card (acceptance criteria, existing specs) and previews the diff with new/updated tests before applying patches so operators can follow along in one screen.
    - Enforces patch-size limits (default 6 files / 300 lines).
-   - Warns when cards exist but their `status:` values don't match the requested set (e.g. typos like `propsed`) so operators can repair metadata quickly.
-   - Runs an AST hermeticity scan that bans network, subprocess, clock, and entropy **calls** (`requests.get`, `subprocess.run`, `time.sleep`, `uuid.uuid4`, `os.urandom`, `secrets`, `numpy.random`…), plus unconditional skip/xfail.
+- Warns when cards exist but their `status:` values don't match the requested set (e.g. typos like `propsed`) so operators can repair metadata quickly.
+- Runs an AST hermeticity scan that bans network, subprocess, clock, and entropy **calls** (`requests.get`, `subprocess.run`, `time.sleep`, `uuid.uuid4`, `os.urandom`, `secrets`, `numpy.random`…), plus unconditional skip/xfail.
+- Tag every spec with its acceptance target using either `"""AC#<n> …"""` docstrings or `@pytest.mark.ac(<n>)`. The Spec Trace, HUD coverage bar, and audit snapshots rely on these markers to keep acceptance → tests → pass/fail traceable.
 5. **Run the discriminator ladder**
    ```bash
    ./rex-codex discriminator --feature-only   # smoke/unit on the spec shard (pytest -x --maxfail=1)
@@ -76,8 +80,11 @@ Keep these expectations visible—both docs and templates must reinforce them so
   ./rex-codex loop --discriminator-only   # implement runtime without re-triggering generator
   DISABLE_LLM=0 ./rex-codex loop --discriminator-only   # or add --enable-llm to discriminator/loop for guarded runtime edits
   ```
-   The loop finishes with a two-line scoreboard (generator vs discriminator) so operators immediately know which phase passed, warned, or failed.
-   Every invocation also generates `for_external_GPT5_pro_audit/audit_<timestamp>.md`, stages all changes, and pushes the repository so external GPT5-Pro audits can start from the latest state.
+The loop finishes with a two-line scoreboard (generator vs discriminator) so operators immediately know which phase passed, warned, or failed.
+Every invocation also generates `for_external_GPT5_pro_audit/audit_<timestamp>.md`, stages all changes, and pushes the repository so external GPT5-Pro audits can start from the latest state.
+Monitor mode (`--ui monitor`, default) keeps the HUD in a single refreshed screen. Use `--ui snapshot` for a one-off frame or `--ui off` to suppress HUD output during scripted runs.
+Need the latest frame without attaching to TTY? Call the single-shot helpers (handy for `watch -d` in CI): `./bin/rex-codex hud generator --slug <slug>` and `./bin/rex-codex hud discriminator --slug <slug>`.
+- **Mandatory self-test:** Before landing major changes or handing off a session, run `scripts/selftest_loop.sh`. It rebuilds the toy `hello` project, regenerates both feature cards, drives the discriminator ladder, and appends the command log plus generated sources to the active audit file. Leave its output in place—external reviewers rely on that trace.
 7. **Promote the Feature Card**
    - When the repo is green, edit the card to `status: accepted` (generator never changes statuses). Commit your changes.
 
@@ -182,13 +189,122 @@ Provide a simple command-line greeting that demonstrates the generator HUD.
 ## Spec Trace
 
 - [AC#1] "Run with default arguments and print `Hello World`."
-  -> (missing)
+  -> tests/feature_specs/hello_cli/test_cli.py::test_default_greeting
 - [AC#2] "Accept `--message` to override the greeting text."
-  -> (missing)
+  -> tests/feature_specs/hello_cli/test_cli.py::test_message_override
 - [AC#3] "Support `--quiet` to suppress output entirely."
-  -> (missing)
+  -> tests/feature_specs/hello_cli/test_cli.py::test_quiet_mode_suppresses_output
 
 
 --- END FEATURE CARD ---
 
 --- EXISTING TEST FILES ---
+
+### /media/skynet3/8tb_a1/rex_codex_agent/tests/feature_specs/hello_cli/conftest.py
+from __future__ import annotations
+
+import importlib.util
+import os
+import runpy
+import sys
+from pathlib import Path
+
+import pytest
+
+
+def _project_root() -> Path:
+    env_root = os.environ.get("ROOT")
+    if env_root:
+        candidate = Path(env_root).resolve()
+        if (candidate / "src").exists():
+            return candidate
+    here = Path(__file__).resolve()
+    for parent in (here,) + tuple(here.parents):
+        if (parent / "src").exists():
+            return parent
+    return Path.cwd().resolve()
+
+
+def _import_from_src(pkg: str):
+    root = _project_root()
+    module_file = root / "src" / pkg / "__init__.py"
+    if not module_file.exists():
+        raise FileNotFoundError(f"{module_file} not found")
+    spec = importlib.util.spec_from_file_location(pkg, str(module_file))
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader  # type: ignore[truthy-bool]
+    spec.loader.exec_module(module)  # type: ignore[attr-defined]
+    return module
+
+
+@pytest.fixture(scope="session")
+def hello():
+    return _import_from_src("hello")
+
+
+@pytest.fixture
+def run_app():
+    root = _project_root()
+
+    def _run(*args: str) -> None:
+        argv = ["hello", *args]
+        original_argv = sys.argv[:]
+        original_path = list(sys.path)
+        source_path = root / "src"
+        if str(source_path) not in sys.path:
+            sys.path.insert(0, str(source_path))
+        sys.argv = argv
+        try:
+            runpy.run_module("hello", run_name="__main__")
+        except SystemExit as exc:  # mimic CLI invocation
+            if exc.code not in (0, None):
+                raise
+        finally:
+            sys.argv = original_argv
+            sys.path[:] = original_path
+
+    return _run
+
+
+### /media/skynet3/8tb_a1/rex_codex_agent/tests/feature_specs/hello_cli/test_cli.py
+from __future__ import annotations
+
+import pytest
+
+
+def test_default_greeting(run_app, capsys):
+    """AC#1 Run with default arguments and print `Hello World`."""
+
+    run_app()
+    captured = capsys.readouterr()
+    assert captured.out == "Hello World\n"
+    assert captured.err == ""
+
+
+def test_message_override(run_app, capsys):
+    """AC#2 Accept `--message` to override the greeting text."""
+
+    run_app("--message", "Hi there")
+    captured = capsys.readouterr()
+    assert captured.out == "Hi there\n"
+    assert captured.err == ""
+
+
+@pytest.mark.parametrize("repeat", [2, 3])
+def test_repeat_behavior(run_app, capsys, repeat):
+    """AC#2 Accept `--repeat` to control repetition."""
+
+    run_app("--repeat", str(repeat))
+    captured = capsys.readouterr()
+    expected = "Hello World\n" * repeat
+    assert captured.out == expected
+    assert captured.err == ""
+
+
+def test_quiet_mode_suppresses_output(run_app, capsys):
+    """AC#3 Support `--quiet` to suppress output entirely."""
+
+    run_app("--message", "Muted", "--quiet")
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""

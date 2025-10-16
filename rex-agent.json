@@ -2,20 +2,19 @@
   "feature": {
     "active_card": "documents/feature_cards/hello_cli.md",
     "active_slug": "hello_cli",
-    "updated_at": "2025-10-16T18:03:37Z"
+    "updated_at": null
   },
-  "generator": {
-    "pass_durations": [
-      0.06,
-      0.07,
-      0.07,
-      0.06,
-      0.06,
-      0.06,
-      0.06,
-      0.06,
-      5.07,
-      12.07
-    ]
-  }
+  "llm": {
+    "bin": "npx --yes @openai/codex",
+    "flags": "--yolo",
+    "model": ""
+  },
+  "stages": [
+    "sanity",
+    "deps",
+    "specs",
+    "unit",
+    "style"
+  ],
+  "version": "0.5.0"
 }
