@@ -230,6 +230,7 @@ class _TestMetadata:
     normalized_name: str
     normalized_doc: str
     tokens: set[str]
+    acceptance_indexes: set[int]
 
     @property
     def display(self) -> str:
@@ -313,6 +314,54 @@ def _tokenize_spec_text(text: str) -> set[str]:
     return {token for token in re.split(r"[^a-z0-9]+", text.lower()) if token}
 
 
+_AC_PATTERN = re.compile(r"AC#(\d+)", re.IGNORECASE)
+
+
+def _attribute_chain(node: ast.AST) -> List[str]:
+    parts: List[str] = []
+    current = node
+    while isinstance(current, ast.Attribute):
+        parts.append(current.attr)
+        current = current.value
+    if isinstance(current, ast.Name):
+        parts.append(current.id)
+    return list(reversed(parts))
+
+
+def _literal_int(node: ast.AST) -> Optional[int]:
+    if isinstance(node, ast.Constant) and isinstance(node.value, int):
+        return int(node.value)
+    if isinstance(node, ast.Num):  # pragma: no cover - python <3.8 compat
+        return int(node.n)
+    return None
+
+
+def _extract_acceptance_indexes(node: ast.AST) -> set[int]:
+    indexes: set[int] = set()
+    docstring = ast.get_docstring(node) or ""
+    for match in _AC_PATTERN.findall(docstring):
+        try:
+            indexes.add(int(match))
+        except ValueError:
+            continue
+    for decorator in node.decorator_list:
+        if isinstance(decorator, ast.Call):
+            func = decorator.func
+            if isinstance(func, ast.Attribute) and func.attr == "ac":
+                chain = _attribute_chain(func.value)
+                if chain and chain[-1] == "mark":
+                    for arg in decorator.args:
+                        value = _literal_int(arg)
+                        if value is not None:
+                            indexes.add(value)
+            elif isinstance(func, ast.Name) and func.id == "ac":
+                for arg in decorator.args:
+                    value = _literal_int(arg)
+                    if value is not None:
+                        indexes.add(value)
+    return indexes
+
+
 def _collect_test_metadata(root: Path, specs_dir: Path) -> List[_TestMetadata]:
     if not specs_dir.exists():
         return []
@@ -335,6 +384,7 @@ def _collect_test_metadata(root: Path, specs_dir: Path) -> List[_TestMetadata]:
                 normalized_name = _normalize_spec_text(node.name)
                 normalized_doc = _normalize_spec_text(docstring)
                 tokens = _tokenize_spec_text(node.name) | _tokenize_spec_text(docstring)
+                acceptance_indexes = _extract_acceptance_indexes(node)
                 results.append(
                     _TestMetadata(
                         name=node.name,
@@ -343,6 +393,7 @@ def _collect_test_metadata(root: Path, specs_dir: Path) -> List[_TestMetadata]:
                         normalized_name=normalized_name,
                         normalized_doc=normalized_doc,
                         tokens=tokens,
+                        acceptance_indexes=acceptance_indexes,
                     )
                 )
     return results
@@ -383,19 +434,18 @@ def _build_spec_trace_result(
     if not acceptance and not tests:
         return None
 
-    unmatched = {test.display: test for test in tests}
+    matched: set[str] = set()
     entries: List[_SpecTraceEntry] = []
     for index, text in enumerate(acceptance, start=1):
-        bullet_norm = _normalize_spec_text(text)
-        bullet_tokens = _tokenize_spec_text(text)
         matches = [
             candidate
             for candidate in tests
-            if _bullet_matches(bullet_norm, bullet_tokens, candidate)
+            if index in candidate.acceptance_indexes
         ]
-        for matched in matches:
-            unmatched.pop(matched.display, None)
-        entries.append(_SpecTraceEntry(index=index, text=text, tests=sorted(matches, key=lambda c: c.display)))
+        matches_sorted = sorted(matches, key=lambda c: c.display)
+        for candidate in matches_sorted:
+            matched.add(candidate.display)
+        entries.append(_SpecTraceEntry(index=index, text=text, tests=matches_sorted))
 
     section_lines: List[str] = []
     if entries:
@@ -410,7 +460,10 @@ def _build_spec_trace_result(
         section_lines.append("- (no acceptance criteria listed)")
 
     missing = [entry for entry in entries if not entry.tests]
-    orphans = sorted(unmatched.values(), key=lambda item: item.display)
+    orphans = sorted(
+        [test for test in tests if test.display not in matched],
+        key=lambda item: item.display,
+    )
     return _SpecTraceResult(entries=entries, missing=missing, orphans=orphans, section_lines=section_lines)
 
 

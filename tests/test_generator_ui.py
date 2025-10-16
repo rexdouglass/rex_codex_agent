@@ -52,11 +52,97 @@ def test_model_acceptance_mapping_and_rendering() -> None:
 
     output = model.render(iteration_elapsed=12.0, codex_elapsed=8.0)
     assert "Hello CLI" in output
-    assert "[*]" in output  # covered acceptance criterion
+    assert "[x]" in output  # failing acceptance criterion is surfaced
     assert "(missing)" in output  # missing acceptance mapping
+    assert "Coverage: " in output
+    assert "1/2 bullets linked" in output
     assert "Iteration     : 1/3" in output
     assert "avg 18s" in output
     assert "Pytest shard  : Failed" in output
     assert "Critic        : TODO: add negative case" in output
     assert "Orphan tests" in output
     assert "Focus: Cover quiet negatives" in output
+
+
+def test_fci_with_no_linked_tests() -> None:
+    model = GeneratorHUDModel("hello")
+    model.apply_event(
+        _event(
+            "feature_started",
+            title="Hello CLI",
+            status="proposed",
+            acceptance=["Handle --message flag", "Respect --quiet toggle"],
+        )
+    )
+    assert model.coverage_percent == 0.0
+    assert model.coverage_linked == 0
+    assert model.coverage_total == 2
+
+
+def test_fci_partial_with_failure() -> None:
+    model = GeneratorHUDModel("hello")
+    model.apply_event(
+        _event(
+            "feature_started",
+            title="Hello CLI",
+            status="proposed",
+            acceptance=["Handle --message flag", "Respect --quiet toggle"],
+        )
+    )
+    model.apply_event(
+        _event(
+            "spec_trace_update",
+            coverage={
+                "entries": [
+                    {
+                        "index": 1,
+                        "text": "Handle --message flag",
+                        "tests": ["tests/feature_specs/hello_cli/test_cli_basic.py::test_flag"],
+                    }
+                ],
+                "missing": [],
+                "orphans": [],
+            },
+        )
+    )
+    model.apply_event(_event("pytest_snapshot", status="failed"))
+    assert model.coverage_percent == 25.0
+    assert model.coverage_linked == 1
+    assert model.coverage_failing == 1
+
+
+def test_fci_all_passing() -> None:
+    model = GeneratorHUDModel("hello")
+    model.apply_event(
+        _event(
+            "feature_started",
+            title="Hello CLI",
+            status="proposed",
+            acceptance=["Handle --message flag", "Respect --quiet toggle"],
+        )
+    )
+    model.apply_event(
+        _event(
+            "spec_trace_update",
+            coverage={
+                "entries": [
+                    {
+                        "index": 1,
+                        "text": "Handle --message flag",
+                        "tests": ["tests/feature_specs/hello_cli/test_cli_basic.py::test_flag"],
+                    },
+                    {
+                        "index": 2,
+                        "text": "Respect --quiet toggle",
+                        "tests": ["tests/feature_specs/hello_cli/test_cli_basic.py::test_quiet"],
+                    },
+                ],
+                "missing": [],
+                "orphans": [],
+            },
+        )
+    )
+    model.apply_event(_event("pytest_snapshot", status="passed"))
+    assert model.coverage_percent == 100.0
+    assert model.coverage_linked == 2
+    assert model.coverage_failing == 0

@@ -78,6 +78,10 @@ class GeneratorHUDModel:
         self.feature_outcome = "running"
         self.orphan_tests: List[str] = []
         self.messages: Deque[str] = deque(maxlen=8)
+        self.coverage_percent: float = 0.0
+        self.coverage_linked = 0
+        self.coverage_total = 0
+        self.coverage_failing = 0
 
     def _set_acceptance(self, items: Iterable[str]) -> None:
         self.acceptance = [
@@ -85,6 +89,7 @@ class GeneratorHUDModel:
             for idx, item in enumerate(items, start=1)
             if item.strip()
         ]
+        self._recompute_coverage_metrics()
 
     def _update_acceptance_tests(self, coverage: Dict[str, Any]) -> None:
         entries = coverage.get("entries") or []
@@ -103,6 +108,43 @@ class GeneratorHUDModel:
                 if item.index == idx:
                     item.status = "missing"
         self.orphan_tests = coverage.get("orphans") or []
+        self._recompute_coverage_metrics()
+
+    def _recompute_coverage_metrics(self) -> None:
+        total = len(self.acceptance)
+        if total == 0:
+            self.coverage_percent = 0.0
+            self.coverage_linked = 0
+            self.coverage_total = 0
+            self.coverage_failing = 0
+            return
+        contributions: List[float] = []
+        linked = 0
+        failing = 0
+        for item in self.acceptance:
+            if item.tests:
+                linked += 1
+                if self.pytest_status == "passed":
+                    item.status = "verified"
+                    contribution = 1.0
+                elif self.pytest_status in {"failed", "timeout"}:
+                    item.status = "failing"
+                    contribution = 0.5
+                    failing += 1
+                else:
+                    item.status = "covered"
+                    contribution = 0.5
+            else:
+                item.status = "missing"
+                contribution = 0.0
+            contributions.append(contribution)
+        total_score = sum(contributions)
+        percent = (total_score / total) * 100 if total else 0.0
+        percent = max(0.0, min(100.0, percent))
+        self.coverage_percent = round(percent, 1)
+        self.coverage_linked = linked
+        self.coverage_total = total
+        self.coverage_failing = failing
 
     def _add_message(self, text: str) -> None:
         text = text.strip()
@@ -169,6 +211,7 @@ class GeneratorHUDModel:
                 self._add_message("Pytest snapshot timed out")
             elif status == "passed":
                 self._add_message("Pytest snapshot passed")
+            self._recompute_coverage_metrics()
         elif etype == "critic_guidance":
             done = bool(data.get("done"))
             self.critic_status = "done" if done else "todo"
@@ -185,6 +228,7 @@ class GeneratorHUDModel:
             self.feature_outcome = "completed"
             self.iteration_status = "completed"
             self._add_message("Feature completed")
+            self._recompute_coverage_metrics()
         elif etype == "feature_failed":
             self.feature_outcome = "failed"
             reason = data.get("reason")
@@ -192,6 +236,7 @@ class GeneratorHUDModel:
                 self._add_message(f"Feature failed: {reason}")
             else:
                 self._add_message("Feature failed.")
+            self._recompute_coverage_metrics()
 
     def _acceptance_rows(self) -> List[str]:
         if not self.acceptance:
@@ -206,6 +251,34 @@ class GeneratorHUDModel:
             for test in self.orphan_tests[:5]:
                 rows.append(f"    • {_shorten(test, 64)}")
         return rows
+
+    def _coverage_line(self) -> str:
+        if not self.acceptance:
+            return "Coverage: (no acceptance criteria listed)"
+        percent_display = int(round(self.coverage_percent))
+        percent_display = max(0, min(100, percent_display))
+        total_blocks = 10
+        filled_blocks = max(0, min(total_blocks, int(round(percent_display / 10))))
+        bar = "█" * filled_blocks + "░" * (total_blocks - filled_blocks)
+        summary_parts: List[str] = []
+        if self.coverage_total:
+            summary_parts.append(f"{self.coverage_linked}/{self.coverage_total} bullets linked")
+        if self.coverage_failing:
+            summary_parts.append(f"{self.coverage_failing} failing")
+        missing = self.coverage_total - self.coverage_linked
+        if missing and self.coverage_total:
+            summary_parts.append(f"{missing} missing")
+        if (
+            self.coverage_total
+            and not self.coverage_failing
+            and missing == 0
+            and self.pytest_status == "passed"
+        ):
+            summary_parts.append("all passing")
+        if not summary_parts:
+            summary_parts.append("no coverage data")
+        summary = "; ".join(summary_parts)
+        return f"Coverage: {bar} {percent_display}% ({summary})"
 
     def _diff_summary(self) -> str:
         totals = self.diff_totals or {}
@@ -277,6 +350,7 @@ class GeneratorHUDModel:
         lines.append("")
         lines.append("Acceptance → Tests")
         lines.extend(self._acceptance_rows())
+        lines.append(self._coverage_line())
         lines.append("")
         lines.append("Stages")
         lines.append(f"  Iteration     : {self._iteration_summary(iteration_elapsed)}")
