@@ -59,8 +59,8 @@ Keep these expectations visible—both docs and templates must reinforce them so
   ```
 The loop finishes with a two-line scoreboard (generator vs discriminator) so operators immediately know which phase passed, warned, or failed.
 Every invocation also generates `for_external_GPT5_pro_audit/audit_<timestamp>.md`, stages all changes, and pushes the repository so external GPT5-Pro audits can start from the latest state.
-Monitor mode (`--ui monitor`, default) keeps the HUD in a single refreshed screen. Use `--ui snapshot` for a one-off frame or `--ui off` to suppress HUD output during scripted runs.
-Need the latest frame without attaching to TTY? Call the single-shot helpers (handy for `watch -d` in CI): `./bin/rex-codex hud generator --slug <slug>` and `./bin/rex-codex hud discriminator --slug <slug>`.
+Monitor mode (`--ui monitor`, default) keeps the HUD in a single refreshed screen. When running inside VS Code we automatically spawn a companion terminal window for the HUD; opt in explicitly with `--ui popout`, disable with `--no-popout` or `GENERATOR_UI_POPOUT=0`, and fall back to `--ui snapshot`/`--ui off` for static or silent runs.
+Need the latest frame without attaching to TTY? Call the single-shot helpers—or stream them live with `--follow` (generator only)—handy for `watch -d` in CI: `./bin/rex-codex hud generator --slug <slug> [--follow]` and `./bin/rex-codex hud discriminator --slug <slug>`.
 - **Mandatory self-test:** Before landing major changes or handing off a session, run `scripts/selftest_loop.sh`. It rebuilds the toy `hello` project, regenerates both feature cards, drives the discriminator ladder, and appends the command log plus generated sources to the active audit file. Leave its output in place—external reviewers rely on that trace.
 7. **Promote the Feature Card**
    - When the repo is green, edit the card to `status: accepted` (generator never changes statuses). Commit your changes.

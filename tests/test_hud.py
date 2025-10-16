@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import json
 
-from rex_codex.hud import discriminator_snapshot_text, generator_snapshot_text
+from rex_codex.hud import (
+    discriminator_snapshot_text,
+    generator_snapshot_text,
+    render_hud,
+)
+from rex_codex.utils import RexContext
 
 
 def test_snapshot_uses_last_feature_run(tmp_path):
@@ -72,6 +77,33 @@ def test_snapshot_includes_coverage_line(tmp_path):
     output = generator_snapshot_text(slug, path)
     assert "Coverage: " in output
     assert "1/2 bullets linked" in output
+
+
+def test_render_hud_follow_invokes_live_monitor(monkeypatch, tmp_path):
+    observed: dict[str, object] = {}
+
+    def fake_follow(**kwargs):
+        observed.update(kwargs)
+
+    monkeypatch.setattr("rex_codex.hud._follow_generator_hud", fake_follow)
+    context = RexContext(
+        root=tmp_path,
+        codex_ci_dir=tmp_path,
+        rex_agent_file=tmp_path / "rex-agent.json",
+        venv_dir=tmp_path / ".venv",
+    )
+    render_hud(
+        phase="generator",
+        slug="demo",
+        events_file=str(tmp_path / "events.jsonl"),
+        context=context,
+        follow=True,
+        refresh=0.75,
+        linger=4.0,
+    )
+    assert observed["slug"] == "demo"
+    assert observed["refresh"] == 0.75
+    assert observed["linger"] == 4.0
 
 
 def test_discriminator_snapshot_tracks_latest_run(tmp_path):

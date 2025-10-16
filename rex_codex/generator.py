@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import difflib
 import os
+import shlex
 import re
 import subprocess
 import sys
@@ -32,6 +33,7 @@ from .utils import (
     load_json,
     lock_file,
     run,
+    which,
 )
 
 PROGRESS_INTERVAL_SECONDS = max(
@@ -638,6 +640,42 @@ def _default_ui_hz() -> float:
     return value if value > 0 else 5.0
 
 
+def _parse_env_toggle(raw: Optional[str]) -> Optional[bool]:
+    if raw is None:
+        return None
+    value = raw.strip().lower()
+    if not value or value == "auto":
+        return None
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return None
+
+
+def _default_popout_enabled() -> bool:
+    env = _parse_env_toggle(os.environ.get("GENERATOR_UI_POPOUT"))
+    if env is not None:
+        return env
+    term_program = os.environ.get("TERM_PROGRAM", "").lower()
+    if term_program == "vscode":
+        return True
+    if os.environ.get("VSCODE_PID"):
+        return True
+    return False
+
+
+def _default_popout_linger() -> float:
+    raw = os.environ.get("GENERATOR_UI_LINGER")
+    if raw is None:
+        return 5.0
+    try:
+        value = float(raw)
+    except ValueError:
+        return 5.0
+    return max(0.0, value)
+
+
 @dataclass
 class GeneratorOptions:
     continuous: bool = True
@@ -654,6 +692,8 @@ class GeneratorOptions:
     reconcile_only: bool = False
     ui_mode: str = os.environ.get("GENERATOR_UI", "monitor")
     ui_refresh_hz: float = field(default_factory=_default_ui_hz)
+    spawn_popout: bool = field(default_factory=_default_popout_enabled)
+    popout_linger: float = field(default_factory=_default_popout_linger)
 
 
 @dataclass
@@ -675,6 +715,79 @@ def _split_command(raw: str) -> List[str]:
     import shlex
 
     return shlex.split(raw)
+
+
+_TERMINAL_CANDIDATES: List[Tuple[str, List[str]]] = [
+    ("gnome-terminal", ["--title", "{title}", "--", "bash", "-lc", "{command}"]),
+    ("kitty", ["--title", "{title}", "bash", "-lc", "{command}"]),
+    ("wezterm", ["start", "--", "bash", "-lc", "{command}"]),
+    ("alacritty", ["-t", "{title}", "-e", "bash", "-lc", "{command}"]),
+    ("x-terminal-emulator", ["-T", "{title}", "-e", "bash", "-lc", "{command}"]),
+    ("xterm", ["-T", "{title}", "-hold", "-e", "bash", "-lc", "{command}"]),
+]
+
+
+def _format_terminal_args(
+    executable: str, tokens: Sequence[str], *, title: str, command: str
+) -> List[str]:
+    args = [executable]
+    for token in tokens:
+        if token == "{title}":
+            args.append(title)
+        elif token == "{command}":
+            args.append(command)
+        else:
+            args.append(token)
+    return args
+
+
+def _launch_terminal(
+    title: str, command: str
+) -> Optional[Tuple[subprocess.Popen, str]]:
+    for exe, tokens in _TERMINAL_CANDIDATES:
+        exe_path = which(exe)
+        if not exe_path:
+            continue
+        argv = _format_terminal_args(
+            exe_path, tokens, title=title, command=command
+        )
+        try:
+            proc = subprocess.Popen(argv, start_new_session=True)
+            return proc, exe
+        except OSError as exc:  # pragma: no cover - depends on local terminal setup
+            print(f"[generator] Failed to launch {exe}: {exc}")
+            continue
+    print("[generator] Unable to launch HUD popout; no terminal emulator detected.")
+    return None
+
+
+def _spawn_generator_popout(
+    *,
+    context: RexContext,
+    slug: str,
+    refresh_hz: float,
+    linger: float,
+) -> Optional[subprocess.Popen]:
+    refresh_seconds = max(0.2, 1.0 / max(refresh_hz, 0.1))
+    command_parts = [
+        "./bin/rex-codex",
+        "hud",
+        "generator",
+        "--slug",
+        slug,
+        "--follow",
+        f"--refresh={refresh_seconds:.2f}",
+        f"--linger={linger:.2f}",
+    ]
+    hud_command = shlex.join(command_parts)
+    shell_command = f"cd {shlex.quote(str(context.root))} && {hud_command}"
+    title = f"rex-codex HUD :: {slug}"
+    launched = _launch_terminal(title, shell_command)
+    if launched is None:
+        return None
+    process, exe = launched
+    print(f"[generator] HUD popout launched via {exe}.")
+    return process
 
 
 def _run_codex_with_progress(
@@ -763,8 +876,12 @@ def _run_card_with_ui(
     card: FeatureCard, options: GeneratorOptions, context: RexContext
 ) -> int:
     ui_mode = (options.ui_mode or "monitor").lower()
+    popout_requested = ui_mode == "popout"
     if ui_mode in {"auto", "plain"}:
         ui_mode = "monitor"
+    if popout_requested:
+        ui_mode = "monitor"
+        options.spawn_popout = True
     options.ui_mode = ui_mode
 
     if options.reconcile_only:
@@ -776,6 +893,18 @@ def _run_card_with_ui(
             events_file.unlink()
         except FileNotFoundError:
             pass
+
+    if options.spawn_popout and ui_mode == "monitor":
+        popout_launched = _spawn_generator_popout(
+            context=context,
+            slug=card.slug,
+            refresh_hz=options.ui_refresh_hz,
+            linger=options.popout_linger,
+        )
+        if popout_launched is None and popout_requested:
+            print(
+                "[generator] Popout HUD requested but no terminal emulator was launched."
+            )
 
     if ui_mode == "snapshot":
         exit_code = _process_card(card, options, context)

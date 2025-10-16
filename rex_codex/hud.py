@@ -1,15 +1,17 @@
-"""One-shot HUD renderer for use with `watch` or CI snapshots."""
+"""HUD utilities for snapshot and live monitoring modes."""
 
 from __future__ import annotations
 
 import json
+import sys
+import time
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
 from .cards import latest_card
 from .events import events_path as default_events_path
-from .generator_ui import GeneratorHUDModel
+from .generator_ui import GeneratorHUD, GeneratorHUDModel
 from .utils import RexContext
 
 
@@ -73,6 +75,93 @@ def generator_snapshot_text(slug: str, path: Path) -> str:
         return ""
     printer = _HUDPrinter()
     return render_generator_snapshot(slug=slug, events=events, printer=printer)
+
+
+def _follow_generator_hud(
+    *,
+    slug: str,
+    events_path: Path,
+    refresh: float,
+    linger: float,
+) -> None:
+    refresh = max(0.2, refresh)
+    linger = max(0.0, linger)
+    printer = _HUDPrinter()
+    if not sys.stdout.isatty():
+        # Fallback: poll snapshots without terminal control.
+        last_render = ""
+        done_since: Optional[float] = None
+        while True:
+            events = list(_load_events(events_path))
+            if events:
+                snapshot = render_generator_snapshot(
+                    slug=slug, events=events, printer=printer
+                )
+                if snapshot != last_render:
+                    print("\033[2J\033[H", end="", flush=True)
+                    print(snapshot, end="", flush=True)
+                    last_render = snapshot
+                for event in reversed(events):
+                    if event.get("slug") not in (slug, None):
+                        continue
+                    if event.get("type") in {"feature_completed", "feature_failed"}:
+                        if done_since is None:
+                            done_since = time.monotonic()
+                        break
+                else:
+                    done_since = None
+            else:
+                print(
+                    "\033[2J\033[H[hud] Waiting for generator events…",
+                    end="",
+                    flush=True,
+                )
+            if done_since is not None and time.monotonic() - done_since >= linger:
+                break
+            time.sleep(refresh)
+        return
+
+    hud = GeneratorHUD(
+        slug=slug,
+        codex_ci_dir=events_path.parent,
+        ui_mode="monitor",
+        refresh_hz=max(1.0, 1.0 / refresh),
+        terminal=sys.stdout,
+    )
+    hud._events_path = events_path
+    done_since: Optional[float] = None
+    try:
+        hud._activate_alternate()
+        hud._hide_cursor()
+        waiting_message = False
+        while True:
+            if events_path.exists():
+                waiting_message = False
+                hud._poll_events()
+                hud._render()
+                for event in reversed(list(_load_events(events_path))):
+                    if event.get("slug") not in (slug, None):
+                        continue
+                    if event.get("type") in {"feature_completed", "feature_failed"}:
+                        if done_since is None:
+                            done_since = time.monotonic()
+                        break
+                else:
+                    done_since = None
+            else:
+                if not waiting_message:
+                    hud._clear_screen()
+                    hud._term_write("[hud] Waiting for generator events…\n")
+                    waiting_message = True
+            if done_since is not None and time.monotonic() - done_since >= linger:
+                break
+            time.sleep(refresh)
+        hud._render(final=True)
+    except KeyboardInterrupt:  # pragma: no cover - user interruption
+        hud._term_write("\n[hud] Interrupted by user.\n")
+    finally:
+        hud._release_alternate()
+        hud._show_cursor()
 
 
 def _format_elapsed(value: Any) -> Optional[str]:
@@ -294,6 +383,9 @@ def render_hud(
     slug: Optional[str],
     events_file: Optional[str],
     context: RexContext,
+    follow: bool = False,
+    refresh: float = 1.0,
+    linger: float = 5.0,
 ) -> None:
     path = Path(events_file).expanduser() if events_file else default_events_path()
     if phase == "generator":
@@ -301,6 +393,14 @@ def render_hud(
         if not resolved_slug:
             print("[hud] No feature slug provided and no active card detected.")
             raise SystemExit(1)
+        if follow:
+            _follow_generator_hud(
+                slug=resolved_slug,
+                events_path=path,
+                refresh=max(0.2, refresh),
+                linger=max(0.0, linger),
+            )
+            return
         snapshot = generator_snapshot_text(resolved_slug, path)
         if not snapshot:
             print(f"[hud] No events recorded yet at {path}.")
@@ -308,6 +408,8 @@ def render_hud(
         print(snapshot, end="")
         return
     if phase == "discriminator":
+        if follow:
+            raise SystemExit("[hud] --follow is currently supported for generator only.")
         snapshot = discriminator_snapshot_text(slug, path)
         if not snapshot:
             print(f"[hud] No discriminator events recorded yet at {path}.")

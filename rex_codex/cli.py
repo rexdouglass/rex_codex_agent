@@ -113,9 +113,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     gen_parser.add_argument(
         "--ui",
-        choices=["monitor", "snapshot", "off", "auto"],
+        choices=["monitor", "snapshot", "off", "auto", "popout"],
         default=None,
         help="Generator HUD mode (default: monitor when attached to a TTY)",
+    )
+    gen_parser.add_argument(
+        "--popout",
+        dest="popout",
+        action="store_true",
+        help="Launch the generator HUD in a separate terminal window when possible",
+    )
+    gen_parser.add_argument(
+        "--no-popout",
+        dest="popout",
+        action="store_false",
+        help="Disable generator HUD popout behaviour",
+    )
+    gen_parser.set_defaults(popout=None)
+    gen_parser.add_argument(
+        "--popout-linger",
+        type=float,
+        default=None,
+        help="Seconds to keep the HUD popout open after completion (default 5s)",
     )
     gen_verbose = gen_parser.add_mutually_exclusive_group()
     gen_verbose.add_argument(
@@ -194,6 +213,12 @@ def build_parser() -> argparse.ArgumentParser:
     loop_parser.add_argument(
         "--explain", action="store_true", help="Describe planned actions and exit"
     )
+    loop_parser.add_argument(
+        "--ui",
+        choices=["monitor", "snapshot", "off", "auto", "popout"],
+        default=None,
+        help="Override generator HUD mode (default inherits from environment)",
+    )
     loop_verbose = loop_parser.add_mutually_exclusive_group()
     loop_verbose.add_argument(
         "--verbose",
@@ -205,6 +230,25 @@ def build_parser() -> argparse.ArgumentParser:
     )
     loop_parser.add_argument(
         "--tail", type=int, default=0, help="Tail log output (N lines) after failures"
+    )
+    loop_parser.add_argument(
+        "--popout",
+        dest="popout",
+        action="store_true",
+        help="Launch generator HUD in a separate terminal window when possible",
+    )
+    loop_parser.add_argument(
+        "--no-popout",
+        dest="popout",
+        action="store_false",
+        help="Disable generator HUD popout behaviour",
+    )
+    loop_parser.set_defaults(popout=None)
+    loop_parser.add_argument(
+        "--popout-linger",
+        type=float,
+        default=None,
+        help="Seconds to keep the HUD popout open after completion (default 5s)",
     )
     loop_llm = loop_parser.add_mutually_exclusive_group()
     loop_llm.add_argument(
@@ -321,6 +365,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--slug", help="Feature slug to focus (defaults to active card)"
     )
     hud_parser.add_argument("--events", help="Override events JSONL path")
+    hud_parser.add_argument(
+        "--follow",
+        action="store_true",
+        help="Continuously refresh the HUD until completion (generator only)",
+    )
+    hud_parser.add_argument(
+        "--refresh",
+        type=float,
+        default=1.0,
+        help="Refresh interval in seconds when using --follow",
+    )
+    hud_parser.add_argument(
+        "--linger",
+        type=float,
+        default=5.0,
+        help="Seconds to keep rendering after completion when using --follow",
+    )
 
     # doctor
     sub.add_parser("doctor", help="Print environment diagnostics")
@@ -394,6 +455,10 @@ def main(argv: list[str] | None = None) -> int:
         options.reconcile_only = args.reconcile
         if args.ui:
             options.ui_mode = "monitor" if args.ui == "auto" else args.ui
+        if args.popout is not None:
+            options.spawn_popout = args.popout
+        if args.popout_linger is not None:
+            options.popout_linger = args.popout_linger
         exit_code = run_generator(options, context=context)
         if exit_code != 0 and args.tail:
             show_latest_logs(context, lines=args.tail, generator=True)
@@ -460,6 +525,14 @@ def main(argv: list[str] | None = None) -> int:
             loop_opts.discriminator_options.disable_llm = False
         elif args.disable_llm:
             loop_opts.discriminator_options.disable_llm = True
+        if args.ui:
+            loop_opts.generator_options.ui_mode = (
+                "monitor" if args.ui == "auto" else args.ui
+            )
+        if args.popout is not None:
+            loop_opts.generator_options.spawn_popout = args.popout
+        if args.popout_linger is not None:
+            loop_opts.generator_options.popout_linger = args.popout_linger
         if args.stage_timeout is not None:
             loop_opts.discriminator_options.stage_timeout = args.stage_timeout
         loop_opts.continue_on_fail = args.continue_on_fail
@@ -557,7 +630,13 @@ def main(argv: list[str] | None = None) -> int:
         from .hud import render_hud
 
         render_hud(
-            phase=args.phase, slug=args.slug, events_file=args.events, context=context
+            phase=args.phase,
+            slug=args.slug,
+            events_file=args.events,
+            context=context,
+            follow=args.follow,
+            refresh=args.refresh,
+            linger=args.linger,
         )
         return 0
 

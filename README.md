@@ -57,10 +57,11 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
 - After each run, an audit snapshot is written to `for_external_GPT5_pro_audit/` and committed/pushed automatically so GPT5-Pro reviews have the latest scripts and docs.
    - Add `--explain` to preview the planned generator/discriminator phases before they run; `--no-self-update` skips the preflight update check.
    - Need a targeted rerun? `./rex-codex discriminator --feature-only` handles the shard; `./rex-codex discriminator --global` runs the full ladder.
-   - Monitor mode (`--ui monitor`, default) keeps a single refreshed HUD in the active terminal. Prefer a static frame? Use `--ui snapshot`, or `--ui off` to silence HUD output entirely.
-   - Grab the latest HUD frame without a TTY (perfect for `watch -d` or CI artifacts):
+   - Monitor mode (`--ui monitor`, default) keeps a single refreshed HUD in the active terminal. When the command runs inside VS Code we also auto-launch a popout terminal so you can watch the HUD in a standalone window (override with `--ui popout`, `--no-popout`, or `GENERATOR_UI_POPOUT=0`). Prefer a static frame? Use `--ui snapshot`, or `--ui off` to silence HUD output entirely.
+   - Grab the latest HUD frame without a TTY (perfect for `watch -d` or CI artifacts), or stream it live with `--follow`:
      ```bash
      ./bin/rex-codex hud generator --slug <slug>
+     ./bin/rex-codex hud generator --slug <slug> --follow
      ./bin/rex-codex hud discriminator --slug <slug>
      ```
 
