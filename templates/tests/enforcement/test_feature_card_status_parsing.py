@@ -3,6 +3,7 @@ from __future__ import annotations
 import textwrap
 
 import pytest
+
 from rex_codex.cards import read_status
 
 
