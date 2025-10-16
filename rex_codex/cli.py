@@ -152,7 +152,7 @@ def build_parser() -> argparse.ArgumentParser:
     status_parser.add_argument("--json", action="store_true", help="Emit raw JSON summary")
 
     hud_parser = sub.add_parser("hud", help="Render a one-shot HUD snapshot from event streams")
-    hud_parser.add_argument("phase", choices=["generator"], help="HUD phase to render")
+    hud_parser.add_argument("phase", choices=["generator", "discriminator"], help="HUD phase to render")
     hud_parser.add_argument("--slug", help="Feature slug to focus (defaults to active card)")
     hud_parser.add_argument("--events", help="Override events JSONL path")
 

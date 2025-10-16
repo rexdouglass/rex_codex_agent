@@ -27,6 +27,7 @@ from .config import (
     DEFAULT_PROTECTED_PATHS,
     DEFAULT_RUNTIME_ALLOWLIST,
 )
+from .events import emit_event
 from .generator import _split_command
 from .self_update import self_update
 from .utils import (
@@ -138,8 +139,11 @@ def _run_locked(options: DiscriminatorOptions, context: RexContext) -> int:
         print(f"[discriminator] Logs will be written to {context.relative(log_path)}")
 
     passes = 0
+    run_counter = 0
     while passes < options.max_passes:
         passes += 1
+        attempt = 1
+        run_counter += 1
         print(f"=== rex-codex discriminator ({mode}) pass {passes}/{options.max_passes} ===")
         log_path.write_text("", encoding="utf-8")
         latest_log_path.write_text("", encoding="utf-8")
@@ -151,6 +155,9 @@ def _run_locked(options: DiscriminatorOptions, context: RexContext) -> int:
             context=context,
             log_path=log_path,
             latest_log_path=latest_log_path,
+            pass_number=passes,
+            run_id=run_counter,
+            attempt=attempt,
         )
         if ok:
             print(f"✅ Green: {mode} suite passed")
@@ -162,7 +169,18 @@ def _run_locked(options: DiscriminatorOptions, context: RexContext) -> int:
             return 1
 
         # Mechanical fixes
-        if _apply_mechanical_fixes(mode, slug, context, env):
+        attempt += 1
+        next_run_id = run_counter + 1
+        if _apply_mechanical_fixes(
+            mode,
+            slug,
+            context,
+            env,
+            pass_number=passes,
+            attempt=attempt,
+            run_id=next_run_id,
+        ):
+            run_counter = next_run_id
             if _run_stage_plan(
                 mode=mode,
                 slug=slug,
@@ -170,16 +188,43 @@ def _run_locked(options: DiscriminatorOptions, context: RexContext) -> int:
                 context=context,
                 log_path=log_path,
                 latest_log_path=latest_log_path,
+                pass_number=passes,
+                run_id=run_counter,
+                attempt=attempt,
             ):
                 print("✅ Green after mechanical fixes")
                 _record_success(mode, slug, context, env)
                 return 0
+            attempt += 1
 
+        future_run_id = run_counter + 1
+        llm_event_context = {
+            "slug": slug,
+            "mode": mode,
+            "pass_number": passes,
+            "run_id": run_counter,
+            "next_run_id": future_run_id,
+            "attempt": attempt,
+        }
         if options.disable_llm:
+            emit_event(
+                "discriminator",
+                "llm_patch_decision",
+                accepted=False,
+                reason="llm_disabled",
+                **llm_event_context,
+            )
             print("LLM disabled; stopping after mechanical fixes.")
             return 2
 
         if not _ensure_node_present():
+            emit_event(
+                "discriminator",
+                "llm_patch_decision",
+                accepted=False,
+                reason="node_missing",
+                **llm_event_context,
+            )
             print("[discriminator] Node.js not found; forcing DISABLE_LLM=1.")
             return 2
 
@@ -189,16 +234,38 @@ def _run_locked(options: DiscriminatorOptions, context: RexContext) -> int:
 
         changed = _detect_protected_changes(snapshot, context)
         if changed:
+            emit_event(
+                "discriminator",
+                "llm_patch_decision",
+                accepted=False,
+                reason="protected_paths_modified",
+                paths=changed,
+                **llm_event_context,
+            )
             print("[discriminator] Aborting pass; LLM patch touched protected paths.")
             _revert_paths(changed, context)
             return 2
 
         if not _reject_non_runtime_changes(context):
+            emit_event(
+                "discriminator",
+                "llm_patch_decision",
+                accepted=False,
+                reason="non_runtime_changes",
+                **llm_event_context,
+            )
             print("[discriminator] Aborting pass; LLM patch touched non-runtime paths.")
             _revert_all_changes(context)
             return 2
 
         if _git_diff_is_empty(context):
+            emit_event(
+                "discriminator",
+                "llm_patch_decision",
+                accepted=False,
+                reason="no_diff",
+                **llm_event_context,
+            )
             print("No diff from LLM; aborting.")
             return 2
 
@@ -208,6 +275,15 @@ def _run_locked(options: DiscriminatorOptions, context: RexContext) -> int:
             and test_count_after is not None
             and test_count_after < test_count_before
         ):
+            emit_event(
+                "discriminator",
+                "llm_patch_decision",
+                accepted=False,
+                reason="test_count_decreased",
+                before=test_count_before,
+                after=test_count_after,
+                **llm_event_context,
+            )
             print(
                 f"[discriminator] Test collection decreased ({test_count_before} -> {test_count_after}); rejecting LLM patch."
             )
@@ -215,14 +291,30 @@ def _run_locked(options: DiscriminatorOptions, context: RexContext) -> int:
             return 2
 
         if not _enforce_patch_size(context):
+            emit_event(
+                "discriminator",
+                "llm_patch_decision",
+                accepted=False,
+                reason="patch_size_exceeded",
+                **llm_event_context,
+            )
             print("[discriminator] Aborting pass; LLM patch exceeded size limits.")
             return 2
 
         run(["git", "add", "-A"], cwd=context.root, check=False)
+        commit_message = f"chore(rex-codex): discriminator {mode} pass {passes}"
         run(
-            ["git", "commit", "-m", f"chore(rex-codex): discriminator {mode} pass {passes}"],
+            ["git", "commit", "-m", commit_message],
             cwd=context.root,
             check=False,
+        )
+        emit_event(
+            "discriminator",
+            "llm_patch_decision",
+            accepted=True,
+            reason="committed",
+            commit_message=commit_message,
+            **llm_event_context,
         )
         _record_success(mode, slug, context, env)
     print(f"Hit max passes ({options.max_passes}) without going green")
@@ -247,6 +339,9 @@ def _run_stage_plan(
     context: RexContext,
     log_path: Path,
     latest_log_path: Path,
+    pass_number: int,
+    run_id: int,
+    attempt: int,
 ) -> bool:
     pytest_flags = _configure_pytest_flags(mode, env, context)
     specs_dir = context.root / "tests" / "feature_specs" / (slug or "")
@@ -299,18 +394,40 @@ def _run_stage_plan(
     summary: List[dict[str, object]] = []
     first_failure: Optional[dict[str, object]] = None
     coverage_failed = False
-    coverage_targets_display: Optional[str] = env.get("COVERAGE_TARGETS")
-    coverage_threshold = env.get("COVERAGE_MIN")
-    if not coverage_targets_display and coverage_min:
-        coverage_targets_display = coverage_targets
-    if not coverage_threshold and coverage_min:
-        coverage_threshold = str(coverage_min)
+    coverage_min = env.get("COVERAGE_MIN")
+    coverage_targets_config = env.get("COVERAGE_TARGETS")
+    coverage_targets = coverage_targets_config or "."
+    coverage_targets_display: Optional[str] = coverage_targets_config or (coverage_targets if coverage_min else None)
+    coverage_threshold = coverage_min
+    emit_event(
+        "discriminator",
+        "run_started",
+        slug=slug,
+        mode=mode,
+        pass_number=pass_number,
+        run_id=run_id,
+        attempt=attempt,
+        stage_groups=[group.title for group in groups],
+    )
     for group in groups:
         print("------------------------------------------------------------")
         print(f"{palette.blue}Stage: {group.title}{palette.reset}")
         for stage in group.stages:
             if stage.command.strip() == "":
                 continue
+            emit_event(
+                "discriminator",
+                "stage_start",
+                slug=slug,
+                mode=mode,
+                pass_number=pass_number,
+                run_id=run_id,
+                attempt=attempt,
+                identifier=stage.identifier,
+                description=stage.description,
+                command=stage.command,
+                group=group.title,
+            )
             ok, elapsed, tail = _execute_stage(stage, env, context, log_path, latest_log_path)
             status = f"{palette.green}PASS{palette.reset}" if ok else f"{palette.red}FAIL{palette.reset}"
             timing = f"{palette.dim}({elapsed:.2f}s){palette.reset}"
@@ -325,6 +442,40 @@ def _run_stage_plan(
                 "tail": tail,
             }
             summary.append(record)
+            failure_reason = _summarize_failure_reason(tail) if not ok else ""
+            emit_event(
+                "discriminator",
+                "stage_end",
+                slug=slug,
+                mode=mode,
+                pass_number=pass_number,
+                run_id=run_id,
+                attempt=attempt,
+                identifier=stage.identifier,
+                description=stage.description,
+                command=stage.command,
+                group=group.title,
+                ok=ok,
+                elapsed=elapsed,
+                tail=tail,
+                failure_reason=failure_reason,
+            )
+            if stage.identifier.startswith("04.") or "Coverage" in group.title:
+                percent = _parse_coverage_percent(tail)
+                if percent is not None:
+                    emit_event(
+                        "discriminator",
+                        "coverage_update",
+                        slug=slug,
+                        mode=mode,
+                        pass_number=pass_number,
+                        run_id=run_id,
+                        attempt=attempt,
+                        identifier=stage.identifier,
+                        percent=percent,
+                        threshold=coverage_threshold,
+                        targets=_split_targets_for_events(coverage_targets),
+                    )
             if not ok:
                 overall_ok = False
                 if first_failure is None:
@@ -354,6 +505,23 @@ def _run_stage_plan(
             "command": first_failure.get("command"),
         }
     _write_discriminator_result(context, payload)
+    emit_event(
+        "discriminator",
+        "run_completed",
+        slug=slug,
+        mode=mode,
+        pass_number=pass_number,
+        run_id=run_id,
+        attempt=attempt,
+        ok=overall_ok,
+        coverage_failed=coverage_failed,
+        first_failure_identifier=(
+            first_failure.get("identifier") if first_failure else None
+        ),
+        first_failure_description=(
+            first_failure.get("description") if first_failure else None
+        ),
+    )
     return overall_ok
 
 
@@ -609,6 +777,25 @@ def _execute_stage(
     return ok, elapsed, tail_lines
 
 
+_COVERAGE_TOTAL_RE = re.compile(r"TOTAL\s+\d+\s+\d+\s+\d+\s+(\d+)%")
+
+
+def _parse_coverage_percent(text: str) -> Optional[float]:
+    for line in reversed((text or "").splitlines()):
+        match = _COVERAGE_TOTAL_RE.search(line)
+        if match:
+            try:
+                return float(match.group(1))
+            except ValueError:
+                continue
+    return None
+
+
+def _split_targets_for_events(raw: str) -> List[str]:
+    tokens = [token.strip() for token in re.split(r"[,\s]+", raw or "") if token.strip()]
+    return tokens or []
+
+
 def _render_stage_summary(
     summary: List[dict[str, object]],
     overall_ok: bool,
@@ -850,25 +1037,88 @@ def _apply_mechanical_fixes(
     slug: Optional[str],
     context: RexContext,
     env: dict[str, str],
+    *,
+    pass_number: int,
+    attempt: int,
+    run_id: int,
 ) -> bool:
     print("Mechanical fixes (ruff/black/isort)…")
+    tools = ["ruff", "black", "isort"]
+    targets: List[str] = []
+    reason: Optional[str] = None
     if mode == "feature":
         if not slug:
+            reason = "missing_slug"
+            emit_event(
+                "discriminator",
+                "mechanical_fixes",
+                slug=slug,
+                mode=mode,
+                pass_number=pass_number,
+                run_id=run_id,
+                attempt=attempt,
+                changed=False,
+                tools=tools,
+                targets=targets,
+                reason=reason,
+            )
             return False
         target = context.root / "tests" / "feature_specs" / slug
         if not target.is_dir():
             print("[discriminator] No feature specs directory; skipping mechanical fixes.")
+            reason = "missing_feature_specs"
+            emit_event(
+                "discriminator",
+                "mechanical_fixes",
+                slug=slug,
+                mode=mode,
+                pass_number=pass_number,
+                run_id=run_id,
+                attempt=attempt,
+                changed=False,
+                tools=tools,
+                targets=targets,
+                reason=reason,
+            )
             return False
         targets = [str(target)]
     else:
         targets = _detect_runtime_targets(context)
         if not targets:
             print("[discriminator] No runtime targets detected for mechanical style; skipping.")
+            reason = "no_runtime_targets"
+            emit_event(
+                "discriminator",
+                "mechanical_fixes",
+                slug=slug,
+                mode=mode,
+                pass_number=pass_number,
+                run_id=run_id,
+                attempt=attempt,
+                changed=False,
+                tools=tools,
+                targets=targets,
+                reason=reason,
+            )
             return False
     run(["ruff", "check", *targets, "--fix"], cwd=context.root, env=env, check=False)
     run(["black", *targets], cwd=context.root, env=env, check=False)
     run(["isort", *targets], cwd=context.root, env=env, check=False)
-    if _git_diff_is_empty(context):
+    changed = not _git_diff_is_empty(context)
+    emit_event(
+        "discriminator",
+        "mechanical_fixes",
+        slug=slug,
+        mode=mode,
+        pass_number=pass_number,
+        run_id=run_id,
+        attempt=attempt,
+        changed=changed,
+        tools=tools,
+        targets=targets,
+        reason=None if changed else (reason or "no_changes"),
+    )
+    if not changed:
         return False
     run(["git", "add", "-A"], cwd=context.root, check=False)
     label = "feature" if mode == "feature" else "global"
