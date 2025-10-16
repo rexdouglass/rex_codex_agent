@@ -11,8 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
-from .utils import (RexContext, dump_json, ensure_dir, load_json, prompt,
-                    repo_root, run)
+from .utils import RexContext, dump_json, ensure_dir, load_json, prompt, repo_root, run
 
 CARD_DIR = Path("documents/feature_cards")
 CARD_FILENAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")

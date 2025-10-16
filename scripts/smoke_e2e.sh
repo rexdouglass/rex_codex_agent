@@ -31,7 +31,12 @@ mkdir dummy && cd dummy
 git init -q
 git config user.email "smoke@test.local"
 git config user.name "Rex Codex Smoke"
-printf "# dummy project\n" > README.md
+cat > README.md <<'MD'
+# dummy project
+
+This sandbox exercises `./rex-codex loop`, including `./rex-codex discriminator --feature-only`
+and `./rex-codex discriminator --global`.
+MD
 shim_dir="$PWD/.shim"
 mkdir -p "$shim_dir"
 ln -sf "$(command -v python3)" "$shim_dir/python"
@@ -40,9 +45,8 @@ mkdir -p src/hello
 cat > src/hello/__init__.py <<'PY'
 from __future__ import annotations
 
-from collections.abc import Sequence
-
 import argparse
+from collections.abc import Sequence
 
 DEFAULT_MESSAGE = "Hello World"
 

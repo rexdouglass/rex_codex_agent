@@ -7,9 +7,17 @@ from pathlib import Path
 
 from . import __version__
 from .burn import burn_repo
-from .cards import (archive_card, create_card, discover_cards, lint_all_cards,
-                    prune_spec_directories, rename_card, sanitise_slug,
-                    spec_directory, split_card)
+from .cards import (
+    archive_card,
+    create_card,
+    discover_cards,
+    lint_all_cards,
+    prune_spec_directories,
+    rename_card,
+    sanitise_slug,
+    spec_directory,
+    split_card,
+)
 from .discriminator import DiscriminatorOptions, run_discriminator
 from .doctor import run_doctor
 from .generator import GeneratorOptions, parse_statuses, run_generator

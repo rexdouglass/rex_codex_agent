@@ -116,14 +116,18 @@ trap finalize EXIT
 run git init -q
 run git config user.email "selftest@rex.codex"
 run git config user.name "Rex Codex Selftest"
-printf "# selftest workspace\n" > README.md
+cat > README.md <<'MD'
+# selftest workspace
+
+This sandbox exercises `./rex-codex loop`, including `./rex-codex discriminator --feature-only`
+and `./rex-codex discriminator --global`.
+MD
 mkdir -p src/hello
 cat > src/hello/__init__.py <<'PY'
 from __future__ import annotations
 
-from collections.abc import Sequence
-
 import argparse
+from collections.abc import Sequence
 
 DEFAULT_MESSAGE = "Hello World"
 

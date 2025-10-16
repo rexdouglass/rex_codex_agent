@@ -21,16 +21,28 @@ from types import SimpleNamespace
 from typing import Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from .cards import discover_cards, find_orphan_spec_slugs, load_rex_agent
-from .config import (AGENT_SRC, DEFAULT_COVERAGE_MIN,
-                     DEFAULT_DISCRIMINATOR_MAX_FILES,
-                     DEFAULT_DISCRIMINATOR_MAX_LINES, DEFAULT_PROTECTED_PATHS,
-                     DEFAULT_RUNTIME_ALLOWLIST)
+from .config import (
+    AGENT_SRC,
+    DEFAULT_COVERAGE_MIN,
+    DEFAULT_DISCRIMINATOR_MAX_FILES,
+    DEFAULT_DISCRIMINATOR_MAX_LINES,
+    DEFAULT_PROTECTED_PATHS,
+    DEFAULT_RUNTIME_ALLOWLIST,
+)
 from .events import emit_event
 from .generator import _split_command
 from .self_update import self_update
-from .utils import (RexContext, activate_venv, dump_json, ensure_dir,
-                    ensure_python, ensure_requirements_installed, load_json,
-                    lock_file, run)
+from .utils import (
+    RexContext,
+    activate_venv,
+    dump_json,
+    ensure_dir,
+    ensure_python,
+    ensure_requirements_installed,
+    load_json,
+    lock_file,
+    run,
+)
 
 
 @dataclass

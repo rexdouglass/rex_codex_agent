@@ -17,15 +17,22 @@ from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .cards import FeatureCard, discover_cards, update_active_card
-from .config import (AGENT_SRC, DEFAULT_GENERATOR_MAX_FILES,
-                     DEFAULT_GENERATOR_MAX_LINES)
+from .config import AGENT_SRC, DEFAULT_GENERATOR_MAX_FILES, DEFAULT_GENERATOR_MAX_LINES
 from .events import emit_event, events_path
 from .generator_ui import GeneratorHUD
 from .hud import generator_snapshot_text
 from .self_update import self_update
-from .utils import (RexContext, activate_venv, dump_json, ensure_dir,
-                    ensure_python, ensure_requirements_installed, load_json,
-                    lock_file, run)
+from .utils import (
+    RexContext,
+    activate_venv,
+    dump_json,
+    ensure_dir,
+    ensure_python,
+    ensure_requirements_installed,
+    load_json,
+    lock_file,
+    run,
+)
 
 PROGRESS_INTERVAL_SECONDS = max(
     5, int(os.environ.get("GENERATOR_PROGRESS_SECONDS", "15"))
