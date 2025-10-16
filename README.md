@@ -65,6 +65,7 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
      ./bin/rex-codex hud generator --slug <slug> --follow
      ./bin/rex-codex hud discriminator --slug <slug>
      ```
+   - Need a consolidated single-window dashboard? The experimental Ink HUD prototype lives in `tui/`. It renders the structured NDJSON events described in the GPT‑5 GUI plan—follow the quick start in `tui/README.md` to run it against `.codex_ci/events.jsonl` or any compatible log.
 
 5. **Implement runtime code until green**
    - Edit modules under `src/...` (or your package directories).

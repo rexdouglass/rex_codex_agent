@@ -1,0 +1,6 @@
+{"ts":"2025-10-16T14:03:10Z","type":"decompose.ok","feature_id":"F-101","summary":"Created 6 subcomponents","details":{"created":["SC-1.1","SC-1.2","SC-2.1","SC-3.1","SC-4.1","SC-4.2"]}}
+{"ts":"2025-10-16T14:03:12Z","type":"test.proposed","sub_id":"SC-1.1","tests":[{"id":"T-1.1.a","type":"unit","desc":"parses X"},{"id":"T-1.1.b","type":"unit","desc":"rejects Y"}]}
+{"ts":"2025-10-16T14:03:22Z","type":"test.frozen","ids":["T-1.1.a","T-1.1.b"],"summary":"2 approved"}
+{"ts":"2025-10-16T14:03:40Z","type":"code.diff","sub_id":"SC-1.1","path":"src/foo.ts","diff":"+ export function parseX(s: string){return s.trim()}\n- // TODO","explain":["Implements A1","Adds null checks","TODO perf R-22"]}
+{"ts":"2025-10-16T14:04:01Z","type":"ci.result","run_id":"R-23","unit":{"pass":1,"fail":1},"lint":"pass","typecheck":"pass"}
+{"ts":"2025-10-16T14:04:12Z","type":"summary.step","short":"SC-1.1 progressing: 1/2 tests pass","long":"CI run R-23 passed lint/typecheck; 1 unit test still failing"}

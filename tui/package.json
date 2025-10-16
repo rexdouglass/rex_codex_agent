@@ -1,0 +1,29 @@
+{
+  "name": "tui",
+  "version": "1.0.0",
+  "description": "Ink terminal HUD for rex_codex structured event streams",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "tsx src/index.tsx"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "type": "module",
+  "dependencies": {
+    "chalk": "^5.6.2",
+    "cli-truncate": "^5.1.0",
+    "diff": "^8.0.2",
+    "ink": "^6.3.1",
+    "react": "^19.2.0",
+    "strip-ansi": "^7.1.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.8.0",
+    "@types/react": "^19.2.2",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}
