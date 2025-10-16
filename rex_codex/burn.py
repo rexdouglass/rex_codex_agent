@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import os
 import shutil
-from pathlib import Path
 
-from .utils import RexContext, ask_confirmation, ensure_dir, repo_root
+from .utils import RexContext, ask_confirmation, ensure_dir
 
 
 def burn_repo(
@@ -18,8 +16,6 @@ def burn_repo(
 ) -> None:
     context = context or RexContext.discover()
     root = context.root
-    agent_dir = root / ".rex_agent"
-
     print(f"WARNING: This will delete repository files in {root}")
     if purge_agent:
         print("  - .rex_agent will be removed")
@@ -30,7 +26,9 @@ def burn_repo(
     if dry_run:
         print("[burn] Dry-run mode: no files will be deleted.")
     elif not force:
-        if not ask_confirmation("Type 'burn it down' to continue: ", expected="burn it down"):
+        if not ask_confirmation(
+            "Type 'burn it down' to continue: ", expected="burn it down"
+        ):
             print("[burn] Aborted.")
             return
 
@@ -57,4 +55,3 @@ def burn_repo(
 
     ensure_dir(root)
     print("[✓] Repository reset. Re-run ./rex-codex init to seed fresh scaffolding.")
-

@@ -3,24 +3,16 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import UTC, datetime
 import re
 import shutil
 import sys
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
-from .utils import (
-    RexContext,
-    dump_json,
-    ensure_dir,
-    load_json,
-    prompt,
-    repo_root,
-    run,
-)
-
+from .utils import (RexContext, dump_json, ensure_dir, load_json, prompt,
+                    repo_root, run)
 
 CARD_DIR = Path("documents/feature_cards")
 CARD_FILENAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -84,7 +76,9 @@ def _list_test_functions(path: Path) -> List[str]:
         return []
     names: List[str] = []
     for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test"):
+        if isinstance(
+            node, (ast.FunctionDef, ast.AsyncFunctionDef)
+        ) and node.name.startswith("test"):
             names.append(node.name)
     return names
 
@@ -301,7 +295,9 @@ def rename_card(context: RexContext, old_slug: str, new_slug: str) -> FeatureCar
     return FeatureCard(path=new_path, slug=new_slug, status=read_status(new_path))
 
 
-def archive_card(context: RexContext, slug: str, *, status: str = "archived") -> FeatureCard:
+def archive_card(
+    context: RexContext, slug: str, *, status: str = "archived"
+) -> FeatureCard:
     path = card_path_for(context, slug)
     if not path.exists():
         raise FileNotFoundError(f"Feature Card not found: {path}")
@@ -337,8 +333,12 @@ def split_card(
     summary = meta.get("summary", "")
     acceptance = [str(item) for item in meta.get("acceptance", [])]
 
-    card_a = create_card(context, slug=slug_a, title=title, summary=summary, acceptance=acceptance)
-    card_b = create_card(context, slug=slug_b, title=title, summary=summary, acceptance=acceptance)
+    card_a = create_card(
+        context, slug=slug_a, title=title, summary=summary, acceptance=acceptance
+    )
+    card_b = create_card(
+        context, slug=slug_b, title=title, summary=summary, acceptance=acceptance
+    )
 
     source_spec = spec_directory(context, source_slug)
     if source_spec.exists():
@@ -367,7 +367,9 @@ def split_card(
             if dest.exists():
                 raise FileExistsError(f"Destination already contains {dest}")
             shutil.move(str(path), str(dest))
-            print(f"[card split] Moved {path.relative_to(context.root)} → {dest.relative_to(context.root)}")
+            print(
+                f"[card split] Moved {path.relative_to(context.root)} → {dest.relative_to(context.root)}"
+            )
         # Remove the source directory if empty after moves
         if not any(source_spec.iterdir()):
             source_spec.rmdir()
@@ -412,7 +414,9 @@ def prune_spec_directories(
             print(f"[card prune-specs] Skipping {rel} (git reports modifications).")
             continue
         if not assume_yes:
-            response = prompt(f"[card prune-specs] Delete {rel}? [y/N]: ").strip().lower()
+            response = (
+                prompt(f"[card prune-specs] Delete {rel}? [y/N]: ").strip().lower()
+            )
             if response not in {"y", "yes"}:
                 continue
         shutil.rmtree(path)

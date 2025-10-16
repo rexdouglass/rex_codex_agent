@@ -28,11 +28,15 @@ def test_model_acceptance_mapping_and_rendering() -> None:
                     {
                         "index": 1,
                         "text": "Handle --message flag",
-                        "tests": ["tests/feature_specs/hello_cli/test_cli_basic.py::test_flag"],
+                        "tests": [
+                            "tests/feature_specs/hello_cli/test_cli_basic.py::test_flag"
+                        ],
                     },
                     {"index": 2, "text": "Respect --quiet toggle", "tests": []},
                 ],
-                "missing": [{"index": 2, "text": "Respect --quiet toggle", "tests": []}],
+                "missing": [
+                    {"index": 2, "text": "Respect --quiet toggle", "tests": []}
+                ],
                 "orphans": ["tests/feature_specs/hello_cli/test_extra.py::test_unused"],
             },
         )
@@ -42,12 +46,22 @@ def test_model_acceptance_mapping_and_rendering() -> None:
     model.apply_event(
         _event(
             "diff_summary",
-            files=[{"path": "tests/feature_specs/hello_cli/test_cli_basic.py", "added": 12, "removed": 0}],
+            files=[
+                {
+                    "path": "tests/feature_specs/hello_cli/test_cli_basic.py",
+                    "added": 12,
+                    "removed": 0,
+                }
+            ],
             totals={"files": 1, "added_lines": 12, "removed_lines": 0},
         )
     )
-    model.apply_event(_event("pytest_snapshot", status="failed", output="AssertionError: message"))
-    model.apply_event(_event("critic_guidance", done=False, guidance="TODO: add negative case"))
+    model.apply_event(
+        _event("pytest_snapshot", status="failed", output="AssertionError: message")
+    )
+    model.apply_event(
+        _event("critic_guidance", done=False, guidance="TODO: add negative case")
+    )
     model.apply_event(_event("iteration_completed", elapsed_seconds=18.0, exit_code=0))
 
     output = model.render(iteration_elapsed=12.0, codex_elapsed=8.0)
@@ -97,7 +111,9 @@ def test_fci_partial_with_failure() -> None:
                     {
                         "index": 1,
                         "text": "Handle --message flag",
-                        "tests": ["tests/feature_specs/hello_cli/test_cli_basic.py::test_flag"],
+                        "tests": [
+                            "tests/feature_specs/hello_cli/test_cli_basic.py::test_flag"
+                        ],
                     }
                 ],
                 "missing": [],
@@ -129,12 +145,16 @@ def test_fci_all_passing() -> None:
                     {
                         "index": 1,
                         "text": "Handle --message flag",
-                        "tests": ["tests/feature_specs/hello_cli/test_cli_basic.py::test_flag"],
+                        "tests": [
+                            "tests/feature_specs/hello_cli/test_cli_basic.py::test_flag"
+                        ],
                     },
                     {
                         "index": 2,
                         "text": "Respect --quiet toggle",
-                        "tests": ["tests/feature_specs/hello_cli/test_cli_basic.py::test_quiet"],
+                        "tests": [
+                            "tests/feature_specs/hello_cli/test_cli_basic.py::test_quiet"
+                        ],
                     },
                 ],
                 "missing": [],

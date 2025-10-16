@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from .utils import agent_src, repo_root
 
-
 REPO_ROOT = repo_root()
 AGENT_SRC = agent_src(REPO_ROOT)
 CODENAME = "rex-codex"

@@ -10,6 +10,7 @@ This repository ships the **Codex-first automation scaffold** that installs via 
   2. After every interaction, commit and push the current state of the repository and drop into that folder a concatenated snapshot of every important script/markdown/readme file, each prefixed with its absolute path.
   3. Snapshots **must** be generated via the built-in helper (`rex_codex.utils.create_audit_snapshot(RexContext.discover())` or an equivalent CLI hook); never hand-roll or trim the audit output.
   4. Treat audits as part of the conversational handshake—produce a fresh snapshot at the end of every operator interaction before yielding control.
+  5. Before producing the final snapshot, run `scripts/selftest_loop.sh` (with the bundled Codex stub) so the repo proves it can regenerate the `hello_greet` / `hello_cli` specs end-to-end. The script appends its logs, status, and generated source listings to the latest audit file—commit that updated audit so external GPT5-Pro review sees the full trace.
 - **Self-development loop:** `bin/fake-codex`, `scripts/selftest_loop.sh`, and `scripts/smoke_e2e.sh` must stay executable and green. We dogfood the agent by reinstalling it into clean workspaces and running the generator → discriminator pipeline offline.
 
 The Bash wrapper is now a shim; all orchestration lives in the Python package `rex_codex` so we can unit-test and extend behaviour without shell metaprogramming.
@@ -56,10 +57,11 @@ Keep these expectations visible—both docs and templates must reinforce them so
   ./rex-codex loop --discriminator-only   # implement runtime without re-triggering generator
   DISABLE_LLM=0 ./rex-codex loop --discriminator-only   # or add --enable-llm to discriminator/loop for guarded runtime edits
   ```
-   The loop finishes with a two-line scoreboard (generator vs discriminator) so operators immediately know which phase passed, warned, or failed.
-   Every invocation also generates `for_external_GPT5_pro_audit/audit_<timestamp>.md`, stages all changes, and pushes the repository so external GPT5-Pro audits can start from the latest state.
-   Monitor mode (`--ui monitor`, default) keeps the HUD in a single refreshed screen. Use `--ui snapshot` for a one-off frame or `--ui off` to suppress HUD output during scripted runs.
-   Need the latest frame without attaching to TTY? Call the single-shot helpers (handy for `watch -d` in CI): `./bin/rex-codex hud generator --slug <slug>` and `./bin/rex-codex hud discriminator --slug <slug>`.
+The loop finishes with a two-line scoreboard (generator vs discriminator) so operators immediately know which phase passed, warned, or failed.
+Every invocation also generates `for_external_GPT5_pro_audit/audit_<timestamp>.md`, stages all changes, and pushes the repository so external GPT5-Pro audits can start from the latest state.
+Monitor mode (`--ui monitor`, default) keeps the HUD in a single refreshed screen. Use `--ui snapshot` for a one-off frame or `--ui off` to suppress HUD output during scripted runs.
+Need the latest frame without attaching to TTY? Call the single-shot helpers (handy for `watch -d` in CI): `./bin/rex-codex hud generator --slug <slug>` and `./bin/rex-codex hud discriminator --slug <slug>`.
+- **Mandatory self-test:** Before landing major changes or handing off a session, run `scripts/selftest_loop.sh`. It rebuilds the toy `hello` project, regenerates both feature cards, drives the discriminator ladder, and appends the command log plus generated sources to the active audit file. Leave its output in place—external reviewers rely on that trace.
 7. **Promote the Feature Card**
    - When the repo is green, edit the card to `status: accepted` (generator never changes statuses). Commit your changes.
 

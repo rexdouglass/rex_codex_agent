@@ -9,43 +9,28 @@ import re
 import shlex
 import shutil
 import subprocess
-import textwrap
-import time
 import sys
 import threading
+import time
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Iterable, List, Mapping, Optional, Sequence, Tuple
-from collections import OrderedDict
 
 from .cards import discover_cards, find_orphan_spec_slugs, load_rex_agent
-from .config import (
-    AGENT_SRC,
-    DEFAULT_COVERAGE_MIN,
-    DEFAULT_DISCRIMINATOR_MAX_FILES,
-    DEFAULT_DISCRIMINATOR_MAX_LINES,
-    DEFAULT_PROTECTED_PATHS,
-    DEFAULT_RUNTIME_ALLOWLIST,
-)
+from .config import (AGENT_SRC, DEFAULT_COVERAGE_MIN,
+                     DEFAULT_DISCRIMINATOR_MAX_FILES,
+                     DEFAULT_DISCRIMINATOR_MAX_LINES, DEFAULT_PROTECTED_PATHS,
+                     DEFAULT_RUNTIME_ALLOWLIST)
 from .events import emit_event
 from .generator import _split_command
 from .self_update import self_update
-from .utils import (
-    RexContext,
-    RexError,
-    activate_venv,
-    dump_json,
-    ensure_dir,
-    ensure_python,
-    ensure_requirements_installed,
-    load_json,
-    lock_file,
-    repo_root,
-    run,
-)
+from .utils import (RexContext, activate_venv, dump_json, ensure_dir,
+                    ensure_python, ensure_requirements_installed, load_json,
+                    lock_file, run)
 
 
 @dataclass
@@ -75,7 +60,9 @@ class StageGroup:
     stages: List[Stage]
 
 
-def _write_discriminator_result(context: RexContext, payload: Mapping[str, object]) -> None:
+def _write_discriminator_result(
+    context: RexContext, payload: Mapping[str, object]
+) -> None:
     path = context.codex_ci_dir / "discriminator_result.json"
     dump_json(path, payload)
 
@@ -109,7 +96,9 @@ def _ansi_palette() -> SimpleNamespace:
     )
 
 
-def run_discriminator(options: DiscriminatorOptions, *, context: RexContext | None = None) -> int:
+def run_discriminator(
+    options: DiscriminatorOptions, *, context: RexContext | None = None
+) -> int:
     context = context or RexContext.discover()
     self_update()
     ensure_dir(context.codex_ci_dir)
@@ -147,7 +136,9 @@ def _run_locked(options: DiscriminatorOptions, context: RexContext) -> int:
         passes += 1
         attempt = 1
         run_counter += 1
-        print(f"=== rex-codex discriminator ({mode}) pass {passes}/{options.max_passes} ===")
+        print(
+            f"=== rex-codex discriminator ({mode}) pass {passes}/{options.max_passes} ==="
+        )
         log_path.write_text("", encoding="utf-8")
         latest_log_path.write_text("", encoding="utf-8")
 
@@ -400,7 +391,9 @@ def _run_stage_plan(
     coverage_min = env.get("COVERAGE_MIN")
     coverage_targets_config = env.get("COVERAGE_TARGETS")
     coverage_targets = coverage_targets_config or "."
-    coverage_targets_display: Optional[str] = coverage_targets_config or (coverage_targets if coverage_min else None)
+    coverage_targets_display: Optional[str] = coverage_targets_config or (
+        coverage_targets if coverage_min else None
+    )
     coverage_threshold = coverage_min
     emit_event(
         "discriminator",
@@ -421,11 +414,19 @@ def _run_stage_plan(
         if not executable_stages:
             continue
 
-        def _handle_stage_result(stage: Stage, ok: bool, elapsed: float, tail: str) -> None:
+        def _handle_stage_result(
+            stage: Stage, ok: bool, elapsed: float, tail: str
+        ) -> None:
             nonlocal overall_ok, first_failure, coverage_failed
-            status = f"{palette.green}PASS{palette.reset}" if ok else f"{palette.red}FAIL{palette.reset}"
+            status = (
+                f"{palette.green}PASS{palette.reset}"
+                if ok
+                else f"{palette.red}FAIL{palette.reset}"
+            )
             timing = f"{palette.dim}({elapsed:.2f}s){palette.reset}"
-            print(f"    {palette.dim}[{stage.identifier}]{palette.reset} {status} {timing}")
+            print(
+                f"    {palette.dim}[{stage.identifier}]{palette.reset} {status} {timing}"
+            )
             record = {
                 "group": group.title,
                 "identifier": stage.identifier,
@@ -528,7 +529,11 @@ def _run_stage_plan(
                     latest_log_path,
                 )
                 _handle_stage_result(stage, ok, elapsed, tail)
-    result = f"{palette.green}PASS{palette.reset}" if overall_ok else f"{palette.red}FAIL{palette.reset}"
+    result = (
+        f"{palette.green}PASS{palette.reset}"
+        if overall_ok
+        else f"{palette.red}FAIL{palette.reset}"
+    )
     print(f"  Result: [{result}]")
     _render_stage_summary(summary, overall_ok, first_failure, palette, context, mode)
     payload: dict[str, object] = {
@@ -567,13 +572,19 @@ def _run_stage_plan(
     return overall_ok
 
 
-def _configure_pytest_flags(mode: str, env: dict[str, str], context: RexContext) -> List[str]:
+def _configure_pytest_flags(
+    mode: str, env: dict[str, str], context: RexContext
+) -> List[str]:
     flags = ["-q", "-ra"]
     if mode == "feature":
         flags += ["-x", "--maxfail=1"]
         return flags
     probe = run(
-        ["python", "-c", "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('xdist') else 1)"],
+        [
+            "python",
+            "-c",
+            "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('xdist') else 1)",
+        ],
         env=env,
         cwd=context.root,
         check=False,
@@ -619,14 +630,20 @@ def _build_stage_groups(
         ],
     )
     if (context.root / ".venv" / "bin" / "python").exists():
-        level00.stages.append(Stage("00.3", "Venv Python", ".venv/bin/python --version"))
+        level00.stages.append(
+            Stage("00.3", "Venv Python", ".venv/bin/python --version")
+        )
     groups.append(level00)
 
     groups.append(
         StageGroup(
             title="Level 01 - Tooling & Dependencies",
             stages=[
-                Stage("01.1", "pytest importable?", "python -c 'import pytest; print(pytest.__version__)'"),
+                Stage(
+                    "01.1",
+                    "pytest importable?",
+                    "python -c 'import pytest; print(pytest.__version__)'",
+                ),
             ],
         )
     )
@@ -718,7 +735,9 @@ def _build_stage_groups(
             )
         )
     if env.get("BANDIT") == "1":
-        bandit_targets = env.get("BANDIT_TARGETS") or env.get("COVERAGE_TARGETS") or "src"
+        bandit_targets = (
+            env.get("BANDIT_TARGETS") or env.get("COVERAGE_TARGETS") or "src"
+        )
         if not (context.root / bandit_targets).exists():
             bandit_targets = "."
         level05_stages.append(
@@ -744,18 +763,24 @@ def _build_stage_groups(
             ]
         )
     if level05_stages:
-        groups.append(StageGroup(title="Level 05 - Security & Build", stages=level05_stages))
+        groups.append(
+            StageGroup(title="Level 05 - Security & Build", stages=level05_stages)
+        )
 
     if mode == "feature":
         target = shlex.quote(specs_dir)
         feature_style_stages = [
             Stage("06.1", "black --check (feature)", f"black {target} --check"),
-            Stage("06.2", "isort --check-only (feature)", f"isort {target} --check-only"),
+            Stage(
+                "06.2", "isort --check-only (feature)", f"isort {target} --check-only"
+            ),
             Stage("06.3", "ruff check (feature)", f"ruff check {target}"),
             Stage("06.4", "flake8 (feature)", f"flake8 {target}"),
         ]
         if env.get("MYPY_INCLUDE_TESTS") == "1":
-            feature_style_stages.append(Stage("06.5", "mypy (feature)", f"mypy {target}"))
+            feature_style_stages.append(
+                Stage("06.5", "mypy (feature)", f"mypy {target}")
+            )
         groups.append(
             StageGroup(
                 title=f"Level 06 - Feature Style & Type Gates ({slug})",
@@ -786,7 +811,7 @@ def _execute_stage(
     latest_log_path: Path,
     print_lock: Optional[threading.Lock] = None,
 ) -> Tuple[bool, float, str]:
-    with (print_lock or nullcontext()):
+    with print_lock or nullcontext():
         print(f"\n  Question {stage.identifier}: {stage.description}")
         print(f"    Command: {stage.command}")
     stage_timeout = int(os.environ.get("DISCRIMINATOR_STAGE_TIMEOUT", "0") or "0")
@@ -804,19 +829,25 @@ def _execute_stage(
         )
         output = (completed.stdout or "") + (completed.stderr or "")
     except subprocess.TimeoutExpired:
-        message = f"[discriminator] Stage {stage.identifier} timed out after {stage_timeout}s"
+        message = (
+            f"[discriminator] Stage {stage.identifier} timed out after {stage_timeout}s"
+        )
         output = message + "\n"
-        completed = subprocess.CompletedProcess(cmd, returncode=124, stdout="", stderr=message)
+        completed = subprocess.CompletedProcess(
+            cmd, returncode=124, stdout="", stderr=message
+        )
     elapsed = time.perf_counter() - start
     with open(log_path, "a", encoding="utf-8") as fh:
         fh.write(f"\n[{stage.identifier}] {stage.description}\n")
         fh.write(output)
     with open(latest_log_path, "a", encoding="utf-8") as fh:
         fh.write(output)
-    with (print_lock or nullcontext()):
+    with print_lock or nullcontext():
         print(output, end="")
         if completed.returncode == 124:
-            print(f"[discriminator] Stage {stage.identifier} timed out after {stage_timeout}s")
+            print(
+                f"[discriminator] Stage {stage.identifier} timed out after {stage_timeout}s"
+            )
     ok = completed.returncode == 0
     tail_lines = "\n".join((output or "").splitlines()[-8:])
     return ok, elapsed, tail_lines
@@ -867,7 +898,9 @@ def _parse_coverage_percent(text: str) -> Optional[float]:
 
 
 def _split_targets_for_events(raw: str) -> List[str]:
-    tokens = [token.strip() for token in re.split(r"[,\s]+", raw or "") if token.strip()]
+    tokens = [
+        token.strip() for token in re.split(r"[,\s]+", raw or "") if token.strip()
+    ]
     return tokens or []
 
 
@@ -890,21 +923,31 @@ def _render_stage_summary(
         print(f"{palette.bold}{group}{palette.reset}")
         for record in rows:
             ok = bool(record["ok"])
-            icon = f"{palette.green}✔{palette.reset}" if ok else f"{palette.red}✖{palette.reset}"
+            icon = (
+                f"{palette.green}✔{palette.reset}"
+                if ok
+                else f"{palette.red}✖{palette.reset}"
+            )
             identifier = record["identifier"]
             description = record["description"]
             elapsed = float(record["elapsed"])
             timing = f"{palette.dim}({elapsed:.2f}s){palette.reset}"
-            print(f"  {icon} {palette.dim}[{identifier}]{palette.reset} {description} {timing}")
+            print(
+                f"  {icon} {palette.dim}[{identifier}]{palette.reset} {description} {timing}"
+            )
             if not ok:
                 reason = _summarize_failure_reason(record.get("tail", ""))
                 if reason:
                     print(f"      ↳ {palette.error}{reason}{palette.reset}")
     if not overall_ok and first_failure is not None:
         command = first_failure["command"]
-        print(f"\n{palette.yellow}Next step:{palette.reset} rerun the first failing command locally:")
+        print(
+            f"\n{palette.yellow}Next step:{palette.reset} rerun the first failing command locally:"
+        )
         print(f"  {command}")
-        print(f"Inspect {palette.cyan}./rex-codex logs --discriminator --lines 200{palette.reset} for full output.")
+        print(
+            f"Inspect {palette.cyan}./rex-codex logs --discriminator --lines 200{palette.reset} for full output."
+        )
     if mode == "global":
         orphans = find_orphan_spec_slugs(context)
         if orphans:
@@ -1005,7 +1048,9 @@ def _snapshot_protected_paths(context: RexContext) -> dict[str, str]:
     return snapshot
 
 
-def _detect_protected_changes(baseline: dict[str, str], context: RexContext) -> List[str]:
+def _detect_protected_changes(
+    baseline: dict[str, str], context: RexContext
+) -> List[str]:
     current = _snapshot_protected_paths(context)
     changed: set[str] = set()
     for path, digest in baseline.items():
@@ -1029,8 +1074,16 @@ def _revert_paths(paths: Iterable[str], context: RexContext) -> None:
             check=False,
         )
         if result.returncode == 0:
-            run(["git", "restore", "--staged", "--", path], cwd=context.root, check=False)
-            run(["git", "restore", "--worktree", "--", path], cwd=context.root, check=False)
+            run(
+                ["git", "restore", "--staged", "--", path],
+                cwd=context.root,
+                check=False,
+            )
+            run(
+                ["git", "restore", "--worktree", "--", path],
+                cwd=context.root,
+                check=False,
+            )
         elif target.exists():
             if target.is_dir():
                 shutil.rmtree(target)
@@ -1053,7 +1106,11 @@ def _reject_non_runtime_changes(context: RexContext) -> bool:
     if not runtime_targets:
         return True
     changed = run(
-        ["bash", "-lc", "git diff --name-only; git ls-files --others --exclude-standard"],
+        [
+            "bash",
+            "-lc",
+            "git diff --name-only; git ls-files --others --exclude-standard",
+        ],
         cwd=context.root,
         capture_output=True,
         check=False,
@@ -1062,11 +1119,16 @@ def _reject_non_runtime_changes(context: RexContext) -> bool:
     for path in sorted(set(changed)):
         if not path or path.startswith(".codex_ci/"):
             continue
-        allowed = any(path == target or path.startswith(f"{target}/") for target in runtime_targets)
+        allowed = any(
+            path == target or path.startswith(f"{target}/")
+            for target in runtime_targets
+        )
         if not allowed:
             rejects.append(path)
     if rejects:
-        print(f"[discriminator] LLM edits outside runtime allowlist: {' '.join(rejects)}")
+        print(
+            f"[discriminator] LLM edits outside runtime allowlist: {' '.join(rejects)}"
+        )
         _revert_paths(rejects, context)
         return False
     return True
@@ -1078,9 +1140,15 @@ def _git_diff_is_empty(context: RexContext) -> bool:
 
 
 def _enforce_patch_size(context: RexContext) -> bool:
-    max_files = int(os.environ.get("DISCRIMINATOR_MAX_FILES", DEFAULT_DISCRIMINATOR_MAX_FILES))
-    max_lines = int(os.environ.get("DISCRIMINATOR_MAX_LINES", DEFAULT_DISCRIMINATOR_MAX_LINES))
-    completed = run(["git", "diff", "--numstat"], cwd=context.root, capture_output=True, check=False)
+    max_files = int(
+        os.environ.get("DISCRIMINATOR_MAX_FILES", DEFAULT_DISCRIMINATOR_MAX_FILES)
+    )
+    max_lines = int(
+        os.environ.get("DISCRIMINATOR_MAX_LINES", DEFAULT_DISCRIMINATOR_MAX_LINES)
+    )
+    completed = run(
+        ["git", "diff", "--numstat"], cwd=context.root, capture_output=True, check=False
+    )
     files = 0
     lines = 0
     for line in completed.stdout.splitlines():
@@ -1140,7 +1208,9 @@ def _apply_mechanical_fixes(
             return False
         target = context.root / "tests" / "feature_specs" / slug
         if not target.is_dir():
-            print("[discriminator] No feature specs directory; skipping mechanical fixes.")
+            print(
+                "[discriminator] No feature specs directory; skipping mechanical fixes."
+            )
             reason = "missing_feature_specs"
             emit_event(
                 "discriminator",
@@ -1160,7 +1230,9 @@ def _apply_mechanical_fixes(
     else:
         targets = _detect_runtime_targets(context)
         if not targets:
-            print("[discriminator] No runtime targets detected for mechanical style; skipping.")
+            print(
+                "[discriminator] No runtime targets detected for mechanical style; skipping."
+            )
             reason = "no_runtime_targets"
             emit_event(
                 "discriminator",
@@ -1197,14 +1269,20 @@ def _apply_mechanical_fixes(
         return False
     run(["git", "add", "-A"], cwd=context.root, check=False)
     label = "feature" if mode == "feature" else "global"
-    run(["git", "commit", "-m", f"style(rex-codex): apply ruff/black/isort ({label})"], cwd=context.root, check=False)
+    run(
+        ["git", "commit", "-m", f"style(rex-codex): apply ruff/black/isort ({label})"],
+        cwd=context.root,
+        check=False,
+    )
     return True
 
 
 def _detect_runtime_targets(context: RexContext) -> List[str]:
     overrides = os.environ.get("DISCRIMINATOR_RUNTIME_ALLOWLIST")
     if overrides:
-        runtime = sorted({token.strip() for token in overrides.split() if token.strip()})
+        runtime = sorted(
+            {token.strip() for token in overrides.split() if token.strip()}
+        )
         return runtime
     root = context.root
     targets: set[str] = set()
@@ -1241,7 +1319,9 @@ def _invoke_llm_once(
     agents_path = context.root / "AGENTS.md"
     agents_excerpt = ""
     if agents_path.exists():
-        agents_excerpt = "\n".join(agents_path.read_text(encoding="utf-8", errors="replace").splitlines()[:300])
+        agents_excerpt = "\n".join(
+            agents_path.read_text(encoding="utf-8", errors="replace").splitlines()[:300]
+        )
     log_excerpt = _tail_text(log_path) or _tail_text(latest_log_path)
 
     prompt_lines = [
@@ -1255,28 +1335,36 @@ def _invoke_llm_once(
     ]
     if slug:
         prompt_lines.append(f"Active feature slug: {slug}")
-    prompt_lines.extend([
-        "",
-        "Runtime directories permitted for edits:",
-    ])
+    prompt_lines.extend(
+        [
+            "",
+            "Runtime directories permitted for edits:",
+        ]
+    )
     if runtime_allowlist:
         prompt_lines.extend([f" - {target}" for target in runtime_allowlist])
     else:
-        prompt_lines.append(" - (none discovered; edits outside protected files likely to be rejected)")
-    prompt_lines.extend([
-        "",
-        "--- BEGIN AGENTS.md EXCERPT ---",
-        agents_excerpt,
-        "--- END AGENTS.md EXCERPT ---",
-    ])
-    if log_excerpt:
-        prompt_lines.extend([
+        prompt_lines.append(
+            " - (none discovered; edits outside protected files likely to be rejected)"
+        )
+    prompt_lines.extend(
+        [
             "",
-            "Latest log excerpt:",
-            "```",
-            log_excerpt,
-            "```",
-        ])
+            "--- BEGIN AGENTS.md EXCERPT ---",
+            agents_excerpt,
+            "--- END AGENTS.md EXCERPT ---",
+        ]
+    )
+    if log_excerpt:
+        prompt_lines.extend(
+            [
+                "",
+                "Latest log excerpt:",
+                "```",
+                log_excerpt,
+                "```",
+            ]
+        )
     prompt_text = "\n".join(prompt_lines)
     prompt_file = context.codex_ci_dir / "discriminator_prompt.txt"
     prompt_file.write_text(prompt_text + "\n", encoding="utf-8")

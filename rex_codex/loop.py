@@ -9,21 +9,15 @@ from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
 from typing import List, Optional
 
-from .cards import card_content_hash, card_path_for, discover_cards, load_rex_agent
+from .cards import (card_content_hash, card_path_for, discover_cards,
+                    load_rex_agent)
 from .discriminator import DiscriminatorOptions, run_discriminator
 from .doctor import run_doctor
 from .generator import GeneratorOptions, run_generator
 from .logs import show_latest_logs
 from .self_update import self_update
-from .utils import (
-    RexContext,
-    activate_venv,
-    create_audit_snapshot,
-    dump_json,
-    lock_file,
-    run,
-)
-
+from .utils import (RexContext, activate_venv, create_audit_snapshot,
+                    dump_json, lock_file, run)
 
 GENERATOR_EXIT_MESSAGES = {
     0: "Specs updated",
@@ -159,6 +153,7 @@ def _render_loop_summary(
     palette = _ansi_palette()
     gen_state, gen_message = _describe_generator_exit(generator_code)
     disc_state, disc_message = _describe_discriminator_exit(discriminator_code)
+
     def _format(state: str, label: str) -> str:
         if state == "pass":
             color = palette.success
@@ -171,8 +166,12 @@ def _render_loop_summary(
         return f"{color}{label}{palette.reset}"
 
     print("\n=== Loop Summary =============================================")
-    print(f"{palette.label}Generator{palette.reset}: {_format(gen_state, gen_state.upper())} — {gen_message}")
-    print(f"{palette.label}Discriminator{palette.reset}: {_format(disc_state, disc_state.upper())} — {disc_message}")
+    print(
+        f"{palette.label}Generator{palette.reset}: {_format(gen_state, gen_state.upper())} — {gen_message}"
+    )
+    print(
+        f"{palette.label}Discriminator{palette.reset}: {_format(disc_state, disc_state.upper())} — {disc_message}"
+    )
     if notes:
         for note in notes:
             print(f"  - {note}")
@@ -217,9 +216,9 @@ def _print_batch_summary(entries: List[dict[str, Optional[int]]]) -> None:
         return f"{palette.error}FAIL({code}){palette.reset}"
 
     for entry in entries:
-        slug = entry.get('slug', '')
-        gen = format_status(entry.get('generator'))
-        disc = format_status(entry.get('discriminator'))
+        slug = entry.get("slug", "")
+        gen = format_status(entry.get("generator"))
+        disc = format_status(entry.get("discriminator"))
         print(f"{slug:<24} {gen:<16} {disc:<16}")
     print("==============================================================")
 
@@ -240,7 +239,9 @@ def _batch_summary_lines(entries: List[dict[str, Optional[int]]]) -> List[str]:
 @dataclass
 class LoopOptions:
     generator_options: GeneratorOptions = field(default_factory=GeneratorOptions)
-    discriminator_options: DiscriminatorOptions = field(default_factory=DiscriminatorOptions)
+    discriminator_options: DiscriminatorOptions = field(
+        default_factory=DiscriminatorOptions
+    )
     run_generator: bool = True
     run_discriminator: bool = True
     run_feature: bool = True
@@ -283,7 +284,9 @@ def _describe_plan(options: LoopOptions, context: RexContext) -> List[str]:
         f"Self-update: {'enabled' if options.perform_self_update else 'disabled'} "
         "(honours REX_AGENT_NO_UPDATE)"
     )
-    lines.append(f"Generator phase: {'enabled' if options.run_generator else 'skipped'}")
+    lines.append(
+        f"Generator phase: {'enabled' if options.run_generator else 'skipped'}"
+    )
     if options.run_generator:
         if options.generator_options.card_path:
             target = str(options.generator_options.card_path)
@@ -291,7 +294,9 @@ def _describe_plan(options: LoopOptions, context: RexContext) -> List[str]:
             target = ", ".join(statuses)
         lines.append(f"  target: {target}")
         lines.append(f"  iterate-each: {'yes' if options.each_features else 'no'}")
-    lines.append(f"Discriminator phase: {'enabled' if options.run_discriminator else 'skipped'}")
+    lines.append(
+        f"Discriminator phase: {'enabled' if options.run_discriminator else 'skipped'}"
+    )
     if options.run_discriminator:
         lines.append(f"  feature shard: {'yes' if options.run_feature else 'no'}")
         lines.append(f"  global sweep: {'yes' if options.run_global else 'no'}")
@@ -300,7 +305,9 @@ def _describe_plan(options: LoopOptions, context: RexContext) -> List[str]:
             f"{'disabled' if options.discriminator_options.disable_llm else 'enabled'}"
         )
     if options.each_features and options.run_generator:
-        cards = discover_cards(statuses=options.generator_options.statuses, context=context)
+        cards = discover_cards(
+            statuses=options.generator_options.statuses, context=context
+        )
         if cards:
             preview = ", ".join(card.slug for card in cards[:5])
             if len(cards) > 5:
@@ -339,13 +346,21 @@ def _run_each(options: LoopOptions, context: RexContext) -> int:
                 _maybe_tail_logs("generator", options.tail_lines, context)
                 print(f"[loop] Generator failed on {card.path} (exit {result})")
                 if not options.continue_on_fail:
-                    summary_lines = _batch_summary_lines([
-                        {"slug": card.slug, "generator": result, "discriminator": None}
-                    ])
+                    summary_lines = _batch_summary_lines(
+                        [
+                            {
+                                "slug": card.slug,
+                                "generator": result,
+                                "discriminator": None,
+                            }
+                        ]
+                    )
                     _perform_audit(context, summary_lines)
                     return result
                 final_exit = final_exit or result
-                batch_results.append({"slug": card.slug, "generator": result, "discriminator": None})
+                batch_results.append(
+                    {"slug": card.slug, "generator": result, "discriminator": None}
+                )
                 continue
             if options.verbose:
                 _announce_log(context, "generator_response.log")
@@ -367,9 +382,15 @@ def _run_each(options: LoopOptions, context: RexContext) -> int:
                 print(f"{palette.warning}[loop] WARNING:{palette.reset} {message}")
             if exit_code != 0:
                 if not options.continue_on_fail:
-                    summary_lines = _batch_summary_lines([
-                        {"slug": card.slug, "generator": generator_exit, "discriminator": exit_code}
-                    ])
+                    summary_lines = _batch_summary_lines(
+                        [
+                            {
+                                "slug": card.slug,
+                                "generator": generator_exit,
+                                "discriminator": exit_code,
+                            }
+                        ]
+                    )
                     _perform_audit(context, summary_lines)
                     return exit_code
                 final_exit = final_exit or exit_code
@@ -377,7 +398,11 @@ def _run_each(options: LoopOptions, context: RexContext) -> int:
             print("[loop] Discriminator skipped.")
 
         batch_results.append(
-            {"slug": card.slug, "generator": generator_exit, "discriminator": discriminator_exit}
+            {
+                "slug": card.slug,
+                "generator": generator_exit,
+                "discriminator": discriminator_exit,
+            }
         )
 
     if options.continue_on_fail:
@@ -415,7 +440,9 @@ def _run_single(options: LoopOptions, context: RexContext) -> int:
             if options.verbose:
                 _announce_log(context, "generator_response.log")
         elif generator_code == 1:
-            print("[loop] Generator found no matching Feature Cards; running discriminator anyway.")
+            print(
+                "[loop] Generator found no matching Feature Cards; running discriminator anyway."
+            )
         else:
             print(f"[loop] Generator failed (exit {generator_code}); aborting.")
             _maybe_tail_logs("generator", options.tail_lines, context)
@@ -455,21 +482,29 @@ def _run_single(options: LoopOptions, context: RexContext) -> int:
         discriminator_code=discriminator_code,
         notes=summary_notes,
     )
-    summary_lines = _collect_summary_lines(generator_code, discriminator_code, summary_notes)
+    summary_lines = _collect_summary_lines(
+        generator_code, discriminator_code, summary_notes
+    )
     _perform_audit(context, summary_lines)
     return exit_code
 
 
-def _run_discriminator_phases(options: LoopOptions, slug: str | None, context: RexContext) -> int:
+def _run_discriminator_phases(
+    options: LoopOptions, slug: str | None, context: RexContext
+) -> int:
     if options.run_feature:
         if slug:
-            feature_opts = replace(options.discriminator_options, mode="feature", slug=slug)
+            feature_opts = replace(
+                options.discriminator_options, mode="feature", slug=slug
+            )
             result = run_discriminator(feature_opts, context=context)
             if result != 0:
                 _maybe_tail_logs("discriminator", options.tail_lines, context)
                 return result
         else:
-            print("[loop] No active feature slug; skipping feature-only discriminator run.")
+            print(
+                "[loop] No active feature slug; skipping feature-only discriminator run."
+            )
     if options.run_global:
         global_opts = replace(options.discriminator_options, mode="global", slug=None)
         result = run_discriminator(global_opts, context=context)

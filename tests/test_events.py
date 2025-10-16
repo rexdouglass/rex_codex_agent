@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from rex_codex import events
 
@@ -12,7 +11,9 @@ def test_emit_event_writes_jsonl(tmp_path, monkeypatch) -> None:
     events.reset_events_cache()
 
     events.emit_event("generator", "feature_started", slug="hello", title="Hello CLI")
-    events.emit_event("generator", "iteration_start", slug="hello", iteration=1, focus="default")
+    events.emit_event(
+        "generator", "iteration_start", slug="hello", iteration=1, focus="default"
+    )
 
     contents = target.read_text(encoding="utf-8").splitlines()
     assert len(contents) == 2

@@ -22,6 +22,7 @@ shim_dir="$workspace/.shim"
 mkdir -p "$shim_dir"
 ln -sf "$(command -v python3)" "$shim_dir/python"
 export PATH="$shim_dir:$PATH"
+export PYTHONPATH="$workspace/src:${PYTHONPATH:-}"
 export ROOT="$workspace"
 export PYTHONHASHSEED=0
 

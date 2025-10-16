@@ -21,4 +21,3 @@ def _read_version() -> str:
 
 __all__ = ["__version__"]
 __version__ = _read_version()
-

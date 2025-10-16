@@ -38,7 +38,9 @@ def _load_events(path: Path) -> Iterable[dict[str, Any]]:
     return results
 
 
-def _resolve_generator_slug(slug: Optional[str], *, context: RexContext) -> Optional[str]:
+def _resolve_generator_slug(
+    slug: Optional[str], *, context: RexContext
+) -> Optional[str]:
     if slug:
         return slug
     card = latest_card()
@@ -52,9 +54,7 @@ def render_generator_snapshot(
     printer: _HUDPrinter,
 ) -> str:
     model = GeneratorHUDModel(slug)
-    relevant = [
-        event for event in events if event.get("slug") in (slug, None)
-    ]
+    relevant = [event for event in events if event.get("slug") in (slug, None)]
     start_index = 0
     for idx, event in enumerate(reversed(relevant)):
         if event.get("type") == "feature_started" and event.get("slug") == slug:
@@ -167,7 +167,9 @@ class DiscriminatorHUDModel:
             stage["group"] = data.get("group") or stage["group"]
             stage["status"] = "PASS" if data.get("ok") else "FAIL"
             elapsed = data.get("elapsed")
-            stage["elapsed"] = float(elapsed) if isinstance(elapsed, (int, float)) else None
+            stage["elapsed"] = (
+                float(elapsed) if isinstance(elapsed, (int, float)) else None
+            )
             stage["failure_reason"] = data.get("failure_reason") or ""
             return
         if etype == "coverage_update":
@@ -196,9 +198,14 @@ class DiscriminatorHUDModel:
 
     def render(self) -> str:
         slug_display = self.slug or "global"
-        pass_label = f"pass {self.pass_number}" if self.pass_number is not None else "pass ?"
+        pass_label = (
+            f"pass {self.pass_number}" if self.pass_number is not None else "pass ?"
+        )
         run_label = f"run {self.run_id}" if self.run_id is not None else "run ?"
-        lines = [f"Mode: {self.mode} | Slug: {slug_display} | {pass_label}, {run_label}", ""]
+        lines = [
+            f"Mode: {self.mode} | Slug: {slug_display} | {pass_label}, {run_label}",
+            "",
+        ]
         lines.append("Stage Results")
         if not self.stages:
             lines.append("  (no stages recorded)")
@@ -210,7 +217,9 @@ class DiscriminatorHUDModel:
                 formatted = _format_elapsed(info.get("elapsed"))
                 if formatted:
                     elapsed_text = f" ({formatted})"
-                lines.append(f"  [{identifier}] {description} :: {status}{elapsed_text}")
+                lines.append(
+                    f"  [{identifier}] {description} :: {status}{elapsed_text}"
+                )
                 failure_reason = info.get("failure_reason")
                 if failure_reason:
                     lines.append(f"      ↳ {failure_reason}")
@@ -237,7 +246,9 @@ class DiscriminatorHUDModel:
         if self.llm_decision is not None:
             accepted = bool(self.llm_decision.get("accepted"))
             reason = self.llm_decision.get("reason") or ""
-            lines.append(f"LLM patch: {'accepted' if accepted else 'rejected'} ({reason})")
+            lines.append(
+                f"LLM patch: {'accepted' if accepted else 'rejected'} ({reason})"
+            )
         if self.result is not None:
             lines.append("")
             lines.append(f"Result: {'PASS' if self.result else 'FAIL'}")

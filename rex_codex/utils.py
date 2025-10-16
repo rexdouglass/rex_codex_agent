@@ -6,12 +6,12 @@ import json
 import os
 import shlex
 import subprocess
-import sys
-from datetime import UTC, datetime
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Dict, Iterable, Iterator, List, Mapping, MutableMapping, Optional, Sequence, Set
+from typing import (Dict, Iterator, List, Mapping, MutableMapping, Optional,
+                    Sequence, Set)
 
 
 class RexError(RuntimeError):
@@ -305,7 +305,14 @@ def _render_directory_listing(root: Path) -> str:
     max_depth = 3
     per_dir_limit = 25
     line_budget = 400
-    skip_dir_names = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".nox", ".idea"}
+    skip_dir_names = {
+        "__pycache__",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".nox",
+        ".idea",
+    }
     skip_contents_dirs = {".git"}
     gitignore_cache: Dict[Path, bool] = {}
     lines: List[str] = []
@@ -362,7 +369,9 @@ def _render_directory_listing(root: Path) -> str:
             if entry.is_dir():
                 ignored = is_gitignored_cached(entry)
                 if ignored:
-                    add_line(f"{indent}{rel.as_posix()}/ (gitignored; contents omitted)")
+                    add_line(
+                        f"{indent}{rel.as_posix()}/ (gitignored; contents omitted)"
+                    )
                 elif entry.name in skip_contents_dirs:
                     add_line(f"{indent}{rel.as_posix()}/ (contents omitted)")
                 elif depth + 1 >= max_depth:
@@ -387,7 +396,7 @@ def _render_directory_listing(root: Path) -> str:
 
 def _write_audit_file(audit_path: Path, root: Path, files: List[Path]) -> None:
     with audit_path.open("w", encoding="utf-8") as fh:
-        fh.write(f"# External GPT5-Pro Audit Snapshot\n")
+        fh.write("# External GPT5-Pro Audit Snapshot\n")
         fh.write(f"Generated at {datetime.now(UTC).isoformat()}\n\n")
         fh.write("## Repository Layout\n")
         fh.write(_render_directory_listing(root))

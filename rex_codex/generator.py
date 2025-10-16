@@ -8,42 +8,28 @@ import os
 import re
 import subprocess
 import sys
-import tempfile
 import textwrap
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from .cards import FeatureCard, discover_cards, load_rex_agent, update_active_card
-from .config import (
-    AGENT_SRC,
-    DEFAULT_GENERATOR_MAX_FILES,
-    DEFAULT_GENERATOR_MAX_LINES,
-    REPO_ROOT,
-)
-from .self_update import self_update
-from .utils import (
-    RexContext,
-    RexError,
-    activate_venv,
-    dump_json,
-    ensure_dir,
-    ensure_python,
-    ensure_requirements_installed,
-    lock_file,
-    load_json,
-    print_header,
-    repo_root,
-    run,
-)
+from .cards import FeatureCard, discover_cards, update_active_card
+from .config import (AGENT_SRC, DEFAULT_GENERATOR_MAX_FILES,
+                     DEFAULT_GENERATOR_MAX_LINES)
 from .events import emit_event, events_path
-from .hud import generator_snapshot_text
 from .generator_ui import GeneratorHUD
+from .hud import generator_snapshot_text
+from .self_update import self_update
+from .utils import (RexContext, activate_venv, dump_json, ensure_dir,
+                    ensure_python, ensure_requirements_installed, load_json,
+                    lock_file, run)
 
-PROGRESS_INTERVAL_SECONDS = max(5, int(os.environ.get("GENERATOR_PROGRESS_SECONDS", "15")))
+PROGRESS_INTERVAL_SECONDS = max(
+    5, int(os.environ.get("GENERATOR_PROGRESS_SECONDS", "15"))
+)
 
 
 def _ansi_palette() -> SimpleNamespace:
@@ -158,8 +144,12 @@ def _render_generator_dashboard(
         print(f"{palette.accent}Existing specs{palette.reset}: {specs_list}")
     else:
         print(f"{palette.accent}Existing specs{palette.reset}: (none yet)")
-    print(f"{palette.accent}Focus{palette.reset}: {focus or 'default coverage guidance'}")
-    print(f"{palette.accent}Pass budget{palette.reset}: {passes} (continuous={options.continuous})")
+    print(
+        f"{palette.accent}Focus{palette.reset}: {focus or 'default coverage guidance'}"
+    )
+    print(
+        f"{palette.accent}Pass budget{palette.reset}: {passes} (continuous={options.continuous})"
+    )
     print(divider)
 
 
@@ -439,9 +429,7 @@ def _build_spec_trace_result(
     entries: List[_SpecTraceEntry] = []
     for index, text in enumerate(acceptance, start=1):
         matches = [
-            candidate
-            for candidate in tests
-            if index in candidate.acceptance_indexes
+            candidate for candidate in tests if index in candidate.acceptance_indexes
         ]
         matches_sorted = sorted(matches, key=lambda c: c.display)
         for candidate in matches_sorted:
@@ -451,10 +439,12 @@ def _build_spec_trace_result(
     section_lines: List[str] = []
     if entries:
         for entry in entries:
-            section_lines.append(f"- [AC#{entry.index}] \"{entry.text}\"")
+            section_lines.append(f'- [AC#{entry.index}] "{entry.text}"')
             if entry.tests:
                 for linked_test in entry.tests:
-                    section_lines.append(f"  -> [AC#{entry.index}] {linked_test.display}")
+                    section_lines.append(
+                        f"  -> [AC#{entry.index}] {linked_test.display}"
+                    )
             else:
                 section_lines.append(f"  -> [AC#{entry.index}] (missing)")
     else:
@@ -465,10 +455,14 @@ def _build_spec_trace_result(
         [test for test in tests if test.display not in matched],
         key=lambda item: item.display,
     )
-    return _SpecTraceResult(entries=entries, missing=missing, orphans=orphans, section_lines=section_lines)
+    return _SpecTraceResult(
+        entries=entries, missing=missing, orphans=orphans, section_lines=section_lines
+    )
 
 
-def _replace_card_section(card_path: Path, heading: str, content_lines: Sequence[str]) -> bool:
+def _replace_card_section(
+    card_path: Path, heading: str, content_lines: Sequence[str]
+) -> bool:
     try:
         original = card_path.read_text(encoding="utf-8")
     except OSError:
@@ -498,7 +492,9 @@ def _replace_card_section(card_path: Path, heading: str, content_lines: Sequence
     new_lines = lines[: start_idx + 1] + replacement + lines[end_idx:]
 
     # Remove duplicate trailing blank lines
-    while len(new_lines) > 1 and not new_lines[-1].strip() and not new_lines[-2].strip():
+    while (
+        len(new_lines) > 1 and not new_lines[-1].strip() and not new_lines[-2].strip()
+    ):
         new_lines.pop()
 
     updated = "\n".join(new_lines)
@@ -545,7 +541,9 @@ def _print_spec_trace_result(result: _SpecTraceResult) -> None:
             f"{palette.warning}[generator] The following tests do not map to any acceptance bullet:{palette.reset}"
         )
         for orphan in result.orphans:
-            hint = f"docstring: {orphan.docstring}" if orphan.docstring else "no docstring"
+            hint = (
+                f"docstring: {orphan.docstring}" if orphan.docstring else "no docstring"
+            )
             print(f"      - {orphan.display} ({hint})")
 
 
@@ -574,13 +572,17 @@ def _record_pass_duration(context: RexContext, seconds: float) -> None:
     durations.append(round(seconds, 2))
     generator_state["pass_durations"] = durations[-10:]
     dump_json(context.rex_agent_file, data)
+
+
 def _emit_codex_updates(chunk: str, palette: SimpleNamespace, last_update: str) -> str:
     lines = [line.strip() for line in chunk.splitlines() if line.strip()]
     if not lines:
         return last_update
     interesting: List[str] = []
     for line in lines:
-        if line.startswith(("diff --git", "index ", "--- ", "+++ ", "@@ ", "+", "-", "Applying diff")):
+        if line.startswith(
+            ("diff --git", "index ", "--- ", "+++ ", "@@ ", "+", "-", "Applying diff")
+        ):
             continue
         if line.startswith("Total patch size"):
             continue
@@ -611,11 +613,13 @@ def _diagnose_missing_cards(statuses: List[str], context: RexContext) -> None:
             ratio = difflib.SequenceMatcher(None, card.status, target).ratio()
             if ratio >= 0.75 and card.status != target:
                 suggestion = (
-                    f" ({palette.warning}did you mean \"{target}\"?{palette.reset})"
+                    f' ({palette.warning}did you mean "{target}"?{palette.reset})'
                 )
                 break
         status_display = f"status={card.status}"
         print(f"  - {card.slug}: {status_display}{suggestion}")
+
+
 def _default_ui_hz() -> float:
     raw = os.environ.get("GENERATOR_UI_HZ")
     if raw is None:
@@ -709,12 +713,16 @@ def _run_codex_with_progress(
         except subprocess.TimeoutExpired as exc:
             # exc.output / exc.stderr contain partial data when text=True and pipes are used
             if exc.output:
-                chunk = exc.output if isinstance(exc.output, str) else exc.output.decode()
+                chunk = (
+                    exc.output if isinstance(exc.output, str) else exc.output.decode()
+                )
                 stdout_buffer.append(chunk)
                 if verbose:
                     last_update = _emit_codex_updates(chunk, palette, last_update)
             if exc.stderr:
-                chunk_err = exc.stderr if isinstance(exc.stderr, str) else exc.stderr.decode()
+                chunk_err = (
+                    exc.stderr if isinstance(exc.stderr, str) else exc.stderr.decode()
+                )
                 stderr_buffer.append(chunk_err)
             elapsed = int(time.time() - start)
             if verbose:
@@ -744,7 +752,9 @@ def _run_codex_with_progress(
     )
 
 
-def _run_card_with_ui(card: FeatureCard, options: GeneratorOptions, context: RexContext) -> int:
+def _run_card_with_ui(
+    card: FeatureCard, options: GeneratorOptions, context: RexContext
+) -> int:
     ui_mode = (options.ui_mode or "monitor").lower()
     if ui_mode in {"auto", "plain"}:
         ui_mode = "monitor"
@@ -770,7 +780,9 @@ def _run_card_with_ui(card: FeatureCard, options: GeneratorOptions, context: Rex
             pass
         status_label = "PASS" if exit_code == 0 else f"EXIT {exit_code}"
         console_log = context.codex_ci_dir / f"generator_console_{card.slug}.log"
-        print(f"[generator] Finished {card.slug} ({status_label}). Console log: {console_log}")
+        print(
+            f"[generator] Finished {card.slug} ({status_label}). Console log: {console_log}"
+        )
         return exit_code
 
     if ui_mode == "off":
@@ -792,7 +804,9 @@ def _run_card_with_ui(card: FeatureCard, options: GeneratorOptions, context: Rex
             pass
         status_label = "PASS" if exit_code == 0 else f"EXIT {exit_code}"
         console_log = context.codex_ci_dir / f"generator_console_{card.slug}.log"
-        print(f"[generator] Finished {card.slug} ({status_label}). Console log: {console_log}")
+        print(
+            f"[generator] Finished {card.slug} ({status_label}). Console log: {console_log}"
+        )
         return exit_code
 
     exit_code = 0
@@ -808,7 +822,9 @@ def _run_card_with_ui(card: FeatureCard, options: GeneratorOptions, context: Rex
     return exit_code
 
 
-def run_generator(options: GeneratorOptions, *, context: RexContext | None = None) -> int:
+def run_generator(
+    options: GeneratorOptions, *, context: RexContext | None = None
+) -> int:
     context = context or RexContext.discover()
     self_update()
     ensure_dir(context.codex_ci_dir)
@@ -861,7 +877,9 @@ def run_generator(options: GeneratorOptions, *, context: RexContext | None = Non
         return _run_card_with_ui(cards[0], options, context)
 
 
-def _process_card(card: FeatureCard, options: GeneratorOptions, context: RexContext) -> int:
+def _process_card(
+    card: FeatureCard, options: GeneratorOptions, context: RexContext
+) -> int:
     slug = card.slug
     status = card.status
     focus = options.focus
@@ -901,7 +919,9 @@ def _process_card(card: FeatureCard, options: GeneratorOptions, context: RexCont
             print(
                 f"[generator] Recent passes averaged {avg_duration:.1f}s; Codex may report progress more slowly."
             )
-        print(f"[generator] Iteration {iteration}/{passes} (slug: {slug}, status: {status})")
+        print(
+            f"[generator] Iteration {iteration}/{passes} (slug: {slug}, status: {status})"
+        )
         iteration_start = time.perf_counter()
         emit_event(
             "generator",
@@ -1087,8 +1107,12 @@ def _run_once(
         return 3, None
 
     if not _validate_card_diff(diff_text, slug):
-        print("[generator] Codex attempted to modify a protected part of the Feature Card (e.g. the `status:` line).")
-        print("[generator] Rejected. Only append inside '## Links' or '## Spec Trace' as documented in AGENTS.md.")
+        print(
+            "[generator] Codex attempted to modify a protected part of the Feature Card (e.g. the `status:` line)."
+        )
+        print(
+            "[generator] Rejected. Only append inside '## Links' or '## Spec Trace' as documented in AGENTS.md."
+        )
         return 3, None
 
     if options.verbose:
@@ -1103,14 +1127,20 @@ def _run_once(
         if patch_error:
             tail = "\n".join(patch_error.splitlines()[-8:])
             print(tail)
-        print(f"[generator] Inspect {context.relative(patch_path)} for the diff and {context.relative(response_path)} for raw output.")
-        print("[generator] Tip: rerun with `./rex-codex generator --tail 200` to review the Codex response.")
+        print(
+            f"[generator] Inspect {context.relative(patch_path)} for the diff and {context.relative(response_path)} for raw output."
+        )
+        print(
+            "[generator] Tip: rerun with `./rex-codex generator --tail 200` to review the Codex response."
+        )
         return 4, None
     if options.verbose:
         print("[generator] Diff applied successfully.")
 
     if card_path.exists():
-        spec_trace_result, card_trace_changed = _update_spec_trace(card=card, slug=slug, context=context)
+        spec_trace_result, card_trace_changed = _update_spec_trace(
+            card=card, slug=slug, context=context
+        )
 
     if not _guard_card_edits(slug, root, baseline_card_text):
         _revert_generated_files(slug, root)
@@ -1139,8 +1169,12 @@ def _run_once(
     return 0, None
 
 
-def _build_prompt(card: FeatureCard, slug: str, focus: str, generation_pass: int, context: RexContext) -> str:
-    agents_excerpt = (context.root / "AGENTS.md").read_text(encoding="utf-8", errors="ignore")
+def _build_prompt(
+    card: FeatureCard, slug: str, focus: str, generation_pass: int, context: RexContext
+) -> str:
+    agents_excerpt = (context.root / "AGENTS.md").read_text(
+        encoding="utf-8", errors="ignore"
+    )
     card_text = card.path.read_text(encoding="utf-8")
     existing = _append_existing_tests(slug, context)
     prompt = textwrap.dedent(
@@ -1252,11 +1286,14 @@ def _validate_card_diff(diff_text: str, slug: str) -> bool:
     card_target = f"documents/feature_cards/{slug}.md"
     if card_target not in diff_text:
         return True
-    card_pattern = re.compile(rf"^diff --git a/{re.escape(card_target)} b/{re.escape(card_target)}$", re.MULTILINE)
+    card_pattern = re.compile(
+        rf"^diff --git a/{re.escape(card_target)} b/{re.escape(card_target)}$",
+        re.MULTILINE,
+    )
     match = card_pattern.search(diff_text)
     if not match:
         return True
-    section = diff_text[match.start():]
+    section = diff_text[match.start() :]
     next_diff = section.find("\ndiff --git ")
     if next_diff != -1:
         section = section[:next_diff]
@@ -1360,7 +1397,10 @@ def _guard_card_edits(slug: str, root: Path, baseline_text: Optional[str]) -> bo
             continue
         removed = before_lines[i1:i2]
         added = after_lines[j1:j2]
-        if any(re.search(r"\bstatus\s*:", line, flags=re.IGNORECASE) for line in removed + added):
+        if any(
+            re.search(r"\bstatus\s*:", line, flags=re.IGNORECASE)
+            for line in removed + added
+        ):
             print("[generator] Card edit touches status line; abort.")
             return False
         header_before = header_key(nearest_header(before_lines, i1))
@@ -1378,9 +1418,13 @@ def _guard_card_edits(slug: str, root: Path, baseline_text: Optional[str]) -> bo
             if not allowed_here:
                 header = nearest_header(after_lines, j1)
                 if header is None:
-                    print("[generator] Card edits must appear under an allowed section.")
+                    print(
+                        "[generator] Card edits must appear under an allowed section."
+                    )
                 else:
-                    print(f"[generator] Card edits under section '{header}' are not permitted.")
+                    print(
+                        f"[generator] Card edits under section '{header}' are not permitted."
+                    )
                 return False
         elif tag in {"delete", "replace"}:
             if not allowed_here:
@@ -1388,7 +1432,9 @@ def _guard_card_edits(slug: str, root: Path, baseline_text: Optional[str]) -> bo
                 if header is None:
                     print("[generator] Card edits may only modify allowed sections.")
                 else:
-                    print(f"[generator] Card edits under section '{header}' are not permitted.")
+                    print(
+                        f"[generator] Card edits under section '{header}' are not permitted."
+                    )
                 return False
             # Modifications within allowed sections are permitted.
     return True
@@ -1417,7 +1463,11 @@ def _revert_generated_files(slug: str, root: Path) -> None:
         check=False,
     )
     if tracked_card.returncode == 0:
-        run(["git", "restore", "--staged", "--worktree", "--", str(card)], cwd=root, check=False)
+        run(
+            ["git", "restore", "--staged", "--worktree", "--", str(card)],
+            cwd=root,
+            check=False,
+        )
     elif card.exists():
         card.unlink()
 
@@ -1453,6 +1503,7 @@ def _run_pytest_snapshot(slug: str, context: RexContext) -> None:
     env["PYTHONHASHSEED"] = env.get("PYTHONHASHSEED", "0")
     timeout_sec = int(os.environ.get("GENERATOR_SNAPSHOT_TIMEOUT", "300"))
     pytest_cmd = ["pytest", str(specs_dir), "-q", "-x", "--maxfail=1"]
+
     def _tail(text: str, limit: int = 4000) -> str:
         if len(text) <= limit:
             return text
@@ -1478,7 +1529,10 @@ def _run_pytest_snapshot(slug: str, context: RexContext) -> None:
             output=_tail((completed.stdout or "") + (completed.stderr or "")),
         )
     except subprocess.TimeoutExpired:
-        log.write_text(f"[generator] Pytest snapshot timed out after {timeout_sec}s\n", encoding="utf-8")
+        log.write_text(
+            f"[generator] Pytest snapshot timed out after {timeout_sec}s\n",
+            encoding="utf-8",
+        )
         emit_event(
             "generator",
             "pytest_snapshot",
@@ -1522,7 +1576,9 @@ def _run_critic(
     specs_dir = root / "tests" / "feature_specs" / slug
     if specs_dir.exists():
         for path in sorted(specs_dir.glob("**/*.py")):
-            files_output.append(f"### {path}\n{path.read_text(encoding='utf-8', errors='replace')}")
+            files_output.append(
+                f"### {path}\n{path.read_text(encoding='utf-8', errors='replace')}"
+            )
 
     discriminator_tail = ""
     latest_log = root / ".codex_ci_latest.log"
@@ -1552,7 +1608,9 @@ def _run_critic(
     ]
     prompt = "\n".join(prompt_sections)
     if tests_summary:
-        prompt += f"\n--- PYTEST OUTPUT (tests/feature_specs/{slug}) ---\n{tests_summary}\n"
+        prompt += (
+            f"\n--- PYTEST OUTPUT (tests/feature_specs/{slug}) ---\n{tests_summary}\n"
+        )
     if discriminator_tail:
         prompt += "\n--- MOST RECENT DISCRIMINATOR LOG (tail) ---\n"
         prompt += discriminator_tail + "\n"

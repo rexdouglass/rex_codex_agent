@@ -44,7 +44,8 @@ def test_guard_card_edits_allows_links_append(card_path: Path) -> None:
 
     card_path.write_text(
         baseline.replace(
-            "## Links\n\n", "## Links\n\n- https://example.test/demo\n\n",
+            "## Links\n\n",
+            "## Links\n\n- https://example.test/demo\n\n",
         ),
         encoding="utf-8",
     )
@@ -75,7 +76,9 @@ def test_guard_card_edits_rejects_status_change(card_path: Path) -> None:
         """,
     )
 
-    card_path.write_text(baseline.replace("status: proposed", "status: accepted"), encoding="utf-8")
+    card_path.write_text(
+        baseline.replace("status: proposed", "status: accepted"), encoding="utf-8"
+    )
 
     assert not _guard_card_edits("demo", card_path.parents[2], baseline)
 

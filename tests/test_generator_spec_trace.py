@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import textwrap
+from pathlib import Path
 from types import SimpleNamespace
 
 from rex_codex.cards import FeatureCard
@@ -51,7 +51,10 @@ def test_spec_trace_section_lines_include_indices(tmp_path: Path) -> None:
     result = _build_spec_trace_result(card=card, slug="demo", context=context)
     assert result is not None
     assert any(line.startswith("  -> [AC#1]") for line in result.section_lines)
-    assert any(line.strip() == "-> [AC#2] (missing)" for line in (line.strip() for line in result.section_lines))
+    assert any(
+        line.strip() == "-> [AC#2] (missing)"
+        for line in (line.strip() for line in result.section_lines)
+    )
 
     payload = _spec_trace_payload(result)
     entries = payload["entries"]

@@ -197,6 +197,7 @@ Guardrails:
 - `scripts/smoke_e2e.sh` creates a throwaway repo, installs the current checkout via `scripts/install.sh`, scaffolds the `hello_greet` and `hello_cli` Feature Cards, and runs `./rex-codex loop --feature-only` followed by the global discriminator sweep (`KEEP=1` preserves the temp repo).
 - Run the selftest loop before landing changes, bumping `VERSION`, or publishing docs; treat failures as release blockers. Follow up with the broader smoke harness as needed to validate longer paths.
 - Once both pass, repeat the documented Golden Path in a fresh repo (e.g. your practice Pong game) to validate real-world usage with or without the Codex stub.
+- Every selftest run appends its command log, generated sources, and discriminator outcomes to the latest `for_external_GPT5_pro_audit/audit_*.md` file. Leave that audit update in your commit so downstream reviewers (human or GPT5-Pro) can replay the evidence.
 
 ---
 

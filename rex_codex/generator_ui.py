@@ -15,7 +15,6 @@ from typing import Any, Deque, Dict, Iterable, List, Optional
 
 from .events import events_path
 
-
 STATUS_ICONS = {
     "planned": "[ ]",
     "missing": "[ ]",
@@ -94,8 +93,7 @@ class GeneratorHUDModel:
     def _update_acceptance_tests(self, coverage: Dict[str, Any]) -> None:
         entries = coverage.get("entries") or []
         indexed_tests = {
-            entry.get("index"): entry.get("tests", [])
-            for entry in entries
+            entry.get("index"): entry.get("tests", []) for entry in entries
         }
         for item in self.acceptance:
             tests = indexed_tests.get(item.index, [])
@@ -171,7 +169,9 @@ class GeneratorHUDModel:
             self.iteration_current = int(data.get("iteration") or 0)
             self.iteration_total = int(data.get("total_passes") or self.iteration_total)
             self.iteration_status = "running"
-            self._add_message(f"Iteration {self.iteration_current}/{self.iteration_total} started")
+            self._add_message(
+                f"Iteration {self.iteration_current}/{self.iteration_total} started"
+            )
         elif etype == "iteration_completed":
             self.iteration_status = "waiting"
             elapsed = data.get("elapsed_seconds")
@@ -262,7 +262,9 @@ class GeneratorHUDModel:
         bar = "█" * filled_blocks + "░" * (total_blocks - filled_blocks)
         summary_parts: List[str] = []
         if self.coverage_total:
-            summary_parts.append(f"{self.coverage_linked}/{self.coverage_total} bullets linked")
+            summary_parts.append(
+                f"{self.coverage_linked}/{self.coverage_total} bullets linked"
+            )
         if self.coverage_failing:
             summary_parts.append(f"{self.coverage_failing} failing")
         missing = self.coverage_total - self.coverage_linked
@@ -340,7 +342,9 @@ class GeneratorHUDModel:
             return _shorten(self.critic_guidance, 80)
         return "Waiting"
 
-    def render(self, iteration_elapsed: Optional[float], codex_elapsed: Optional[float]) -> str:
+    def render(
+        self, iteration_elapsed: Optional[float], codex_elapsed: Optional[float]
+    ) -> str:
         lines: List[str] = []
         state = self.feature_outcome.upper()
         header = f"Feature: {self.feature_title}  [status: {self.feature_status or 'unknown'}]  → {state}"
@@ -518,7 +522,9 @@ class GeneratorHUD(contextlib.AbstractContextManager["GeneratorHUD"]):
         if not self.enabled:
             return
         status = "PASS" if exit_code == 0 else f"EXIT {exit_code}"
-        self._term_write(f"\n[generator] Finished {self.slug} ({status}). Console log: {self.log_path}\n")
+        self._term_write(
+            f"\n[generator] Finished {self.slug} ({status}). Console log: {self.log_path}\n"
+        )
 
     # Internal event loop ----------------------------------------------
 
@@ -590,9 +596,7 @@ class GeneratorHUD(contextlib.AbstractContextManager["GeneratorHUD"]):
         iteration_elapsed = (
             now - self._iteration_start if self._iteration_start else None
         )
-        codex_elapsed = (
-            now - self._codex_start if self._codex_start else None
-        )
+        codex_elapsed = now - self._codex_start if self._codex_start else None
         snapshot = self._model.render(iteration_elapsed, codex_elapsed)
         if snapshot == self._last_render and not final:
             return

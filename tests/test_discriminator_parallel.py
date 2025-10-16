@@ -16,7 +16,9 @@ def test_parallel_style_gates_run_in_threads(monkeypatch, tmp_path, fail_identif
     def fake_emit_event(phase: str, type_: str, *, slug=None, **data):
         events.append({"phase": phase, "type": type_, "slug": slug, "data": data})
 
-    def fake_execute_stage(stage, env, context, log_path, latest_log_path, print_lock=None):
+    def fake_execute_stage(
+        stage, env, context, log_path, latest_log_path, print_lock=None
+    ):
         thread_names.append(threading.current_thread().name)
         should_fail = stage.identifier == fail_identifier
         return (not should_fail), 0.01, ("boom" if should_fail else "")
@@ -66,9 +68,13 @@ def test_parallel_style_gates_run_in_threads(monkeypatch, tmp_path, fail_identif
     stage_end_events = [event for event in events if event["type"] == "stage_end"]
     identifiers = {event["data"]["identifier"] for event in stage_end_events}
     assert identifiers == {"06.1", "06.2"}
-    status_map = {event["data"]["identifier"]: event["data"]["ok"] for event in stage_end_events}
+    status_map = {
+        event["data"]["identifier"]: event["data"]["ok"] for event in stage_end_events
+    }
     assert status_map["06.1"] is True
     assert status_map["06.2"] is (fail_identifier is None)
     run_completed = [event for event in events if event["type"] == "run_completed"]
-    assert run_completed and run_completed[-1]["data"]["ok"] is (fail_identifier is None)
+    assert run_completed and run_completed[-1]["data"]["ok"] is (
+        fail_identifier is None
+    )
     assert result is (fail_identifier is None)

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from .utils import which
 
-
 TOOLS = ("python3", "node", "npx", "docker")
 
 

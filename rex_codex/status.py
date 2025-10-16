@@ -7,7 +7,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Iterable
 
-from .cards import FeatureCard, card_content_hash, card_path_for, discover_cards, load_rex_agent
+from .cards import (FeatureCard, card_content_hash, card_path_for,
+                    discover_cards, load_rex_agent)
 from .utils import RexContext
 
 
@@ -33,7 +34,9 @@ def summarize_context(context: RexContext) -> Dict[str, Any]:
     if active_card_path:
         path = (context.root / active_card_path).resolve()
         if path.exists():
-            active_card = FeatureCard(path=path, slug=active_slug or path.stem, status="")
+            active_card = FeatureCard(
+                path=path, slug=active_slug or path.stem, status=""
+            )
             card_path = path
     else:
         cards = discover_cards(context=context, statuses=["proposed"])
@@ -48,8 +51,14 @@ def summarize_context(context: RexContext) -> Dict[str, Any]:
         if candidate.exists():
             card_path = candidate
 
-    card_hashes = feature.get("card_hashes") if isinstance(feature.get("card_hashes"), dict) else {}
-    stored_hash = card_hashes.get(active_slug) if isinstance(card_hashes, dict) else None
+    card_hashes = (
+        feature.get("card_hashes")
+        if isinstance(feature.get("card_hashes"), dict)
+        else {}
+    )
+    stored_hash = (
+        card_hashes.get(active_slug) if isinstance(card_hashes, dict) else None
+    )
     current_hash = card_content_hash(card_path) if card_path else None
     hash_drift = bool(stored_hash and current_hash and stored_hash != current_hash)
 
@@ -57,7 +66,8 @@ def summarize_context(context: RexContext) -> Dict[str, Any]:
 
     return {
         "active_slug": active_slug or (active_card.slug if active_card else None),
-        "active_card": active_card_path or (str(active_card.relative_path) if active_card else None),
+        "active_card": active_card_path
+        or (str(active_card.relative_path) if active_card else None),
         "stages": data.get("stages"),
         "llm": data.get("llm"),
         "feature": {
@@ -71,7 +81,9 @@ def summarize_context(context: RexContext) -> Dict[str, Any]:
         "discriminator": {
             "last_mode": discriminator_state.get("last_mode"),
             "last_slug": discriminator_state.get("last_slug"),
-            "last_green_at": _format_timestamp(discriminator_state.get("last_green_at")),
+            "last_green_at": _format_timestamp(
+                discriminator_state.get("last_green_at")
+            ),
             "last_test_count": discriminator_state.get("last_test_count"),
         },
     }

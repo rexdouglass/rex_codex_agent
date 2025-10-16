@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 from .config import AGENT_SRC
-from .utils import RexError, run
+from .utils import run
 
 
 def self_update(channel: str | None = None) -> None:
@@ -19,7 +18,10 @@ def self_update(channel: str | None = None) -> None:
         # Nothing to update; installation likely incomplete.
         return
 
-    run(["git", "-C", str(src), "fetch", "--all", "--tags", "--prune", "--force"], check=False)
+    run(
+        ["git", "-C", str(src), "fetch", "--all", "--tags", "--prune", "--force"],
+        check=False,
+    )
 
     channel = channel or os.environ.get("REX_AGENT_CHANNEL", "stable")
     if channel == "stable":
@@ -36,4 +38,3 @@ def self_update(channel: str | None = None) -> None:
         run(["git", "-C", str(src), "pull", "--ff-only"], check=False)
     else:
         run(["git", "-C", str(src), "checkout", "-q", channel], check=False)
-

@@ -2,21 +2,14 @@
 
 from __future__ import annotations
 
-import json
 import shutil
 from pathlib import Path
 
 from . import __version__
 from .config import AGENT_SRC
 from .self_update import self_update
-from .utils import (
-    RexContext,
-    dump_json,
-    ensure_dir,
-    ensure_python,
-    ensure_requirements_installed,
-    repo_root,
-)
+from .utils import (RexContext, dump_json, ensure_dir, ensure_python,
+                    ensure_requirements_installed)
 
 
 def _copy_if_missing(src: Path, dest: Path) -> None:
@@ -26,7 +19,9 @@ def _copy_if_missing(src: Path, dest: Path) -> None:
     shutil.copy2(src, dest)
 
 
-def run_init(*, context: RexContext | None = None, perform_self_update: bool = True) -> None:
+def run_init(
+    *, context: RexContext | None = None, perform_self_update: bool = True
+) -> None:
     context = context or RexContext.discover()
     if perform_self_update:
         self_update()
@@ -57,7 +52,9 @@ def run_init(*, context: RexContext | None = None, perform_self_update: bool = T
 
     card_readme = template_root / "documents" / "feature_cards" / "README.md"
     if card_readme.exists():
-        _copy_if_missing(card_readme, root / "documents" / "feature_cards" / "README.md")
+        _copy_if_missing(
+            card_readme, root / "documents" / "feature_cards" / "README.md"
+        )
 
     enforcement_dir = template_root / "tests" / "enforcement"
     if enforcement_dir.exists():

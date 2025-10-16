@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
-from typing import Iterable, List, Tuple
-
+from typing import List, Tuple
 
 BANNED_IMPORT_MODULES = {
     "requests": "network access via requests",
@@ -69,14 +68,18 @@ class HermeticVisitor(ast.NodeVisitor):
             self.aliases[name] = alias.name
             root = alias.name.split(".")[0]
             if root in BANNED_IMPORT_MODULES:
-                self.add_violation(node.lineno, f"import {alias.name} ({BANNED_IMPORT_MODULES[root]})")
+                self.add_violation(
+                    node.lineno, f"import {alias.name} ({BANNED_IMPORT_MODULES[root]})"
+                )
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         module = node.module or ""
         root = module.split(".")[0] if module else ""
         if root in BANNED_IMPORT_MODULES:
-            self.add_violation(node.lineno, f"from {module} import ... ({BANNED_IMPORT_MODULES[root]})")
+            self.add_violation(
+                node.lineno, f"from {module} import ... ({BANNED_IMPORT_MODULES[root]})"
+            )
         for alias in node.names:
             target = f"{module}.{alias.name}" if module else alias.name
             name = alias.asname or alias.name
@@ -97,12 +100,17 @@ class HermeticVisitor(ast.NodeVisitor):
         call_name = self.resolve(node.func)
         if call_name:
             if call_name in BANNED_CALL_EXACT:
-                self.add_violation(node.lineno, f"{call_name} ({BANNED_CALL_EXACT[call_name]})")
+                self.add_violation(
+                    node.lineno, f"{call_name} ({BANNED_CALL_EXACT[call_name]})"
+                )
             elif (
                 any(call_name.startswith(prefix) for prefix in RANDOM_PREFIXES)
                 and call_name not in RANDOM_ALLOWED
             ):
-                self.add_violation(node.lineno, f"{call_name} (set a deterministic seed or avoid randomness)")
+                self.add_violation(
+                    node.lineno,
+                    f"{call_name} (set a deterministic seed or avoid randomness)",
+                )
             else:
                 for prefix, reason in BANNED_CALL_PREFIXES.items():
                     if call_name.startswith(prefix):
@@ -116,7 +124,9 @@ class HermeticVisitor(ast.NodeVisitor):
             if not name:
                 continue
             lname = name.lower()
-            if lname.startswith("pytest.mark.skip") or lname.startswith("pytest.mark.xfail"):
+            if lname.startswith("pytest.mark.skip") or lname.startswith(
+                "pytest.mark.xfail"
+            ):
                 self.add_violation(
                     getattr(dec, "lineno", node.lineno),
                     f"{name} (skipping/xfailing specs is forbidden)",

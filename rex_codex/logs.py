@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+
 from .utils import RexContext
 
 
@@ -67,7 +68,10 @@ def show_latest_logs(
     if include_discriminator:
         sections.extend(
             [
-                ("Discriminator log", context.codex_ci_dir / "latest_discriminator.log"),
+                (
+                    "Discriminator log",
+                    context.codex_ci_dir / "latest_discriminator.log",
+                ),
                 ("Discriminator latest", context.root / ".codex_ci_latest.log"),
             ]
         )
