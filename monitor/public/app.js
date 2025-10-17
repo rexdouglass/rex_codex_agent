@@ -37,11 +37,13 @@ els.searchBox.addEventListener('input', () => {
   renderLog();
 });
 
-els.planSelect.addEventListener('change', () => {
-  const value = els.planSelect.value;
-  state.selectedPlan = value || null;
-  renderPlanner();
-});
+if (els.planSelect) {
+  els.planSelect.addEventListener('change', () => {
+    const value = els.planSelect.value;
+    state.selectedPlan = value || null;
+    renderPlanner();
+  });
+}
 
 const logItems = []; // {ts, level, message, task, status, progress}
 const taskState = {}; // taskName -> {lastStatus, progress, count, lastAt}
@@ -67,12 +69,14 @@ function renderSummary(s) {
   els.totTask.textContent = s.totals.task || 0;
   els.lastEvent.textContent = 'Last event: ' + (s.lastEventAt ? new Date(s.lastEventAt).toLocaleString() : '—');
 
-  state.componentPlans = s.componentPlans || {};
-  if (!state.selectedPlan || !(state.selectedPlan in state.componentPlans)) {
-    const slugs = Object.keys(state.componentPlans);
-    state.selectedPlan = slugs.length ? slugs[0] : null;
+  if (els.planCard) {
+    state.componentPlans = s.componentPlans || {};
+    if (!state.selectedPlan || !(state.selectedPlan in state.componentPlans)) {
+      const slugs = Object.keys(state.componentPlans);
+      state.selectedPlan = slugs.length ? slugs[0] : null;
+    }
+    renderPlanner();
   }
-  renderPlanner();
 
   // tasks
   Object.assign(taskState, s.tasks || {});
@@ -119,6 +123,9 @@ function renderErrors(errs) {
 }
 
 function renderPlanner() {
+  if (!els.planCard || !els.planSelect || !els.planMeta || !els.planGrid) {
+    return;
+  }
   const slugs = Object.keys(state.componentPlans || {}).sort();
   if (!slugs.length) {
     els.planCard.style.display = 'none';

@@ -36,6 +36,7 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
 - Logging helpers are provided for both Node (`monitor/agent/logger-node.js`) and Python (`monitor/agent/logger-python.py`) to emit JSONL events.
 - The UI stays read-only: it streams Server-Sent Events (SSE) to render task summaries, recent errors, and the live log feed.
 - Set `LOG_DIR`, `EVENTS_FILE`, or `MONITOR_PORT` env vars to customise paths/ports; the default log file is `.agent/logs/events.jsonl`.
+- The launcher exports `REPO_ROOT` so the server can surface `.codex_ci/component_plan_<slug>.json`; override if you run the monitor separately.
 - `./rex-codex init` now runs `npm install` inside `monitor/` when dependencies are missing, so the UI is ready post-install. Use `REX_DISABLE_MONITOR_UI=1` to skip launching.
 - `./rex-codex loop`, `generator`, and `discriminator` automatically launch the monitor and open your browser; the landing view now includes a Feature Planner tab that breaks cards into components → subcomponents → test proposals. The legacy terminal HUD stays disabled unless you explicitly re-enable it (set `GENERATOR_UI_POPOUT=1` if you need the old popout).
 

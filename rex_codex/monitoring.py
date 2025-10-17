@@ -39,11 +39,13 @@ def ensure_monitor_server(
         return
 
     os.environ.setdefault("LOG_DIR", str(context.monitor_log_dir))
+    os.environ.setdefault("REPO_ROOT", str(context.root))
     os.environ.setdefault("GENERATOR_UI_POPOUT", "0")
     os.environ.setdefault("GENERATOR_UI_TUI", "0")
 
     env = os.environ.copy()
     env.setdefault("LOG_DIR", str(context.monitor_log_dir))
+    env.setdefault("REPO_ROOT", str(context.root))
     env.setdefault("MONITOR_PORT", os.environ.get("MONITOR_PORT", "4321"))
     env.setdefault("GENERATOR_UI_POPOUT", os.environ.get("GENERATOR_UI_POPOUT", "0"))
     env.setdefault("GENERATOR_UI_TUI", os.environ.get("GENERATOR_UI_TUI", "0"))

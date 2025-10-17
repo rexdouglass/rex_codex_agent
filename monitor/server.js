@@ -14,8 +14,12 @@ const cors = require('cors');
 
 const LOG_DIR = process.env.LOG_DIR || path.join(process.cwd(), '.agent', 'logs');
 const EVENTS_FILE = process.env.EVENTS_FILE || path.join(LOG_DIR, 'events.jsonl');
+const REPO_ROOT =
+  process.env.REPO_ROOT
+    ? path.resolve(process.env.REPO_ROOT)
+    : path.resolve(LOG_DIR, '..', '..');
 const STATIC_DIR = path.join(__dirname, 'public');
-const COMPONENT_PLAN_DIR = path.join(process.cwd(), '.codex_ci');
+const COMPONENT_PLAN_DIR = path.join(REPO_ROOT, '.codex_ci');
 
 const PORT_ENV = process.env.MONITOR_PORT || process.env.PORT || 4321;
 const OPEN_BROWSER = (process.env.OPEN_BROWSER || 'false').toLowerCase() === 'true';

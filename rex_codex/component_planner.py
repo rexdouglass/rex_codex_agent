@@ -203,19 +203,22 @@ def ensure_component_plan(
         task=f"plan/{slug}",
         plan_path=str(plan_path),
     )
-    _emit_plan_snapshot(slug, base_plan)
+    _emit_plan_snapshot(slug, base_plan, plan_path=plan_path)
     if verbose:
         print(f"[planner] Component plan written to {plan_path}")
     return PlannerResult(plan=base_plan, path=plan_path)
 
 
-def _emit_plan_snapshot(slug: str, plan: Dict[str, Any]) -> None:
+def _emit_plan_snapshot(slug: str, plan: Dict[str, Any], *, plan_path: Path | None = None) -> None:
+    meta: Dict[str, Any] = {"plan": plan}
+    if plan_path is not None:
+        meta["plan_path"] = str(plan_path)
     emit_event(
         "generator",
         "component_plan_snapshot",
         slug=slug,
         task=f"plan/{slug}",
-        plan=plan,
+        **meta,
     )
 
 
