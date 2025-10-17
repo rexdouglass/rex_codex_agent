@@ -64,16 +64,16 @@ the global shim and sandbox continue evolving.
 
 ## Day-One Walkthrough
 
-1. **Install the wrapper inside your repo**
+1. **Install + bootstrap the agent inside your repo**
    ```bash
    curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/packaging/install.sh | bash
    ```
-   The installer clones the pinned agent sources, removes development-only
-   artefacts (audit snapshots, CI logs), and **always** reinstalls from scratch—any
-   previous `.rex_agent/` is backed up then removed automatically, with the backup
-   discarded once the install succeeds.
+   The installer clones the pinned sources, removes development-only artefacts,
+   wipes any existing `.rex_agent/`, and automatically runs `./rex-codex init`
+   followed by `./rex-codex doctor`. Re-run those commands manually any time you
+   want to refresh guardrails or re-check tooling.
 
-2. **Bootstrap guardrails and tooling** *(the install step now runs these automatically; rerun anytime for assurance)*
+2. **(Optional) rerun doctor/init later**
    ```bash
    ./rex-codex init
    ./rex-codex doctor   # confirm python/node/docker availability

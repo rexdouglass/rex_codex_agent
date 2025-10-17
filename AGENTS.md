@@ -35,17 +35,13 @@ Treat each scope as a separately versioned surface: upgrade the global shim with
 
 ## Golden Path (from empty repo to green)
 
-1. **Install wrapper (inside the target repo)**
+1. **Install + bootstrap (inside the target repo)**
    ```bash
    curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/packaging/install.sh | bash
    ```
-   The installer strips audit/CI artefacts and always replaces any existing
-   `.rex_agent/` (it stages a temporary backup only for failure rollback).
-2. **Bootstrap guardrails and tooling**
-   ```bash
-   ./rex-codex init
-   ./rex-codex doctor      # verify python/node/docker availability
-   ```
+   The installer strips audit/CI artefacts, always replaces any existing
+   `.rex_agent/`, and automatically runs `./rex-codex init` then `./rex-codex doctor`.
+   Re-run those commands manually later if you want to refresh guardrails/tooling checks.
 3. **Author a Feature Card**
    - Use `./rex-codex card new` for a guided prompt (writes `documents/feature_cards/<slug>.md` with `status: proposed`).
    - If you hand-edit, keep the `status:` line intact and leave `## Links` / `## Spec Trace` empty-the generator appends to them.

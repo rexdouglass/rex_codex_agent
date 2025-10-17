@@ -17,8 +17,8 @@ Usage: ./rex-codex install [--force] [--channel <ref>]
 Options:
   --force, -f       Backwards compatibility shim (reinstalls already reset the agent).
   --channel <ref>   Source ref to install (stable, main, tag, or commit).
-  --skip-init       Do not run ./rex-codex init after installation.
-  --skip-doctor     Do not run ./rex-codex doctor after installation.
+  --skip-init       Skip the automatic ./rex-codex init run.
+  --skip-doctor     Skip the automatic ./rex-codex doctor run.
 USAGE
 }
 
