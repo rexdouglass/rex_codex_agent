@@ -140,6 +140,15 @@ class RexContext:
         except ValueError:
             return str(path)
 
+    def is_agent_repo(self) -> bool:
+        """Return True when the current root appears to be the agent source tree."""
+        sentinels = [
+            self.root / "rex_codex" / "__init__.py",
+            self.root / "scripts" / "selftest_loop.sh",
+            self.root / "bin" / "fake-codex",
+        ]
+        return all(item.exists() for item in sentinels)
+
 
 class FileLock:
     """Simple advisory file lock using fcntl."""
@@ -427,6 +436,11 @@ def _write_audit_file(audit_path: Path, root: Path, files: List[Path]) -> None:
             fh.write("\n")
 
 
+def _env_flag(name: str) -> bool:
+    value = os.environ.get(name, "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _auto_commit_and_push(root: Path, audit_path: Path) -> None:
     run(["git", "add", "-A"], cwd=root, check=False)
     status = run(
@@ -447,6 +461,9 @@ def _auto_commit_and_push(root: Path, audit_path: Path) -> None:
     )
     if commit.returncode != 0:
         print(f"[audit] git commit failed: {commit.stderr or commit.stdout}")
+        return
+    if _env_flag("REX_DISABLE_AUTO_PUSH"):
+        print("[audit] Skipping git push (REX_DISABLE_AUTO_PUSH is set).")
         return
     push = run(["git", "push"], cwd=root, capture_output=True, check=False)
     if push.returncode != 0:
@@ -475,6 +492,14 @@ def create_audit_snapshot(
                 for line in lines:
                     fh.write(f"- {line}\n")
     print(f"[audit] Snapshot written to {audit_path}")
+    if context.is_agent_repo() and not _env_flag("REX_AGENT_FORCE_BUILD"):
+        if auto_commit:
+            print(
+                "[audit] Detected rex-codex source tree; defaulting to testing mode (auto commit disabled)."
+            )
+        auto_commit = False
+    if _env_flag("REX_DISABLE_AUTO_COMMIT"):
+        auto_commit = False
     if auto_commit:
         _auto_commit_and_push(root, audit_path)
     return audit_path

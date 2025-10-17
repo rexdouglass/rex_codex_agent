@@ -68,6 +68,9 @@ Stages 04-05 (DB/UI) are optional packs you can enable per project by extending 
 ## Self-development Loop
 - `bin/fake-codex` emulates Codex and emits hermetic diffs limited to `tests/feature_specs/<slug>/`. Keep it executable so offline smoke runs work everywhere.
 - `scripts/selftest_loop.sh` resets `.selftest_workspace/`, runs the `hello_greet` and `hello_cli` Feature Cards with the Codex stub, appends logs/status/spec listings/runtime code to the latest audit file, and removes the workspace (`SELFTEST_KEEP=1` retains it for debugging).
+  - Set `REX_DISABLE_AUTO_COMMIT=1` during local experiments if you need the snapshot only and want to skip committing.
+  - Set `REX_DISABLE_AUTO_PUSH=1` to keep the commit but suppress the automatic push.
+  - The agent auto-detects its own source tree and defaults to testing mode (no auto commit/push). Export `REX_AGENT_FORCE_BUILD=1` to override when deliberately publishing from the agent repo itself.
 - `scripts/smoke_e2e.sh` provisions a temp repo, installs the current checkout, scaffolds the `hello_greet` and `hello_cli` Feature Cards, runs `./rex-codex loop --feature-only`, and executes the global discriminator pass. Set `KEEP=1` to retain the workspace for debugging.
 - Run the selftest loop before merges, release tags, or documentation updates; use the smoke harness to validate the broader flow. Treat failures as blockers-they indicate the agent can no longer bootstrap itself locally.
 - After both loops pass, repeat the Golden Path in your destination repo (e.g. your practice Pong game) to validate the workflow with real features.

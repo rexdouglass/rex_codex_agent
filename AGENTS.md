@@ -10,7 +10,11 @@ This repository ships the **Codex-first automation scaffold** that installs via 
   2. After every interaction, commit and push the current state of the repository and drop into that folder a concatenated snapshot of every important script/markdown/readme file, each prefixed with its absolute path.
   3. Snapshots **must** be generated via the built-in helper (`rex_codex.utils.create_audit_snapshot(RexContext.discover())` or an equivalent CLI hook); never hand-roll or trim the audit output.
   4. Treat audits as part of the conversational handshake-produce a fresh snapshot at the end of every operator interaction before yielding control.
-  5. Before producing the final snapshot, run `scripts/selftest_loop.sh` (with the bundled Codex stub) so the repo proves it can regenerate the `hello_greet` / `hello_cli` specs end-to-end. The script appends its logs, status, and generated source listings to the latest audit file-commit that updated audit so external GPT5-Pro review sees the full trace.
+5. Before producing the final snapshot, run `scripts/selftest_loop.sh` (with the bundled Codex stub) so the repo proves it can regenerate the `hello_greet` / `hello_cli` specs end-to-end. The script appends its logs, status, and generated source listings to the latest audit file—commit that updated audit so external GPT5-Pro review sees the full trace.
+     - Set `REX_DISABLE_AUTO_COMMIT=1` while developing locally if you only want a snapshot without touching git state.
+     - Set `REX_DISABLE_AUTO_PUSH=1` when you need the audit committed but do not want the helper to push.
+     - The agent automatically detects when it is running inside its own source tree and defaults to testing mode (auto commit/push disabled). Export `REX_AGENT_FORCE_BUILD=1` to override when you genuinely intend to publish from this repo.
+, run `scripts/selftest_loop.sh` (with the bundled Codex stub) so the repo proves it can regenerate the `hello_greet` / `hello_cli` specs end-to-end. The script appends its logs, status, and generated source listings to the latest audit file-commit that updated audit so external GPT5-Pro review sees the full trace.
 - **Self-development loop:** `bin/fake-codex`, `scripts/selftest_loop.sh`, and `scripts/smoke_e2e.sh` must stay executable and green. We dogfood the agent by reinstalling it into clean workspaces and running the generator -> discriminator pipeline offline.
 
 The Bash wrapper is now a shim; all orchestration lives in the Python package `rex_codex` so we can unit-test and extend behaviour without shell metaprogramming.
