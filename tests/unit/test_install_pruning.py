@@ -8,13 +8,7 @@ from pathlib import Path
 def test_packaging_install_prunes_dev_artifacts(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[2]
     env = os.environ.copy()
-    env.update(
-        {
-            "REPO_URL": str(repo_root),
-            "REX_AGENT_SKIP_INIT": "1",
-            "REX_AGENT_SKIP_DOCTOR": "1",
-        }
-    )
+    env.update({"REPO_URL": str(repo_root), "REX_AGENT_SKIP_DOCTOR": "1"})
     subprocess.run(
         ["bash", str(repo_root / "packaging" / "install.sh")],
         cwd=tmp_path,

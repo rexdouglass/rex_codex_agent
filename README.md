@@ -69,9 +69,11 @@ the global shim and sandbox continue evolving.
    curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/packaging/install.sh | bash
    ```
    The installer clones the pinned sources, removes development-only artefacts,
-   wipes any existing `.rex_agent/`, and automatically runs `./rex-codex init`
-   followed by `./rex-codex doctor`. Re-run those commands manually any time you
-   want to refresh guardrails or re-check tooling.
+   wipes any existing `.rex_agent/`, regenerates `.venv`, and automatically runs
+   `./rex-codex init` followed by `./rex-codex doctor`. The init step now writes
+   a pinned `requirements.txt` into your repo and installs those versions into
+   the freshly reset `.venv`. Re-run `init`/`doctor` whenever you want to refresh
+   guardrails or re-check tooling.
 
 2. **(Optional) rerun doctor/init later**
    ```bash

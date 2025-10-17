@@ -208,10 +208,16 @@ def lock_file(path: Path) -> Iterator[None]:
 def ensure_python(context: RexContext, *, quiet: bool = False) -> None:
     if which("python3") is None:
         raise RexError("python3 not found on PATH")
-    if not context.venv_dir.exists():
+    if context.venv_dir.exists():
+        if not quiet:
+            print("[*] Resetting Python virtual environment (.venv)…")
+        import shutil
+
+        shutil.rmtree(context.venv_dir)
+    else:
         if not quiet:
             print("[*] Creating Python virtual environment (.venv)…")
-        run(["python3", "-m", "venv", str(context.venv_dir)])
+    run(["python3", "-m", "venv", str(context.venv_dir)])
     pip = context.venv_dir / "bin" / "pip"
     run(
         [str(pip), "install", "--upgrade", "pip"],

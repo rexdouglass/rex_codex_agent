@@ -26,6 +26,11 @@ def _copy_if_missing(src: Path, dest: Path) -> None:
     shutil.copy2(src, dest)
 
 
+def _copy_with_overwrite(src: Path, dest: Path) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dest)
+
+
 def run_init(
     *, context: RexContext | None = None, perform_self_update: bool = True
 ) -> None:
@@ -36,8 +41,9 @@ def run_init(
     print("[*] Bootstrapping Python environment…")
     ensure_python(context)
 
-    requirements_template = AGENT_SRC / "templates" / "requirements-dev.txt"
+    requirements_template = AGENT_SRC / "requirements.txt"
     ensure_requirements_installed(context, requirements_template, quiet=False)
+    _copy_with_overwrite(requirements_template, context.root / "requirements.txt")
 
     root = context.root
     ensure_dir(root / "tests" / "enforcement")
