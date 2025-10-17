@@ -660,11 +660,6 @@ def _default_popout_enabled() -> bool:
     env = _parse_env_toggle(os.environ.get("GENERATOR_UI_POPOUT"))
     if env is not None:
         return env
-    term_program = os.environ.get("TERM_PROGRAM", "").lower()
-    if term_program == "vscode":
-        return True
-    if os.environ.get("VSCODE_PID"):
-        return True
     return False
 
 
@@ -685,6 +680,16 @@ def _default_scrub_specs_flag() -> Optional[bool]:
     return _parse_env_toggle(os.environ.get("GENERATOR_SCRUB_SPECS"))
 
 
+def _default_ui_mode() -> str:
+    value = os.environ.get("GENERATOR_UI")
+    if not value:
+        return "off"
+    normalized = value.strip().lower()
+    if normalized == "auto":
+        return "monitor"
+    return normalized
+
+
 @dataclass
 class GeneratorOptions:
     continuous: bool = True
@@ -699,7 +704,7 @@ class GeneratorOptions:
     verbose: bool = True
     tail_lines: int = 0
     reconcile_only: bool = False
-    ui_mode: str = os.environ.get("GENERATOR_UI", "monitor")
+    ui_mode: str = field(default_factory=_default_ui_mode)
     ui_refresh_hz: float = field(default_factory=_default_ui_hz)
     spawn_popout: bool = field(default_factory=_default_popout_enabled)
     popout_linger: float = field(default_factory=_default_popout_linger)
