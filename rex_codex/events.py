@@ -145,6 +145,9 @@ def _to_monitor_event(record: Mapping[str, Any]) -> Mapping[str, Any] | None:
     message = _compose_message(phase, type_, slug, data, status)
 
     meta = _extract_meta(data, phase, type_)
+    if meta is None:
+        meta = {}
+    meta.setdefault("slug", slug)
     monitor_event = {
         "ts": ts,
         "level": level,

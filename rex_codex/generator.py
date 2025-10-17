@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .cards import FeatureCard, discover_cards, update_active_card
 from .config import AGENT_SRC, DEFAULT_GENERATOR_MAX_FILES, DEFAULT_GENERATOR_MAX_LINES
+from .component_planner import ensure_component_plan
 from .events import emit_event, events_path
 from .generator_ui import GeneratorHUD
 from .hud import generator_snapshot_text
@@ -977,6 +978,16 @@ def _run_card_with_ui(
             events_file.unlink()
         except FileNotFoundError:
             pass
+
+    if os.environ.get("REX_DISABLE_PLANNER", "").lower() not in {"1", "true", "yes"}:
+        ensure_component_plan(
+            card=card,
+            context=context,
+            codex_bin=options.codex_bin,
+            codex_flags=options.codex_flags,
+            codex_model=options.codex_model,
+            verbose=options.verbose,
+        )
 
     if options.spawn_popout and ui_mode == "monitor":
         popout_launched = _spawn_generator_popout(

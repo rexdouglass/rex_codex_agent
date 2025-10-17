@@ -15,11 +15,13 @@ const cors = require('cors');
 const LOG_DIR = process.env.LOG_DIR || path.join(process.cwd(), '.agent', 'logs');
 const EVENTS_FILE = process.env.EVENTS_FILE || path.join(LOG_DIR, 'events.jsonl');
 const STATIC_DIR = path.join(__dirname, 'public');
+const COMPONENT_PLAN_DIR = path.join(process.cwd(), '.codex_ci');
 
 const PORT_ENV = process.env.MONITOR_PORT || process.env.PORT || 4321;
 const OPEN_BROWSER = (process.env.OPEN_BROWSER || 'false').toLowerCase() === 'true';
 
 ensureDirSync(LOG_DIR);
+ensureDirSync(COMPONENT_PLAN_DIR);
 ensureFileSync(EVENTS_FILE);
 
 const app = express();
@@ -38,7 +40,8 @@ const summary = {
   totals: { all: 0, info: 0, warn: 0, error: 0, debug: 0, task: 0, progress: 0 },
   recentEventsTimestamps: [], // for events/min calc (last 10 minutes)
   tasks: {}, // { [taskName]: { lastStatus, progress, count, lastAt } }
-  lastErrors: [] // up to 20
+  lastErrors: [], // up to 20
+  componentPlans: {} // { [slug]: plan }
 };
 
 // ====== Utilities ======
@@ -118,12 +121,17 @@ function updateSummary(e) {
     });
     if (summary.lastErrors.length > 20) summary.lastErrors.shift();
   }
+
+  if (e.meta && e.meta.plan && e.meta.slug) {
+    summary.componentPlans[e.meta.slug] = e.meta.plan;
+  }
 }
 
 function addEvent(e, broadcast = true) {
   eventsBuffer.push(e);
   if (eventsBuffer.length > MAX_BUFFER) eventsBuffer.shift();
   updateSummary(e);
+  ingestComponentPlan(e);
   if (broadcast) broadcastSSE('log', e);
 }
 
@@ -156,6 +164,42 @@ function writePortFile(port) {
   fs.writeFile(portFile, JSON.stringify(obj, null, 2), () => {});
 }
 
+function ingestComponentPlan(e) {
+  if (!e.meta) return;
+  const { plan, slug, plan_path: planPath } = e.meta;
+  if (plan && slug) {
+    summary.componentPlans[slug] = plan;
+  }
+  if (planPath && slug) {
+    try {
+      const diskPlan = JSON.parse(fs.readFileSync(planPath, 'utf8'));
+      summary.componentPlans[slug] = diskPlan;
+    } catch {
+      // ignore read/parse failure
+    }
+  }
+}
+
+function loadComponentPlansFromDisk() {
+  let entries = [];
+  try {
+    entries = fs.readdirSync(COMPONENT_PLAN_DIR);
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry.startsWith('component_plan_') || !entry.endsWith('.json')) continue;
+    const slug = entry.replace('component_plan_', '').replace(/\.json$/, '');
+    const filePath = path.join(COMPONENT_PLAN_DIR, entry);
+    try {
+      const plan = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      summary.componentPlans[slug] = plan;
+    } catch {
+      // ignore file errors
+    }
+  }
+}
+
 async function prefillBuffer() {
   // Read last ~128KB to warm the buffer
   const approxBytes = 128 * 1024;
@@ -171,6 +215,7 @@ async function prefillBuffer() {
       const e = normalizeEvent(line);
       if (e) addEvent(e, false);
     });
+    loadComponentPlansFromDisk();
   } catch {
     // ignore; file might be empty or not readable yet
   }
@@ -241,7 +286,8 @@ function getSummaryDTO() {
     totals: summary.totals,
     tasks: summary.tasks,
     lastErrors: summary.lastErrors,
-    eventsPerMinute: eventsPerMinute()
+    eventsPerMinute: eventsPerMinute(),
+    componentPlans: JSON.parse(JSON.stringify(summary.componentPlans))
   };
 }
 

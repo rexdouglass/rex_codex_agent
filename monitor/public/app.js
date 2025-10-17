@@ -11,12 +11,18 @@ const els = {
   log: document.getElementById('log'),
   errors: document.getElementById('errors'),
   filters: document.querySelectorAll('.filters input[type="checkbox"]'),
-  searchBox: document.getElementById('searchBox')
+  searchBox: document.getElementById('searchBox'),
+  planCard: document.getElementById('planCard'),
+  planSelect: document.getElementById('planSelect'),
+  planMeta: document.getElementById('planMeta'),
+  planGrid: document.getElementById('planGrid')
 };
 
 const state = {
   filters: new Set(['info', 'warn', 'error']),
-  query: ''
+  query: '',
+  componentPlans: {},
+  selectedPlan: null
 };
 
 els.filters.forEach(cb => {
@@ -29,6 +35,12 @@ els.filters.forEach(cb => {
 els.searchBox.addEventListener('input', () => {
   state.query = els.searchBox.value.trim().toLowerCase();
   renderLog();
+});
+
+els.planSelect.addEventListener('change', () => {
+  const value = els.planSelect.value;
+  state.selectedPlan = value || null;
+  renderPlanner();
 });
 
 const logItems = []; // {ts, level, message, task, status, progress}
@@ -54,6 +66,13 @@ function renderSummary(s) {
   els.totErr.textContent = s.totals.error || 0;
   els.totTask.textContent = s.totals.task || 0;
   els.lastEvent.textContent = 'Last event: ' + (s.lastEventAt ? new Date(s.lastEventAt).toLocaleString() : '—');
+
+  state.componentPlans = s.componentPlans || {};
+  if (!state.selectedPlan || !(state.selectedPlan in state.componentPlans)) {
+    const slugs = Object.keys(state.componentPlans);
+    state.selectedPlan = slugs.length ? slugs[0] : null;
+  }
+  renderPlanner();
 
   // tasks
   Object.assign(taskState, s.tasks || {});
@@ -97,6 +116,181 @@ function renderErrors(errs) {
   }
   els.errors.innerHTML = '';
   els.errors.appendChild(frag);
+}
+
+function renderPlanner() {
+  const slugs = Object.keys(state.componentPlans || {}).sort();
+  if (!slugs.length) {
+    els.planCard.style.display = 'none';
+    return;
+  }
+  els.planCard.style.display = '';
+
+  const select = els.planSelect;
+  const current = select.value;
+  select.innerHTML = '';
+  for (const slug of slugs) {
+    const opt = document.createElement('option');
+    opt.value = slug;
+    opt.textContent = slug;
+    select.appendChild(opt);
+  }
+  if (state.selectedPlan && slugs.includes(state.selectedPlan)) {
+    select.value = state.selectedPlan;
+  } else if (current && slugs.includes(current)) {
+    state.selectedPlan = current;
+    select.value = current;
+  } else {
+    state.selectedPlan = slugs[0];
+    select.value = state.selectedPlan;
+  }
+
+  const plan = state.componentPlans[state.selectedPlan];
+  if (!plan) {
+    els.planMeta.textContent = 'Planner data unavailable yet.';
+    els.planGrid.innerHTML = '';
+    return;
+  }
+
+  const updated = plan.generated_at || plan.generatedAt || plan.generatedAtUtc;
+  const status = plan.status || 'in_progress';
+  const label = status === 'completed' ? 'Plan generated' : 'Planning in progress';
+  const timestamp = updated ? new Date(updated).toLocaleString() : '—';
+  els.planMeta.textContent = `${label} · Card: ${plan.card_path || 'unknown'} · Updated ${timestamp}`;
+
+  const grid = document.createDocumentFragment();
+  const components = Array.isArray(plan.components) ? plan.components : [];
+  if (!components.length) {
+    const row = document.createElement('div');
+    row.className = 'plan-row';
+    row.innerHTML = '<div class="plan-col plan-empty">No components mapped yet.</div><div class="plan-col"></div><div class="plan-col"></div>';
+    grid.appendChild(row);
+  }
+
+  for (const comp of components) {
+    const subcomponents = Array.isArray(comp.subcomponents) && comp.subcomponents.length ? comp.subcomponents : [null];
+    subcomponents.forEach((sub, subIdx) => {
+      const tests = sub && Array.isArray(sub.tests) && sub.tests.length ? sub.tests : [null];
+      tests.forEach((test, testIdx) => {
+        const row = document.createElement('div');
+        row.className = 'plan-row';
+
+        row.appendChild(buildComponentCell(comp, subIdx === 0 && testIdx === 0));
+        row.appendChild(buildSubcomponentCell(sub, testIdx === 0));
+        row.appendChild(buildTestCell(test));
+
+        grid.appendChild(row);
+      });
+    });
+  }
+
+  els.planGrid.innerHTML = '';
+  els.planGrid.appendChild(grid);
+}
+
+function buildComponentCell(component, showContent) {
+  const div = document.createElement('div');
+  div.className = 'plan-col';
+  if (!showContent || !component) {
+    div.classList.add('plan-empty');
+    div.textContent = showContent ? '—' : '';
+    return div;
+  }
+  const title = document.createElement('div');
+  title.className = 'title';
+  title.textContent = component.name || 'Component';
+  div.appendChild(title);
+  if (component.summary) {
+    const summary = document.createElement('div');
+    summary.className = 'summary';
+    summary.textContent = component.summary;
+    div.appendChild(summary);
+  }
+  if (component.rationale) {
+    const rationale = document.createElement('div');
+    rationale.className = 'summary';
+    rationale.textContent = component.rationale;
+    div.appendChild(rationale);
+  }
+  return div;
+}
+
+function buildSubcomponentCell(subcomponent, showContent) {
+  const div = document.createElement('div');
+  div.className = 'plan-col';
+  if (!showContent) {
+    div.classList.add('plan-empty');
+    div.textContent = '';
+    return div;
+  }
+  if (!subcomponent) {
+    div.classList.add('plan-empty');
+    div.textContent = 'No subcomponents defined yet.';
+    return div;
+  }
+  const title = document.createElement('div');
+  title.className = 'title';
+  title.textContent = subcomponent.name || 'Subcomponent';
+  div.appendChild(title);
+  if (subcomponent.summary) {
+    const summary = document.createElement('div');
+    summary.className = 'summary';
+    summary.textContent = subcomponent.summary;
+    div.appendChild(summary);
+  }
+  const badges = [];
+  if (Array.isArray(subcomponent.dependencies) && subcomponent.dependencies.length) {
+    badges.push(`Deps: ${subcomponent.dependencies.join(', ')}`);
+  }
+  if (Array.isArray(subcomponent.risks) && subcomponent.risks.length) {
+    badges.push(`Risks: ${subcomponent.risks.join(', ')}`);
+  }
+  if (badges.length) {
+    const meta = document.createElement('div');
+    meta.className = 'summary';
+    meta.textContent = badges.join(' | ');
+    div.appendChild(meta);
+  }
+  return div;
+}
+
+function buildTestCell(test) {
+  const div = document.createElement('div');
+  div.className = 'plan-col';
+  if (!test) {
+    div.classList.add('plan-empty');
+    div.textContent = 'No proposed tests yet.';
+    return div;
+  }
+  const title = document.createElement('div');
+  title.className = 'title';
+  title.textContent = test.name || 'Test';
+  if (test.status) {
+    const badge = document.createElement('span');
+    badge.className = 'badge';
+    badge.textContent = test.status;
+    title.appendChild(badge);
+  }
+  div.appendChild(title);
+  if (test.description) {
+    const desc = document.createElement('div');
+    desc.className = 'summary';
+    desc.textContent = test.description;
+    div.appendChild(desc);
+  }
+  if (test.verification) {
+    const verify = document.createElement('div');
+    verify.className = 'summary';
+    verify.textContent = `Verify: ${test.verification}`;
+    div.appendChild(verify);
+  }
+  if (Array.isArray(test.tags) && test.tags.length) {
+    const tags = document.createElement('div');
+    tags.className = 'summary';
+    tags.textContent = `Tags: ${test.tags.join(', ')}`;
+    div.appendChild(tags);
+  }
+  return div;
 }
 
 function escapeHtml(s) {
@@ -163,6 +357,13 @@ function connectSSE() {
         t.lastAt = e.ts;
         taskState[e.task] = t;
         renderTasks();
+      }
+      if (e.meta && e.meta.plan && e.meta.slug) {
+        state.componentPlans[e.meta.slug] = e.meta.plan;
+        if (!state.selectedPlan || !(state.selectedPlan in state.componentPlans)) {
+          state.selectedPlan = e.meta.slug;
+        }
+        renderPlanner();
       }
       renderLog();
     } catch {}
