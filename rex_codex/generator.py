@@ -768,6 +768,57 @@ def _launch_terminal(
     return None
 
 
+def _spawn_generator_tui_popout(
+    *,
+    context: RexContext,
+    slug: str,
+) -> Optional[subprocess.Popen]:
+    env_toggle = _parse_env_toggle(os.environ.get("GENERATOR_UI_TUI"))
+    if env_toggle is False:
+        return None
+    tui_dir = context.root / "tui"
+    if not tui_dir.exists() or not tui_dir.is_dir():
+        return None
+    if which("npm") is None:
+        return None
+    if which("node") is None:
+        return None
+    events_file = context.codex_ci_dir / "events.jsonl"
+    diff_file = context.codex_ci_dir / "generator_patch.diff"
+    install_cmd = (
+        "if [ ! -d tui/node_modules ]; then "
+        "npm --prefix tui install --no-fund --no-audit >/dev/null 2>&1 || exit 1; "
+        "fi"
+    )
+    build_cmd = (
+        "if [ ! -f tui/dist/index.js ]; then "
+        "npm --prefix tui run build >/dev/null 2>&1 || exit 1; "
+        "fi"
+    )
+    env_assignments = " ".join(
+        [
+            "FORCE_COLOR=1",
+            f"TUI_SLUG={shlex.quote(slug)}",
+            f"TUI_REPO_ROOT={shlex.quote(str(context.root))}",
+            f"TUI_EVENTS_FILE={shlex.quote(str(events_file))}",
+            f"TUI_DIFF_FILE={shlex.quote(str(diff_file))}",
+        ]
+    )
+    entry_path = tui_dir / "dist" / "index.js"
+    npm_command = f"{env_assignments} node {shlex.quote(str(entry_path))}"
+    shell_command = (
+        f"cd {shlex.quote(str(context.root))} && "
+        f"{install_cmd} && {build_cmd} && {npm_command}"
+    )
+    title = f"rex-codex HUD :: {slug}"
+    launched = _launch_terminal(title, shell_command)
+    if launched is None:
+        return None
+    process, exe = launched
+    print(f"[generator] HUD popout launched via {exe} (tui).")
+    return process
+
+
 def _spawn_generator_popout(
     *,
     context: RexContext,
@@ -775,6 +826,9 @@ def _spawn_generator_popout(
     refresh_hz: float,
     linger: float,
 ) -> Optional[subprocess.Popen]:
+    tui_process = _spawn_generator_tui_popout(context=context, slug=slug)
+    if tui_process is not None:
+        return tui_process
     refresh_seconds = max(0.2, 1.0 / max(refresh_hz, 0.1))
     command_parts = [
         "./bin/rex-codex",

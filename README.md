@@ -59,13 +59,14 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
    - Need a targeted rerun? `./rex-codex discriminator --feature-only` handles the shard; `./rex-codex discriminator --global` runs the full ladder.
    - Monitor mode (`--ui monitor`, default) keeps a single refreshed HUD in the active terminal. When the command runs inside VS Code we also auto-launch a popout terminal so you can watch the HUD in a standalone window (override with `--ui popout`, `--no-popout`, or `GENERATOR_UI_POPOUT=0`). For the bundled `hello_…` specs we automatically scrub `tests/feature_specs/<slug>/` before each generator run so you always watch the toy project rebuilt from scratch; disable with `GENERATOR_SCRUB_SPECS=0` if you need to preserve prior artifacts. Prefer a static frame? Use `--ui snapshot`, or `--ui off` to silence HUD output entirely.
    - Popout HUD windows linger for ~30 s after completion so you can review the final state; tune via `GENERATOR_UI_LINGER`.
+   - Popouts now boot the Ink-based generator HUD (powered by `npm --prefix tui run start`) so you get the structured outline/tests/diff view in a standalone terminal. The HUD tails `.codex_ci/events.jsonl`; disable the new skin with `GENERATOR_UI_TUI=0` or customise shortcuts via `tui/README.md`.
    - Grab the latest HUD frame without a TTY (perfect for `watch -d` or CI artifacts), or stream it live with `--follow`:
      ```bash
      ./bin/rex-codex hud generator --slug <slug>
      ./bin/rex-codex hud generator --slug <slug> --follow
      ./bin/rex-codex hud discriminator --slug <slug>
      ```
-   - Need a consolidated single-window dashboard? The experimental Ink HUD prototype lives in `tui/`. It renders the structured NDJSON events described in the GPT‑5 GUI plan—follow the quick start in `tui/README.md` to run it against `.codex_ci/events.jsonl` or any compatible log.
+   - Need a snapshot without launching generator? Run `npm --prefix tui run start` manually (or point `TUI_EVENTS_FILE` at another log) for an on-demand dashboard.
 
 5. **Implement runtime code until green**
    - Edit modules under `src/...` (or your package directories).

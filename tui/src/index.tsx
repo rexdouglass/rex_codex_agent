@@ -1,15 +1,19 @@
 import React from "react";
 import { render } from "ink";
 
-import { App } from "./App";
+import { App } from "./App.js";
 
 const supportsInput = Boolean(process.stdin?.isTTY);
 
-render(
-  <App supportsInput={supportsInput} />,
-  {
-    stdout: process.stdout,
-    stderr: process.stderr,
-    stdin: supportsInput ? process.stdin : undefined,
-  },
-);
+const renderOptions = supportsInput
+  ? {
+      stdout: process.stdout,
+      stderr: process.stderr,
+      stdin: process.stdin,
+    }
+  : {
+      stdout: process.stdout,
+      stderr: process.stderr,
+    };
+
+render(<App supportsInput={supportsInput} />, renderOptions);
