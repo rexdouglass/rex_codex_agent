@@ -61,15 +61,25 @@ def ensure_monitor_server(
 
     args = [node, str(launcher), "--background"]
     try:
-        subprocess.Popen(
+        result = subprocess.run(
             args,
             cwd=context.root,
             env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            timeout=10,
         )
+    except (OSError, subprocess.TimeoutExpired):
+        return
+
+    stdout = (result.stdout or "").strip()
+    if stdout:
+        for line in stdout.splitlines():
+            print(f"[monitor] {line}")
+    elif result.returncode != 0 and result.stderr:
+        print("[monitor] Failed to launch UI:", result.stderr.strip())
+
+    if result.returncode == 0:
         _MONITOR_STARTED = True
-    except OSError:
-        # Allow future attempts if launching fails (e.g., transient ENOENT).
-        pass
