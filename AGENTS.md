@@ -39,6 +39,8 @@ Treat each scope as a separately versioned surface: upgrade the global shim with
    ```bash
    curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/packaging/install.sh | bash
    ```
+   The installer prunes audit snapshots and CI artefacts from `.rex_agent/src/`
+   before handing control back to the project so targets stay lean.
 2. **Bootstrap guardrails and tooling**
    ```bash
    ./rex-codex init

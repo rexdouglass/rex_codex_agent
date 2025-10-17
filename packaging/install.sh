@@ -103,6 +103,20 @@ case "$CHANNEL" in
   *)    git -C "$SRC_DIR" checkout -q "$CHANNEL" ;;
 esac
 
+# Strip development-only artefacts so downstream projects do not inherit them.
+dev_only_paths=(
+  "for_external_GPT5_pro_audit"
+  ".codex_ci_latest.log"
+  ".codex_ci"
+  ".agent/logs"
+)
+for rel in "${dev_only_paths[@]}"; do
+  target="$SRC_DIR/$rel"
+  if [[ -e "$target" || -d "$target" ]]; then
+    rm -rf "$target"
+  fi
+done
+
 cat > "$WRAPPER" <<'WRAP'
 #!/usr/bin/env bash
 set -Eeuo pipefail
