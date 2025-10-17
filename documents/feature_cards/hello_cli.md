@@ -22,6 +22,6 @@ Provide a simple command-line greeting that demonstrates the generator HUD.
   -> tests/feature_specs/hello_cli/test_cli.py::test_default_greeting
 - [AC#2] "Accept `--message` to override the greeting text."
   -> tests/feature_specs/hello_cli/test_cli.py::test_message_override
+  -> tests/feature_specs/hello_cli/test_cli.py::test_message_flag_requires_value
 - [AC#3] "Support `--quiet` to suppress output entirely."
   -> tests/feature_specs/hello_cli/test_cli.py::test_quiet_mode_suppresses_output
-

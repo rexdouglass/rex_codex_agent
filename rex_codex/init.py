@@ -14,6 +14,8 @@ from .utils import (
     ensure_dir,
     ensure_python,
     ensure_requirements_installed,
+    run,
+    which,
 )
 
 
@@ -68,6 +70,25 @@ def run_init(
                 rel = item.relative_to(enforcement_dir)
                 dest = root / "tests" / "enforcement" / rel
                 _copy_if_missing(item, dest)
+
+    monitor_dir = root / "monitor"
+    package_json = monitor_dir / "package.json"
+    if package_json.exists():
+        node_modules = monitor_dir / "node_modules"
+        if node_modules.exists():
+            print("[*] Monitor dependencies already installed (monitor/node_modules present).")
+        else:
+            npm = which("npm")
+            if npm is None:
+                print("[!] Skipping monitor npm install: npm not found on PATH.")
+            else:
+                print("[*] Installing monitor dependencies (npm install)…")
+                run(
+                    [npm, "install", "--no-fund", "--no-audit"],
+                    cwd=monitor_dir,
+                    check=True,
+                )
+                print("[✓] Monitor dependencies installed.")
 
     agent_state = {
         "stages": [

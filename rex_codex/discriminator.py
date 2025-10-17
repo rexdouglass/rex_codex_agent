@@ -31,6 +31,7 @@ from .config import (
 )
 from .events import emit_event
 from .generator import _split_command
+from .monitoring import ensure_monitor_server
 from .self_update import self_update
 from .utils import (
     RexContext,
@@ -112,6 +113,7 @@ def run_discriminator(
     options: DiscriminatorOptions, *, context: RexContext | None = None
 ) -> int:
     context = context or RexContext.discover()
+    ensure_monitor_server(context, open_browser=True)
     self_update()
     ensure_dir(context.codex_ci_dir)
     lock_path = context.codex_ci_dir / "rex_discriminator.lock"

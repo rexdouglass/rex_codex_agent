@@ -117,6 +117,7 @@ def run(
 class RexContext:
     root: Path
     codex_ci_dir: Path
+    monitor_log_dir: Path
     rex_agent_file: Path
     venv_dir: Path
 
@@ -124,9 +125,11 @@ class RexContext:
     def discover(cls) -> "RexContext":
         root = repo_root()
         codex_ci = ensure_dir(root / ".codex_ci")
+        monitor_logs = ensure_dir(root / ".agent" / "logs")
         return cls(
             root=root,
             codex_ci_dir=codex_ci,
+            monitor_log_dir=monitor_logs,
             rex_agent_file=root / "rex-agent.json",
             venv_dir=root / ".venv",
         )

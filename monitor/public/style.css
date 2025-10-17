@@ -1,0 +1,62 @@
+:root {
+  --bg: #0f1115;
+  --card: #12151c;
+  --muted: #8b90a0;
+  --text: #e7e9ef;
+  --accent: #7c8cff;
+  --ok: #3ddc97;
+  --warn: #ffcc66;
+  --err: #ff6b6b;
+  --border: #1f2430;
+  --chip: #1a2030;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--text); font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, 'Helvetica Neue', Arial, 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji';
+}
+a { color: var(--accent); text-decoration: none; }
+.hdr { display:flex; align-items:center; justify-content:space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); position: sticky; top:0; background: linear-gradient(180deg, rgba(13,16,22,.9), rgba(13,16,22,.6)); backdrop-filter: blur(6px); }
+.brand { display:flex; align-items:center; gap: 12px; }
+.brand h1 { margin:0; font-size: 18px; font-weight: 600; letter-spacing: .2px; }
+.dot { width:10px; height:10px; border-radius:50%; background: var(--err); box-shadow: 0 0 0 2px rgba(255,107,107,.15); }
+.epm { background: var(--chip); color: #aab2ff; padding: 4px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border); }
+.links a { margin-left: 14px; font-size: 13px; opacity: .9; }
+.grid { display:grid; gap: 16px; grid-template-columns: 1fr 1fr; padding: 16px; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+.card h2 { margin: 0 0 10px 0; font-size: 15px; font-weight: 600; }
+.stats { display:flex; gap: 12px; flex-wrap: wrap; }
+.stat { background: var(--chip); border: 1px solid var(--border); padding: 8px 10px; border-radius: 10px; min-width: 90px; }
+.stat .label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .6px; }
+.stat .value { font-size: 18px; margin-top: 2px; }
+.stat.info { box-shadow: inset 0 0 0 1px rgba(124,140,255,.15); }
+.stat.warn { box-shadow: inset 0 0 0 1px rgba(255,204,102,.15); }
+.stat.error { box-shadow: inset 0 0 0 1px rgba(255,107,107,.15); }
+.muted { color: var(--muted); font-size: 12px; margin-top: 8px; }
+
+.log-card { grid-column: 1 / -1; }
+.log-hdr { display:flex; align-items:center; justify-content:space-between; gap: 12px; }
+.filters { display:flex; align-items:center; gap: 10px; }
+.filters input[type="search"] { padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: #0b0e13; color: var(--text); }
+
+.log { height: 380px; overflow: auto; background: #0b0e13; border-radius: 8px; border: 1px solid var(--border); padding: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+.log .row { padding: 3px 4px; border-radius: 6px; white-space: pre-wrap; word-break: break-word; }
+.log .row + .row { margin-top: 2px; }
+.log .ts { color: #a1a7b7; margin-right: 8px; }
+.log .lvl { text-transform: uppercase; font-size: 11px; padding: 2px 6px; border-radius: 999px; margin-right: 8px; background: #181f2b; color: #b3c2ff; border: 1px solid var(--border); }
+.log .lvl.warn { background:#2a220d; color:#ffd38a; }
+.log .lvl.error { background:#2a1414; color:#ff8e8e; border-color:#3a1b1b; }
+.log .task { color:#9cd1ff; margin-right:8px; }
+.log .msg { color:#e9ebf2; }
+.log .progress { float:right; color:#a1a7b7; font-size: 11px; }
+
+.task-card { background: #0b0e13; border: 1px solid var(--border); margin: 6px 0; border-radius: 8px; padding: 8px; }
+.task-row { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.task-name { font-weight:600; }
+.task-meta { color: var(--muted); font-size: 12px; }
+.bar { position: relative; height: 8px; background: #171d28; border-radius: 999px; overflow: hidden; border: 1px solid var(--border); margin-top: 6px; }
+.bar > span { position:absolute; left:0; top:0; bottom:0; width:0%; background: linear-gradient(90deg, #6ee7b7, #7c8cff); transition: width .25s ease; }
+
+.ftr { color: var(--muted); font-size: 12px; padding: 12px 16px; border-top: 1px solid var(--border); }
+#errors .err { background:#2a1414; border: 1px solid #3a1b1b; padding: 8px; border-radius: 8px; margin: 6px 0; }
+#errors .err .t { color:#ff8e8e; font-weight:600; }
+#errors .err .m { color:#e9b0b0; }

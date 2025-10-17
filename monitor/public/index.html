@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Agent Monitor</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="hdr">
+    <div class="brand">
+      <span class="dot" id="connDot"></span>
+      <h1>Agent Monitor</h1>
+      <div id="eventsPerMin" class="epm">0 evt/min</div>
+    </div>
+    <nav class="links">
+      <a href="/api/summary" target="_blank">Summary JSON</a>
+      <a href="/api/events" target="_blank">Events JSON</a>
+      <a id="healthLink" href="/api/health" target="_blank">Health</a>
+    </nav>
+  </header>
+
+  <main class="grid">
+    <section class="card">
+      <h2>Status</h2>
+      <div class="stats" id="stats">
+        <div class="stat"><div class="label">Total</div><div class="value" id="totAll">0</div></div>
+        <div class="stat info"><div class="label">Info</div><div class="value" id="totInfo">0</div></div>
+        <div class="stat warn"><div class="label">Warn</div><div class="value" id="totWarn">0</div></div>
+        <div class="stat error"><div class="label">Error</div><div class="value" id="totErr">0</div></div>
+        <div class="stat"><div class="label">Tasks</div><div class="value" id="totTask">0</div></div>
+      </div>
+      <div class="muted" id="lastEvent">Last event: —</div>
+    </section>
+
+    <section class="card">
+      <h2>Tasks</h2>
+      <div id="tasks"></div>
+    </section>
+
+    <section class="card log-card">
+      <div class="log-hdr">
+        <h2>Live Log</h2>
+        <div class="filters">
+          <label><input type="checkbox" value="info" checked> info</label>
+          <label><input type="checkbox" value="warn" checked> warn</label>
+          <label><input type="checkbox" value="error" checked> error</label>
+          <label><input type="checkbox" value="debug"> debug</label>
+          <input id="searchBox" type="search" placeholder="Search…" />
+        </div>
+      </div>
+      <div id="log" class="log"></div>
+    </section>
+
+    <section class="card">
+      <h2>Recent errors</h2>
+      <div id="errors"></div>
+    </section>
+  </main>
+
+  <footer class="ftr">
+    <div>Monitoring <code>.agent/logs/events.jsonl</code>. This UI is read-only.</div>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -24,6 +24,23 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
 
 ---
 
+## Monitoring UI (optional)
+
+- Run the passive web UI from `monitor/` to tail `.agent/logs/events.jsonl` in your browser.
+  ```bash
+  cd monitor
+  npm install
+  npm start
+  ```
+- The helper script `node monitor/agent/launch-monitor.js --background` starts the server detached and records the port in `.agent/logs/monitor.port`; use this from your agent boot sequence.
+- Logging helpers are provided for both Node (`monitor/agent/logger-node.js`) and Python (`monitor/agent/logger-python.py`) to emit JSONL events.
+- The UI stays read-only: it streams Server-Sent Events (SSE) to render task summaries, recent errors, and the live log feed.
+- Set `LOG_DIR`, `EVENTS_FILE`, or `MONITOR_PORT` env vars to customise paths/ports; the default log file is `.agent/logs/events.jsonl`.
+- `./rex-codex init` now runs `npm install` inside `monitor/` when dependencies are missing, so the UI is ready post-install. Use `REX_DISABLE_MONITOR_UI=1` to skip launching.
+- `./rex-codex loop`, `generator`, and `discriminator` automatically launch the monitor and open your default browser; the legacy terminal HUD stays disabled unless you explicitly re-enable it (set `GENERATOR_UI_POPOUT=1` if you need the old popout).
+
+---
+
 ## Day-One Walkthrough
 
 1. **Install the wrapper inside your repo**

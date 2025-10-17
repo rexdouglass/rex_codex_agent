@@ -14,6 +14,7 @@ from .discriminator import DiscriminatorOptions, run_discriminator
 from .doctor import run_doctor
 from .generator import GeneratorOptions, run_generator
 from .logs import show_latest_logs
+from .monitoring import ensure_monitor_server
 from .self_update import self_update
 from .utils import (
     RexContext,
@@ -261,6 +262,7 @@ class LoopOptions:
 
 def run_loop(options: LoopOptions, *, context: RexContext | None = None) -> int:
     context = context or RexContext.discover()
+    ensure_monitor_server(context, open_browser=True)
     if options.explain:
         for line in _describe_plan(options, context):
             print(line)

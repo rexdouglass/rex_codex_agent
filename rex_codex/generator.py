@@ -23,6 +23,7 @@ from .config import AGENT_SRC, DEFAULT_GENERATOR_MAX_FILES, DEFAULT_GENERATOR_MA
 from .events import emit_event, events_path
 from .generator_ui import GeneratorHUD
 from .hud import generator_snapshot_text
+from .monitoring import ensure_monitor_server
 from .self_update import self_update
 from .utils import (
     RexContext,
@@ -1040,6 +1041,7 @@ def run_generator(
     options: GeneratorOptions, *, context: RexContext | None = None
 ) -> int:
     context = context or RexContext.discover()
+    ensure_monitor_server(context, open_browser=True)
     self_update()
     ensure_dir(context.codex_ci_dir)
     lock_path = context.codex_ci_dir / "rex_generator.lock"

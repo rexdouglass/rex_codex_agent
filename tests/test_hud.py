@@ -89,6 +89,7 @@ def test_render_hud_follow_invokes_live_monitor(monkeypatch, tmp_path):
     context = RexContext(
         root=tmp_path,
         codex_ci_dir=tmp_path,
+        monitor_log_dir=tmp_path,
         rex_agent_file=tmp_path / "rex-agent.json",
         venv_dir=tmp_path / ".venv",
     )
