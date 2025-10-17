@@ -65,6 +65,14 @@ def ensure_component_plan(
         "components": [],
     }
 
+    playbook_json = context.codex_ci_dir / f"playbook_{slug}.json"
+    if playbook_json.exists():
+        try:
+            playbook_payload = json.loads(playbook_json.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            playbook_payload = {"error": "invalid_playbook_json"}
+        base_plan["playbook_snapshot"] = playbook_payload
+
     _emit_plan_snapshot(slug, base_plan)
 
     card_text = card_path.read_text(encoding="utf-8")
@@ -197,7 +205,9 @@ def ensure_component_plan(
 
     base_plan["status"] = "completed"
     base_plan["generated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    plan_path.write_text(json.dumps(base_plan, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    plan_path.write_text(
+        json.dumps(base_plan, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
     emit_event(
         "generator",
         "component_plan_completed",
@@ -211,7 +221,9 @@ def ensure_component_plan(
     return PlannerResult(plan=base_plan, path=plan_path)
 
 
-def _emit_plan_snapshot(slug: str, plan: Dict[str, Any], *, plan_path: Path | None = None) -> None:
+def _emit_plan_snapshot(
+    slug: str, plan: Dict[str, Any], *, plan_path: Path | None = None
+) -> None:
     meta: Dict[str, Any] = {"plan": plan, "plan_slug": slug}
     if plan_path is not None:
         meta["plan_path"] = str(plan_path)
@@ -247,8 +259,13 @@ def _collect_other_cards(cards_dir: Path, exclude: Path) -> List[Dict[str, str]]
     return payload
 
 
-def _component_prompt(slug: str, card_text: str, other_cards: List[Dict[str, str]]) -> str:
-    extras = "\n".join(f"- {card['name']} ({card['path']})" for card in other_cards) or "None"
+def _component_prompt(
+    slug: str, card_text: str, other_cards: List[Dict[str, str]]
+) -> str:
+    extras = (
+        "\n".join(f"- {card['name']} ({card['path']})" for card in other_cards)
+        or "None"
+    )
     return f"""
 You are an engineering planner. Analyse the Feature Card below for slug `{slug}` and produce a JSON object
 with this shape:
@@ -404,7 +421,9 @@ def _run_codex_json(
             stage=label,
             stderr=stderr.strip(),
         )
-        raise RuntimeError(f"Codex ({label}) failed with exit code {completed.returncode}: {stderr.strip()}")
+        raise RuntimeError(
+            f"Codex ({label}) failed with exit code {completed.returncode}: {stderr.strip()}"
+        )
 
     payload = _extract_json(stdout)
     emit_event(
@@ -476,5 +495,7 @@ def _ensure_question(text: str) -> str:
     if any(lowered.startswith(prefix) for prefix in prefixes):
         base = cleaned
     else:
-        base = f"Does {cleaned[0].lower() + cleaned[1:]}" if len(cleaned) > 1 else cleaned
+        base = (
+            f"Does {cleaned[0].lower() + cleaned[1:]}" if len(cleaned) > 1 else cleaned
+        )
     return f"{base}?"

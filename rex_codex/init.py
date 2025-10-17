@@ -42,6 +42,7 @@ def run_init(
     root = context.root
     ensure_dir(root / "tests" / "enforcement")
     ensure_dir(root / "documents" / "feature_cards")
+    ensure_dir(root / "documents" / "assumption_ledgers")
 
     template_root = AGENT_SRC / "templates"
     copies = {
@@ -63,6 +64,12 @@ def run_init(
             card_readme, root / "documents" / "feature_cards" / "README.md"
         )
 
+    ledger_readme = template_root / "documents" / "assumption_ledgers" / "README.md"
+    if ledger_readme.exists():
+        _copy_if_missing(
+            ledger_readme, root / "documents" / "assumption_ledgers" / "README.md"
+        )
+
     enforcement_dir = template_root / "tests" / "enforcement"
     if enforcement_dir.exists():
         for item in enforcement_dir.glob("**/*"):
@@ -76,7 +83,9 @@ def run_init(
     if package_json.exists():
         node_modules = monitor_dir / "node_modules"
         if node_modules.exists():
-            print("[*] Monitor dependencies already installed (monitor/node_modules present).")
+            print(
+                "[*] Monitor dependencies already installed (monitor/node_modules present)."
+            )
         else:
             npm = which("npm")
             if npm is None:

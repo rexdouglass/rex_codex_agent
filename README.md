@@ -3,6 +3,7 @@
 Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapper into a repo, describe work in Feature Cards, and the agent will:
 
 - Generate **deterministic pytest specs** (tests only) from those cards.
+- Canonicalise Feature Cards into assumption ledgers, capability graphs, and traceability artefacts before every generator pass.
 - Run a disciplined **discriminator ladder** (smoke/unit → coverage ≥80% → optional security/package checks → style/type).
 - Optionally nibble at runtime code with **tight guardrails** (small, allowlisted patches only).
 - Capture logs, JUnit, and state in-repo so every pass is auditable.

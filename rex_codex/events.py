@@ -121,7 +121,9 @@ def _mirror_to_monitor(record: Mapping[str, Any]) -> None:
         return
     try:
         with monitor_path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(monitor_event, ensure_ascii=False, default=_json_default))
+            fh.write(
+                json.dumps(monitor_event, ensure_ascii=False, default=_json_default)
+            )
             fh.write("\n")
     except Exception:
         return

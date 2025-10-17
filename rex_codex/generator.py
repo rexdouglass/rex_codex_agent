@@ -19,12 +19,13 @@ from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .cards import FeatureCard, discover_cards, update_active_card
-from .config import AGENT_SRC, DEFAULT_GENERATOR_MAX_FILES, DEFAULT_GENERATOR_MAX_LINES
 from .component_planner import ensure_component_plan
+from .config import AGENT_SRC, DEFAULT_GENERATOR_MAX_FILES, DEFAULT_GENERATOR_MAX_LINES
 from .events import emit_event, events_path
 from .generator_ui import GeneratorHUD
 from .hud import generator_snapshot_text
 from .monitoring import ensure_monitor_server
+from .playbook import build_playbook_artifacts
 from .self_update import self_update
 from .utils import (
     RexContext,
@@ -979,6 +980,12 @@ def _run_card_with_ui(
         except FileNotFoundError:
             pass
 
+    # Build deterministic playbook artefacts before planning/generation.
+    try:
+        build_playbook_artifacts(card=card, context=context)
+    except Exception as exc:  # pragma: no cover - defensive logging
+        print(f"[generator] Failed to build playbook artefacts: {exc}")
+
     if os.environ.get("REX_DISABLE_PLANNER", "").lower() not in {"1", "true", "yes"}:
         ensure_component_plan(
             card=card,
@@ -1273,6 +1280,11 @@ def _run_once(
     specs_dir = root / "tests" / "feature_specs" / slug
     specs_dir.mkdir(parents=True, exist_ok=True)
 
+    try:
+        build_playbook_artifacts(card=card, context=context)
+    except Exception as exc:  # pragma: no cover - defensive logging
+        print(f"[generator] Failed to refresh playbook artefacts in run loop: {exc}")
+
     card_path = root / "documents" / "feature_cards" / f"{slug}.md"
     baseline_card_text: Optional[str] = None
     if card_path.exists():
@@ -1411,6 +1423,13 @@ def _build_prompt(
     )
     card_text = card.path.read_text(encoding="utf-8")
     existing = _append_existing_tests(slug, context)
+    playbook_prompt_path = context.codex_ci_dir / f"playbook_{slug}.prompt"
+    playbook_block = ""
+    if playbook_prompt_path.exists():
+        try:
+            playbook_block = playbook_prompt_path.read_text(encoding="utf-8")
+        except OSError:
+            playbook_block = ""
     prompt = textwrap.dedent(
         f"""\
         You are a senior test architect.
@@ -1445,6 +1464,12 @@ def _build_prompt(
     prompt += "--- BEGIN FEATURE CARD ---\n"
     prompt += card_text
     prompt += "\n--- END FEATURE CARD ---\n"
+    if playbook_block:
+        prompt += "\n--- BEGIN CANONICAL PLAYBOOK SUMMARY ---\n"
+        prompt += playbook_block
+        if not playbook_block.endswith("\n"):
+            prompt += "\n"
+        prompt += "--- END CANONICAL PLAYBOOK SUMMARY ---\n"
     prompt += existing
     return prompt
 

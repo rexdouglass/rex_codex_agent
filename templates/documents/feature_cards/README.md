@@ -24,9 +24,11 @@ owner: optional-handle
 
 ### Guidelines
 - Always start with `status: proposed`. The generator will ignore cards without this exact line.
-- Use bullets for Summary/Acceptance Criteria—Codex reads them into prompts verbatim.
+- Use bullets for Summary/Acceptance Criteria-Codex reads them into prompts verbatim.
 - Leave `## Links` / `## Spec Trace` blank; the generator appends context there.
-- Prefer deterministic acceptance criteria (no external network calls, no “eventually” language).
+- Prefer deterministic acceptance criteria (no external network calls, no "eventually" language).
+- Populate optional metadata (`id`, `epic`, `risk_level`, `priority`, `owner`, `dependencies`) when known-the generator canonicalises these fields and mirrors them into the assumption ledger.
+- Capture explicit assumptions under an `## Assumptions` heading or inline using `A-###:` prefixes; unresolved ambiguity is turned into assumption ledger entries automatically.
 
 ## Day-one flow (per feature)
 
@@ -36,7 +38,7 @@ owner: optional-handle
    ./rex-codex generator documents/feature_cards/<slug>.md
    ```
    The generator will:
-   - Create/update only `tests/feature_specs/<slug>/…` (pytest files).
+   - Create/update only `tests/feature_specs/<slug>/...` (pytest files).
    - Append references under `## Links` / `## Spec Trace`.
    - Reject non-deterministic tests (network, `time.sleep`, `uuid.uuid4`, `secrets`, unseeded randomness, etc.).
    - Enforce patch-size limits (default 6 files / 300 lines).
