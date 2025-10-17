@@ -10,7 +10,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from .cards import FeatureCard
 from .events import emit_event
@@ -160,13 +160,15 @@ def ensure_component_plan(
             )
             tests = tests_payload.get("tests") or []
             for test_index, test in enumerate(tests, start=1):
+                question = _extract_question(test, test_index)
+                measurement = _extract_measurement(test)
+                context_note = test.get("context") or test.get("description") or ""
                 test_entry = {
                     "id": test.get("id")
                     or f"{sub_uid}-t{test_index}-{uuid.uuid4().hex[:6]}",
-                    "name": test.get("name") or f"Test {test_index}",
-                    "description": test.get("description") or "",
-                    "type": test.get("type") or "pytest",
-                    "verification": test.get("verification") or "",
+                    "question": question,
+                    "measurement": measurement,
+                    "context": context_note,
                     "status": test.get("status") or "proposed",
                     "tags": test.get("tags") or [],
                 }
@@ -210,7 +212,7 @@ def ensure_component_plan(
 
 
 def _emit_plan_snapshot(slug: str, plan: Dict[str, Any], *, plan_path: Path | None = None) -> None:
-    meta: Dict[str, Any] = {"plan": plan}
+    meta: Dict[str, Any] = {"plan": plan, "plan_slug": slug}
     if plan_path is not None:
         meta["plan_path"] = str(plan_path)
     emit_event(
@@ -332,20 +334,22 @@ Return STRICT JSON object:
   "tests": [
     {{
       "id": "<stable-id>",
-      "name": "<short test name>",
-      "description": "<intent of the test>",
-      "type": "pytest",
-      "verification": "<how we assert success>",
+      "question": "Does the CLI print Hello World by default?",
+      "measurement": "Invoke the CLI with no arguments and assert stdout equals 'Hello World' and exit code is 0.",
+      "context": "Optional extra notes or setup details",
       "status": "proposed",
-      "tags": ["<optional>", "..."]
+      "tags": ["happy-path", "cli"]
     }}
   ]
 }}
 
 Guidelines:
-- Tests must be verifiable offline and avoid randomness.
-- Cover happy path, edge cases, and failure behaviours suggested by the Feature Card.
-- If a scenario already exists in spirit, call it out in the description.
+- Every `question` must be a concrete yes/no style question framed from an observer's perspective (e.g. "Does quiet suppress output?").
+- `measurement` must describe the exact deterministic procedure used to answer the question (inputs, command, and assertions).
+- Use `context` for additional setup hints only when necessary; otherwise omit or keep short.
+- Tests must remain offline, hermetic, and avoid randomness or time-based assertions.
+- Cover happy path, edge cases, and failure behaviours implied by the Feature Card.
+- Prefer status "proposed" unless guidance indicates otherwise.
 
 Subcomponent summary: {summary}
 Dependencies: {deps}
@@ -434,3 +438,43 @@ def _extract_json(text: str) -> Dict[str, Any]:
         except json.JSONDecodeError:
             continue
     raise json.JSONDecodeError("Unable to decode JSON response", stripped, start)
+
+
+def _extract_question(test: Mapping[str, Any], index: int) -> str:
+    if not isinstance(test, Mapping):
+        return f"Test {index}?"
+    for key in ("question", "name", "title"):
+        value = test.get(key)
+        if isinstance(value, str) and value.strip():
+            return _ensure_question(value)
+    return f"Test {index}?"
+
+
+def _extract_measurement(test: Mapping[str, Any]) -> str:
+    if not isinstance(test, Mapping):
+        return ""
+    for key in ("measurement", "verification", "how_to_verify", "strategy"):
+        value = test.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    desc = test.get("description")
+    if isinstance(desc, str) and desc.strip():
+        return desc.strip()
+    return ""
+
+
+def _ensure_question(text: str) -> str:
+    cleaned = (text or "").strip()
+    if not cleaned:
+        return "Question?"
+    if cleaned.endswith("?"):
+        return cleaned
+    if cleaned[-1:] in ".!;":
+        cleaned = cleaned[:-1].strip()
+    lowered = cleaned.lower()
+    prefixes = ("does ", "is ", "can ", "will ", "should ", "did ")
+    if any(lowered.startswith(prefix) for prefix in prefixes):
+        base = cleaned
+    else:
+        base = f"Does {cleaned[0].lower() + cleaned[1:]}" if len(cleaned) > 1 else cleaned
+    return f"{base}?"

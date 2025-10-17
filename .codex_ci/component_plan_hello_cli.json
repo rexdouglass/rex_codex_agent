@@ -1,174 +1,180 @@
 {
   "card_path": "/media/skynet3/8tb_a1/rex_codex_agent/documents/feature_cards/hello_cli.md",
   "card_hash": "82851b126f6779bba9cae60341282d0e4bdae00dcb67a0d17bd6590cd09c54c5",
-  "generated_at": "2025-10-17T02:51:14Z",
+  "generated_at": "2025-10-17T05:35:56Z",
   "status": "completed",
   "components": [
     {
-      "id": "hello_cli_command_execution",
-      "name": "CLI Command Execution",
-      "summary": "Expose an executable CLI entrypoint that prints a greeting to stdout when invoked with no arguments.",
-      "rationale": "Delivers a visible demo of the Codex generator HUD via a simple, reliable command.",
-      "notes": "Default greeting must be exactly `Hello World`; exit cleanly with status 0 and ensure output is newline-terminated.",
+      "id": "hello_cli-cli-entry-point",
+      "name": "CLI entry point",
+      "summary": "Expose a runnable command that prints a greeting when invoked with no flags.",
+      "rationale": "Showcase the generator HUD with a simple, deterministic command users can call immediately.",
+      "notes": "Provide a console script or module `__main__` entry; ensure it’s runnable via `python -m` and the installed CLI shim.",
       "subcomponents": [
         {
-          "id": "hello_cli.argument_parser",
-          "name": "Argument Parsing",
-          "summary": "Build and validate the CLI parser that accepts no-arg invocation plus `--message` overrides and `--quiet` toggles.",
+          "id": "hello-cli-argument-parser",
+          "name": "Argument Parser",
+          "summary": "Define the CLI interface, parse --message/--quiet flags, and surface validation errors for invalid combinations.",
           "dependencies": [
             "argparse"
           ],
           "risks": [
-            "Parser must enforce value for `--message` without blocking zero-argument runs."
+            "Weak validation could allow empty override messages or silently ignore unsupported flags."
           ],
           "tests": [
             {
-              "id": "hello_cli_parser_quiet_overrides_message",
-              "name": "quiet suppresses custom message",
-              "description": "Ensure `--quiet` suppresses output even when `--message` is provided (not covered by existing specs).",
-              "type": "pytest",
-              "verification": "Invoke CLI with `--message 'Hi' --quiet` and assert exit code 0 with no stdout output.",
+              "id": "hello_cli.default_greeting",
+              "question": "Does the CLI print Hello World by default?",
+              "measurement": "Run `subprocess.run([sys.executable, \"-m\", \"hello_cli\"], capture_output=True, text=True)` and assert the exit code is 0 and `stdout` equals \"Hello World\\n\" with empty `stderr`.",
+              "context": "",
               "status": "proposed",
               "tags": [
                 "happy-path",
-                "quiet"
+                "cli"
               ]
             },
             {
-              "id": "hello_cli_parser_multiple_message_flags",
-              "name": "last message flag wins",
-              "description": "Validate argparse stores the final `--message` value when the flag appears multiple times.",
-              "type": "pytest",
-              "verification": "Run CLI with `--message 'Hi' --message 'Bye'` and assert stdout contains only `'Bye'`.",
+              "id": "hello_cli.message_override",
+              "question": "Does providing --message override the greeting text?",
+              "measurement": "Invoke `subprocess.run([sys.executable, \"-m\", \"hello_cli\", \"--message\", \"Hi Codex\"], capture_output=True, text=True)` and assert the exit code is 0, `stdout` equals \"Hi Codex\\n\", and `stderr` is empty.",
+              "context": "",
+              "status": "proposed",
+              "tags": [
+                "cli",
+                "argument-override"
+              ]
+            },
+            {
+              "id": "hello_cli.quiet_overrides_message",
+              "question": "Does combining --quiet with --message suppress all output while succeeding?",
+              "measurement": "Invoke `subprocess.run([sys.executable, \"-m\", \"hello_cli\", \"--message\", \"Hi\", \"--quiet\"], capture_output=True, text=True)` and assert the exit code is 0 with both `stdout` and `stderr` empty.",
+              "context": "",
+              "status": "proposed",
+              "tags": [
+                "cli",
+                "quiet-mode",
+                "edge-case"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "hello-cli-message-resolver",
+          "name": "Message Resolver",
+          "summary": "Derive the greeting text based on the parsed arguments, falling back to the default Hello World string.",
+          "dependencies": [],
+          "risks": [
+            "Missing fallbacks could break the default greeting when overrides are absent."
+          ],
+          "tests": [
+            {
+              "id": "hello_cli.default_greeting",
+              "question": "Does the CLI print Hello World by default?",
+              "measurement": "Run subprocess.run([sys.executable, '-m', 'hello_cli'], capture_output=True, text=True); assert result.returncode == 0, result.stdout.strip() == 'Hello World', and result.stderr == ''.",
+              "context": "",
+              "status": "proposed",
+              "tags": [
+                "happy-path",
+                "cli"
+              ]
+            },
+            {
+              "id": "hello_cli.message_override",
+              "question": "Does passing --message override the greeting text?",
+              "measurement": "Run subprocess.run([sys.executable, '-m', 'hello_cli', '--message', 'Hi Codex'], capture_output=True, text=True); assert result.returncode == 0, result.stdout.strip() == 'Hi Codex', and result.stderr == ''.",
+              "context": "",
+              "status": "proposed",
+              "tags": [
+                "cli",
+                "override"
+              ]
+            },
+            {
+              "id": "hello_cli.message_requires_value",
+              "question": "Does providing --message without a value fail with a usage error?",
+              "measurement": "Run subprocess.run([sys.executable, '-m', 'hello_cli', '--message'], capture_output=True, text=True); assert result.returncode != 0, '--message' in result.stderr, and result.stdout == ''.",
+              "context": "",
+              "status": "proposed",
+              "tags": [
+                "cli",
+                "error-handling"
+              ]
+            },
+            {
+              "id": "hello_cli.quiet_suppresses_output",
+              "question": "Does --quiet suppress all CLI output while exiting successfully?",
+              "measurement": "Run subprocess.run([sys.executable, '-m', 'hello_cli', '--quiet'], capture_output=True, text=True); assert result.returncode == 0, result.stdout == '', and result.stderr == ''.",
+              "context": "",
+              "status": "proposed",
+              "tags": [
+                "cli",
+                "quiet-mode"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "hello-cli-runner",
+          "name": "Command Runner",
+          "summary": "Coordinate parsing and message resolution, apply quiet-mode suppression, and return the correct exit code/output.",
+          "dependencies": [],
+          "risks": [
+            "Quiet mode handling errors could leak output or return the wrong exit status."
+          ],
+          "tests": [
+            {
+              "id": "hello_cli_default_greeting",
+              "question": "Does the CLI print Hello World by default?",
+              "measurement": "Execute `python -m hello` with no arguments using `subprocess.run(..., capture_output=True, text=True)` and assert the exit code is 0, stdout equals `\"Hello World\\n\"`, and stderr is empty.",
+              "context": "",
+              "status": "proposed",
+              "tags": [
+                "happy-path",
+                "cli"
+              ]
+            },
+            {
+              "id": "hello_cli_message_override",
+              "question": "Does providing --message replace the emitted greeting?",
+              "measurement": "Execute `python -m hello --message CustomGreeting` and assert the exit code is 0, stdout equals `\"CustomGreeting\\n\"`, and stderr is empty.",
+              "context": "",
+              "status": "proposed",
+              "tags": [
+                "happy-path",
+                "cli"
+              ]
+            },
+            {
+              "id": "hello_cli_quiet_mode",
+              "question": "Does quiet mode suppress all output while still exiting successfully?",
+              "measurement": "Execute `python -m hello --message Ignored --quiet` and assert the exit code is 0, stdout is empty, and stderr is empty.",
+              "context": "",
+              "status": "proposed",
+              "tags": [
+                "quiet-mode",
+                "cli"
+              ]
+            },
+            {
+              "id": "hello_cli_message_requires_value",
+              "question": "Does omitting the value for --message cause an argument error?",
+              "measurement": "Execute `python -m hello --message` expecting argparse to terminate with exit code 2, empty stdout, and stderr containing `\"error: argument --message: expected one argument\"`.",
+              "context": "Invoke with `check=False` so the non-zero exit code can be asserted explicitly.",
+              "status": "proposed",
+              "tags": [
+                "error-case",
+                "cli"
+              ]
+            },
+            {
+              "id": "hello_cli_repeat_multiple_lines",
+              "question": "Does --repeat produce the greeting the specified number of times?",
+              "measurement": "Execute `python -m hello --repeat 2` and assert the exit code is 0, stdout equals `\"Hello World\\nHello World\\n\"`, and stderr is empty.",
+              "context": "",
               "status": "proposed",
               "tags": [
                 "edge-case",
-                "message"
-              ]
-            },
-            {
-              "id": "hello_cli_parser_unknown_argument",
-              "name": "unknown flag errors",
-              "description": "Confirm the parser fails fast when an unsupported flag is supplied (distinct from missing value check already covered).",
-              "type": "pytest",
-              "verification": "Invoke CLI with `--unknown` and assert non-zero exit code plus usage error on stderr.",
-              "status": "proposed",
-              "tags": [
-                "failure",
-                "parsing"
-              ]
-            }
-          ]
-        },
-        {
-          "id": "hello_cli.greeting_selection",
-          "name": "Greeting Selection",
-          "summary": "Resolve the greeting text, defaulting to `Hello World` and applying the `--message` override when provided.",
-          "dependencies": [],
-          "risks": [
-            "Ensure quiet mode does not inadvertently blank the computed message for non-quiet runs."
-          ],
-          "tests": [
-            {
-              "id": "hello_cli_greeting_selection_default",
-              "name": "Default greeting prints Hello World",
-              "description": "Reaffirm the existing `tests/feature_specs/hello_cli/test_cli.py::test_default_greeting` scenario so this subcomponent explicitly guarantees that running without flags prints `Hello World`.",
-              "type": "pytest",
-              "verification": "Invoke the CLI with no arguments, capture stdout, and assert it equals `Hello World` with exit code 0.",
-              "status": "proposed",
-              "tags": [
-                "AC#1"
-              ]
-            },
-            {
-              "id": "hello_cli_greeting_selection_custom_text",
-              "name": "Custom message honours multi-word input",
-              "description": "Covers the `--message` override with a multi-word phrase to ensure the CLI emits the text verbatim; the current `test_message_override` hits the spirit but this run should assert spaces and punctuation are preserved.",
-              "type": "pytest",
-              "verification": "Run the CLI with `--message \"Hello from CLI\"`, assert exit code 0, and stdout exactly `Hello from CLI`.",
-              "status": "proposed",
-              "tags": [
-                "AC#2"
-              ]
-            },
-            {
-              "id": "hello_cli_greeting_selection_missing_value",
-              "name": "Missing value for message flag fails",
-              "description": "Matches the existing `test_message_flag_requires_value` behaviour, ensuring the subcomponent still surfaces a non-zero exit code and error text when `--message` lacks an argument.",
-              "type": "pytest",
-              "verification": "Execute the CLI with `--message` only, expect non-zero exit code and stderr mentioning the missing value.",
-              "status": "proposed",
-              "tags": [
-                "AC#2"
-              ]
-            },
-            {
-              "id": "hello_cli_greeting_selection_quiet_override",
-              "name": "Quiet suppresses custom message",
-              "description": "Validates that `--quiet` takes precedence over `--message`, producing no stdout while still succeeding, an edge case not currently in the spec list.",
-              "type": "pytest",
-              "verification": "Run the CLI with `--message \"Hello\" --quiet`, expect exit code 0 and empty stdout/stderr.",
-              "status": "proposed",
-              "tags": [
-                "AC#2",
-                "AC#3"
-              ]
-            }
-          ]
-        },
-        {
-          "id": "hello_cli.command_runner",
-          "name": "Command Runner",
-          "summary": "Execute the CLI entrypoint, honor quiet mode, emit the greeting to stdout, and return an appropriate exit status.",
-          "dependencies": [],
-          "risks": [
-            "Must guarantee zero output when quiet mode is active while preserving success exit code."
-          ],
-          "tests": [
-            {
-              "id": "hello_cli_default_exit_status",
-              "name": "Default greeting prints hello world",
-              "description": "Covers AC#1 by invoking the CLI with no flags, confirming stdout contains 'Hello World' exactly once and the process exits 0 (existing test checks output but not exit status).",
-              "type": "pytest",
-              "verification": "Use CliRunner (or equivalent) to invoke the entrypoint without arguments; assert result.exit_code == 0 and result.stdout == 'Hello World\\n'.",
-              "status": "proposed",
-              "tags": [
-                "AC#1"
-              ]
-            },
-            {
-              "id": "hello_cli_message_override_output",
-              "name": "Message flag overrides greeting text",
-              "description": "Covers AC#2 by running with '--message Custom' and asserting stdout reflects the custom text verbatim plus newline while returning exit code 0 (existing scenario verifies override but not combined exit-status contract).",
-              "type": "pytest",
-              "verification": "Invoke CLI with ['--message', 'Hi Codex']; assert result.exit_code == 0 and result.stdout == 'Hi Codex\\n'.",
-              "status": "proposed",
-              "tags": [
-                "AC#2"
-              ]
-            },
-            {
-              "id": "hello_cli_quiet_supresses_output",
-              "name": "Quiet mode suppresses stdout even with custom message",
-              "description": "Extends AC#3 by combining '--quiet' with '--message' to ensure quiet wins over custom output while still exiting successfully (no current test covers the combined flag interaction).",
-              "type": "pytest",
-              "verification": "Invoke CLI with ['--message', 'Hi', '--quiet']; assert result.exit_code == 0, result.stdout == '', and no stderr noise.",
-              "status": "proposed",
-              "tags": [
-                "AC#2",
-                "AC#3"
-              ]
-            },
-            {
-              "id": "hello_cli_message_requires_argument_error",
-              "name": "Missing message argument fails fast",
-              "description": "Reaffirms the edge case from existing coverage by invoking '--message' without a value to check it exits non-zero and surfaces the parser error text so users understand the failure.",
-              "type": "pytest",
-              "verification": "Invoke CLI with ['--message']; assert result.exit_code != 0 and 'error' (or argparse usage hint) appears in stderr.",
-              "status": "proposed",
-              "tags": [
-                "AC#2",
-                "error-path"
+                "cli"
               ]
             }
           ]
@@ -176,117 +182,231 @@
       ]
     },
     {
-      "id": "hello_cli_argument_parsing",
-      "name": "Argument Parsing Options",
-      "summary": "Parse command-line flags to either override the greeting text or suppress output.",
-      "rationale": "Gives operators control over the demo by letting them customise or mute the greeting.",
-      "notes": "Implement `--message <text>` as a required-argument option and fail fast if the value is missing; `--quiet` should silence all stdout, taking precedence over any message override.",
+      "id": "hello_cli-message-handling",
+      "name": "Message handling",
+      "summary": "Parse `--message` so callers can override the greeting text while keeping `Hello World` as the default.",
+      "rationale": "Lets users personalize the demo output and validates argument parsing in the specs.",
+      "notes": "Use a standard argument parser; require a value for `--message`; surface helpful errors for missing or empty values.",
       "subcomponents": [
         {
-          "id": "hello_cli-default-greeting",
-          "name": "Default Greeting Execution",
-          "summary": "Run the CLI with no flags and emit the fallback greeting text.",
+          "id": "hello_cli-arg-definition",
+          "name": "Message Flag Definition",
+          "summary": "Expose the `--message` option through the CLI parser so users can supply a custom greeting and the parser enforces that it receives a value.",
           "dependencies": [
             "argparse"
           ],
           "risks": [
-            "Future defaults (e.g., locale-based messages) could diverge from the documented Hello World output."
+            "Parser refactors could drop the required value constraint."
           ],
           "tests": [
             {
-              "id": "hello_cli-default-greeting-stdout",
-              "name": "default greeting stdout format",
-              "description": "Run the CLI with no flags and assert it emits exactly `Hello World` and nothing else; `test_default_greeting` covers the message content, this adds strict formatting and noise checks.",
-              "type": "pytest",
-              "verification": "Invoke the CLI entry point without arguments, capture streams, and assert exit code 0, stdout == \"Hello World\\n\", and stderr is empty.",
+              "id": "hello_cli_message_flag_custom_output",
+              "question": "Does the CLI print the provided greeting when --message is supplied?",
+              "measurement": "Execute `python -m hello_cli --message 'Codex greeting'` with `subprocess.run`, capture stdout/stderr, and assert the return code is 0 and stdout is exactly `Codex greeting\\n`.",
+              "context": "Ensure the test environment exposes the `hello_cli` module so `python -m hello_cli` resolves.",
               "status": "proposed",
               "tags": [
-                "AC#1",
                 "cli",
-                "argparse"
+                "message",
+                "override",
+                "happy-path"
               ]
             },
             {
-              "id": "hello_cli-default-greeting-exit",
-              "name": "default greeting clean exit",
-              "description": "Ensure the no-flag execution path returns a zero status without argparse usage text; complements the existing `test_default_greeting` content check.",
-              "type": "pytest",
-              "verification": "Execute the CLI in a subprocess (or capture `SystemExit`) and confirm the return code is 0 with no stderr output or usage banner.",
+              "id": "hello_cli_message_flag_missing_value_error",
+              "question": "Does the CLI exit with an error when --message is provided without a value?",
+              "measurement": "Execute `python -m hello_cli --message` with `subprocess.run`, capture stdout/stderr, and assert the return code is 2 and stderr contains `argument --message: expected one argument`.",
+              "context": "No additional setup required beyond having the CLI installed for module execution.",
               "status": "proposed",
               "tags": [
-                "AC#1",
                 "cli",
-                "argparse"
+                "message",
+                "error-case"
               ]
             }
           ]
         },
         {
-          "id": "hello_cli-message-flag",
-          "name": "Message Override Flag",
-          "summary": "Parse and validate the --message option so callers can supply a custom greeting string.",
-          "dependencies": [
-            "argparse"
-          ],
+          "id": "hello_cli-message-resolution",
+          "name": "Greeting Text Resolution",
+          "summary": "Resolve the greeting text by preferring the user-supplied `--message` value and falling back to `Hello World` when absent.",
+          "dependencies": [],
           "risks": [
-            "Missing or empty values should surface clear errors instead of silently ignoring overrides."
+            "Drift between the hard-coded default and the acceptance criteria string."
           ],
           "tests": [
             {
-              "id": "hello_cli_message_equals_form",
-              "name": "message flag equals form",
-              "description": "Ensure the CLI handles the `--message=<value>` syntax; existing coverage only exercises the space-separated form in spirit.",
-              "type": "pytest",
-              "verification": "Call `hello.main(['--message=Howdy'])` and assert the function returns 0 while captured stdout is exactly 'Howdy\\n'.",
+              "id": "hello_cli_message_default_prints_hello_world",
+              "question": "Does the CLI print Hello World by default?",
+              "measurement": "Run `python -m hello` with no arguments, capture stdout/stderr, assert exit code is 0, stdout equals \"Hello World\\n\", and stderr is empty.",
+              "context": "",
               "status": "proposed",
               "tags": [
-                "AC#2"
+                "happy-path",
+                "cli"
               ]
             },
             {
-              "id": "hello_cli_message_preserves_spaces",
-              "name": "message preserves whitespace",
-              "description": "Confirm a quoted override like `--message='Hello brave world'` is printed verbatim, complementing the simpler override scenario already covered.",
-              "type": "pytest",
-              "verification": "Invoke `hello.main(['--message', 'Hello brave world'])`, expect return code 0, and check captured stdout equals 'Hello brave world\\n'.",
+              "id": "hello_cli_message_override_takes_precedence",
+              "question": "Does --message override the greeting text?",
+              "measurement": "Run `python -m hello --message \"Howdy\"`, capture stdout/stderr, assert exit code is 0, stdout equals \"Howdy\\n\", and stderr is empty.",
+              "context": "",
               "status": "proposed",
               "tags": [
-                "AC#2"
+                "override",
+                "cli"
+              ]
+            },
+            {
+              "id": "hello_cli_message_requires_value",
+              "question": "Does omitting a value for --message produce an argument error?",
+              "measurement": "Run `python -m hello --message` without a value, capture stdout/stderr, assert exit code is 2, stdout is empty, and stderr includes \"argument --message: expected one argument\".",
+              "context": "",
+              "status": "proposed",
+              "tags": [
+                "error-handling",
+                "cli"
               ]
             }
           ]
         },
         {
-          "id": "hello_cli-quiet-flag",
-          "name": "Quiet Suppression Flag",
-          "summary": "Handle the --quiet boolean flag and ensure it suppresses all greeting output regardless of other options.",
+          "id": "hello_cli-output-integration",
+          "name": "Message Output Integration",
+          "summary": "Deliver the resolved greeting to the output path while deferring to the quiet-mode handler to suppress emission when requested.",
           "dependencies": [
-            "argparse"
+            "quiet-mode handler"
           ],
           "risks": [
-            "Interaction with future flags (logging, diagnostics) may unintentionally re-enable output while quiet is set."
+            "Inconsistent behavior if quiet handling changes signature or timing."
           ],
           "tests": [
             {
-              "id": "hello_cli__quiet__suppresses_custom_message",
-              "name": "Quiet suppresses custom message",
-              "description": "Extends the existing quiet-mode coverage by asserting that combining `--message` with `--quiet` still yields no greeting output.",
-              "type": "pytest",
-              "verification": "Invoke the CLI entrypoint with `--message Custom --quiet`, capture stdout/stderr via `capsys` or `capfd`, and assert both are empty while exit code remains zero.",
+              "id": "hello_cli_default_output",
+              "question": "Does the CLI print Hello World by default?",
+              "measurement": "Run `subprocess.run([sys.executable, '-m', 'hello_cli'], capture_output=True, text=True, check=False)` with `cwd` at the project root and `PYTHONPATH` including `src`, then assert `completed.returncode == 0` and `completed.stdout == 'Hello World\\n'`.",
+              "context": "Ensure `PYTHONPATH` includes `src` so the module resolves.",
               "status": "proposed",
               "tags": [
-                "AC#3"
+                "happy-path",
+                "cli"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "hello_cli-quiet-mode",
+      "name": "Quiet mode",
+      "summary": "Implement `--quiet` to suppress all greeting output regardless of other options.",
+      "rationale": "Demonstrates flag precedence and enables silent runs needed in automated flows.",
+      "notes": "Ensure quiet mode short-circuits printing even when `--message` is present; return zero exit status for all successful paths.",
+      "subcomponents": [
+        {
+          "id": "hello_cli-quiet-flag-parsing",
+          "name": "Quiet Flag Parsing",
+          "summary": "Add the `--quiet` option to the CLI parser so runs can request silent mode.",
+          "dependencies": [
+            "CLI argument parser"
+          ],
+          "risks": [
+            "Parser may reject existing command usage if the new flag conflicts with other options."
+          ],
+          "tests": [
+            {
+              "id": "hello_cli-quiet-default-output",
+              "question": "Does the CLI print Hello World by default?",
+              "measurement": "Invoke `hello_cli` with no arguments; assert exit code is 0, stdout is exactly 'Hello World\\n', and stderr is empty.",
+              "context": "",
+              "status": "proposed",
+              "tags": [
+                "happy-path",
+                "cli"
               ]
             },
             {
-              "id": "hello_cli__quiet__still_requires_message_value",
-              "name": "Quiet keeps message flag strict",
-              "description": "Ensure `--quiet` does not mask the parser error when `--message` is provided without a value, preserving the existing requirement for the override flag.",
-              "type": "pytest",
-              "verification": "Run the parser with arguments `['--quiet','--message']`, expect `SystemExit`, and assert the error text mentions that `--message` requires an argument.",
+              "id": "hello_cli-quiet-flag-suppresses-output",
+              "question": "Does specifying --quiet suppress all standard output?",
+              "measurement": "Invoke `hello_cli --quiet`; assert exit code is 0, stdout is empty, and stderr is empty.",
+              "context": "",
               "status": "proposed",
               "tags": [
-                "AC#3"
+                "cli",
+                "quiet-mode"
+              ]
+            },
+            {
+              "id": "hello_cli-quiet-with-message",
+              "question": "Does combining --message with --quiet keep the run silent?",
+              "measurement": "Invoke `hello_cli --message 'Custom Greeting' --quiet`; assert exit code is 0, stdout is empty, and stderr is empty.",
+              "context": "",
+              "status": "proposed",
+              "tags": [
+                "cli",
+                "quiet-mode"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "hello_cli-quiet-precedence",
+          "name": "Quiet Output Precedence",
+          "summary": "Ensure runtime logic skips all greeting output whenever `--quiet` is set, even if `--message` provides custom text.",
+          "dependencies": [
+            "hello_cli-quiet-flag-parsing"
+          ],
+          "risks": [
+            "Message handling may still print output if precedence checks are incomplete."
+          ],
+          "tests": [
+            {
+              "id": "hello_cli-quiet-output-precedence-quiet-wins",
+              "question": "Does the CLI suppress all output when both --quiet and --message are provided?",
+              "measurement": "Run `python -m hello --quiet --message \"Custom greeting\"` from the project root using `subprocess.run(..., capture_output=True, text=True)` and assert the exit code is 0, stdout is an empty string, and stderr is an empty string.",
+              "context": "",
+              "status": "proposed",
+              "tags": [
+                "quiet-mode",
+                "cli",
+                "edge-case"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "hello_cli-quiet-tests",
+          "name": "Quiet Mode Tests",
+          "summary": "Add or update CLI tests to confirm `--quiet` suppresses output under default and custom message scenarios.",
+          "dependencies": [
+            "hello_cli-quiet-precedence"
+          ],
+          "risks": [
+            "Tests might rely on stdout captures that miss edge cases like logging or error output."
+          ],
+          "tests": [
+            {
+              "id": "hello_cli-quiet-default-suppression",
+              "question": "Does enabling --quiet with default arguments suppress all greeting output?",
+              "measurement": "Invoke the CLI via the run_app fixture as run_app(\"--quiet\"), then call capsys.readouterr() and assert both stdout and stderr are empty; finally call hello.main([\"--quiet\"]) and assert it returns 0.",
+              "context": "",
+              "status": "proposed",
+              "tags": [
+                "quiet-mode",
+                "cli",
+                "happy-path"
+              ]
+            },
+            {
+              "id": "hello_cli-quiet-precedence",
+              "question": "Does --quiet override a custom message and repeat count so nothing is printed?",
+              "measurement": "Invoke the CLI with run_app(\"--message\",\"Muted\",\"--repeat\",\"3\",\"--quiet\"), then call capsys.readouterr() and assert stdout and stderr are empty.",
+              "context": "Covers dependency hello_cli-quiet-precedence by ensuring quiet beats message/ repeat overrides.",
+              "status": "proposed",
+              "tags": [
+                "quiet-mode",
+                "cli",
+                "edge-case"
               ]
             }
           ]

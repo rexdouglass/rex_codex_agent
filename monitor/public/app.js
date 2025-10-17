@@ -15,14 +15,16 @@ const els = {
   planCard: document.getElementById('planCard'),
   planSelect: document.getElementById('planSelect'),
   planMeta: document.getElementById('planMeta'),
-  planGrid: document.getElementById('planGrid')
+  planTree: document.getElementById('planTree')
 };
 
 const state = {
   filters: new Set(['info', 'warn', 'error']),
   query: '',
   componentPlans: {},
-  selectedPlan: null
+  selectedPlan: null,
+  expandedNodes: new Set(),
+  lastPlanSelected: null
 };
 
 els.filters.forEach(cb => {
@@ -123,7 +125,7 @@ function renderErrors(errs) {
 }
 
 function renderPlanner() {
-  if (!els.planCard || !els.planSelect || !els.planMeta || !els.planGrid) {
+  if (!els.planCard || !els.planSelect || !els.planMeta || !els.planTree) {
     return;
   }
   const slugs = Object.keys(state.componentPlans || {}).sort();
@@ -134,28 +136,35 @@ function renderPlanner() {
   els.planCard.style.display = '';
 
   const select = els.planSelect;
-  const current = select.value;
-  select.innerHTML = '';
-  for (const slug of slugs) {
-    const opt = document.createElement('option');
-    opt.value = slug;
-    opt.textContent = slug;
-    select.appendChild(opt);
+  const current = select ? select.value : null;
+  if (select) {
+    select.innerHTML = '';
+    for (const slug of slugs) {
+      const opt = document.createElement('option');
+      opt.value = slug;
+      opt.textContent = slug;
+      select.appendChild(opt);
+    }
   }
   if (state.selectedPlan && slugs.includes(state.selectedPlan)) {
-    select.value = state.selectedPlan;
+    if (select) select.value = state.selectedPlan;
   } else if (current && slugs.includes(current)) {
     state.selectedPlan = current;
-    select.value = current;
+    if (select) select.value = current;
   } else {
     state.selectedPlan = slugs[0];
-    select.value = state.selectedPlan;
+    if (select) select.value = state.selectedPlan;
+  }
+
+  if (state.selectedPlan !== state.lastPlanSelected) {
+    state.expandedNodes = new Set();
+    state.lastPlanSelected = state.selectedPlan;
   }
 
   const plan = state.componentPlans[state.selectedPlan];
   if (!plan) {
     els.planMeta.textContent = 'Planner data unavailable yet.';
-    els.planGrid.innerHTML = '';
+    els.planTree.innerHTML = '';
     return;
   }
 
@@ -165,139 +174,240 @@ function renderPlanner() {
   const timestamp = updated ? new Date(updated).toLocaleString() : '—';
   els.planMeta.textContent = `${label} · Card: ${plan.card_path || 'unknown'} · Updated ${timestamp}`;
 
-  const grid = document.createDocumentFragment();
+  const tree = document.createDocumentFragment();
   const components = Array.isArray(plan.components) ? plan.components : [];
   if (!components.length) {
-    const row = document.createElement('div');
-    row.className = 'plan-row';
-    row.innerHTML = '<div class="plan-col plan-empty">No components mapped yet.</div><div class="plan-col"></div><div class="plan-col"></div>';
-    grid.appendChild(row);
-  }
-
-  for (const comp of components) {
-    const subcomponents = Array.isArray(comp.subcomponents) && comp.subcomponents.length ? comp.subcomponents : [null];
-    subcomponents.forEach((sub, subIdx) => {
-      const tests = sub && Array.isArray(sub.tests) && sub.tests.length ? sub.tests : [null];
-      tests.forEach((test, testIdx) => {
-        const row = document.createElement('div');
-        row.className = 'plan-row';
-
-        row.appendChild(buildComponentCell(comp, subIdx === 0 && testIdx === 0));
-        row.appendChild(buildSubcomponentCell(sub, testIdx === 0));
-        row.appendChild(buildTestCell(test));
-
-        grid.appendChild(row);
-      });
+    const empty = document.createElement('div');
+    empty.className = 'tree-node level-0';
+    empty.textContent = 'No components mapped yet.';
+    tree.appendChild(empty);
+  } else {
+    components.forEach((component, index) => {
+      appendComponent(tree, component, index, state.selectedPlan);
     });
   }
 
-  els.planGrid.innerHTML = '';
-  els.planGrid.appendChild(grid);
+  els.planTree.innerHTML = '';
+  els.planTree.appendChild(tree);
 }
 
-function buildComponentCell(component, showContent) {
-  const div = document.createElement('div');
-  div.className = 'plan-col';
-  if (!showContent || !component) {
-    div.classList.add('plan-empty');
-    div.textContent = showContent ? '—' : '';
-    return div;
+function appendComponent(target, component, index, slug) {
+  const id = normalizeId(slug, component && component.id ? component.id : `component-${index}`);
+  const children = component && Array.isArray(component.subcomponents) ? component.subcomponents : [];
+  const { node, expanded } = buildTreeNode({
+    id,
+    level: 0,
+    title: component && component.name ? component.name : 'Component',
+    summary: component && component.summary ? component.summary : null,
+    meta: filterStrings([
+      component && component.rationale,
+      component && component.notes
+    ]),
+    badges: [],
+    hasChildren: children.length > 0
+  });
+  target.appendChild(node);
+  if (expanded) {
+    children.forEach((sub, subIdx) => appendSubcomponent(target, sub, subIdx, slug, id));
   }
-  const title = document.createElement('div');
-  title.className = 'title';
-  title.textContent = component.name || 'Component';
-  div.appendChild(title);
-  if (component.summary) {
-    const summary = document.createElement('div');
-    summary.className = 'summary';
-    summary.textContent = component.summary;
-    div.appendChild(summary);
-  }
-  if (component.rationale) {
-    const rationale = document.createElement('div');
-    rationale.className = 'summary';
-    rationale.textContent = component.rationale;
-    div.appendChild(rationale);
-  }
-  return div;
 }
 
-function buildSubcomponentCell(subcomponent, showContent) {
-  const div = document.createElement('div');
-  div.className = 'plan-col';
-  if (!showContent) {
-    div.classList.add('plan-empty');
-    div.textContent = '';
-    return div;
+function appendSubcomponent(target, subcomponent, index, slug, parentId) {
+  const id = normalizeId(slug, subcomponent && subcomponent.id ? subcomponent.id : `${parentId}-sub-${index}`);
+  const tests = subcomponent && Array.isArray(subcomponent.tests) ? subcomponent.tests : [];
+  const metaLines = filterStrings([
+    subcomponent && subcomponent.summary,
+    Array.isArray(subcomponent && subcomponent.dependencies) && subcomponent.dependencies.length
+      ? `Deps: ${subcomponent.dependencies.join(', ')}`
+      : null,
+    Array.isArray(subcomponent && subcomponent.risks) && subcomponent.risks.length
+      ? `Risks: ${subcomponent.risks.join(', ')}`
+      : null
+  ]);
+  const { node, expanded } = buildTreeNode({
+    id,
+    level: 1,
+    title: subcomponent && subcomponent.name ? subcomponent.name : 'Subcomponent',
+    summary: null,
+    meta: metaLines,
+    badges: [],
+    hasChildren: tests.length > 0
+  });
+  target.appendChild(node);
+  if (expanded) {
+    tests.forEach((test, testIdx) => appendTest(target, test, testIdx, slug, id));
   }
-  if (!subcomponent) {
-    div.classList.add('plan-empty');
-    div.textContent = 'No subcomponents defined yet.';
-    return div;
+}
+
+function appendTest(target, test, index, slug, parentId) {
+  const id = normalizeId(slug, test && test.id ? test.id : `${parentId}-test-${index}`);
+  const tags = Array.isArray(test && test.tags) ? test.tags : [];
+  const questionTitle = normaliseQuestion(test);
+  const measurement = extractMeasurement(test);
+  const contextLines = [];
+  const context = extractContext(test);
+  if (context) {
+    contextLines.push(`Context: ${context}`);
   }
-  const title = document.createElement('div');
-  title.className = 'title';
-  title.textContent = subcomponent.name || 'Subcomponent';
-  div.appendChild(title);
-  if (subcomponent.summary) {
-    const summary = document.createElement('div');
-    summary.className = 'summary';
-    summary.textContent = subcomponent.summary;
-    div.appendChild(summary);
-  }
+  const meta = filterStrings(contextLines);
   const badges = [];
-  if (Array.isArray(subcomponent.dependencies) && subcomponent.dependencies.length) {
-    badges.push(`Deps: ${subcomponent.dependencies.join(', ')}`);
+  if (test && typeof test.status === 'string' && test.status.trim()) {
+    badges.push({ label: test.status, variant: `status-${test.status.trim().toLowerCase()}` });
   }
-  if (Array.isArray(subcomponent.risks) && subcomponent.risks.length) {
-    badges.push(`Risks: ${subcomponent.risks.join(', ')}`);
-  }
-  if (badges.length) {
-    const meta = document.createElement('div');
-    meta.className = 'summary';
-    meta.textContent = badges.join(' | ');
-    div.appendChild(meta);
-  }
-  return div;
+  tags.forEach((tag) => badges.push({ label: tag, variant: 'tag' }));
+
+  const { node } = buildTreeNode({
+    id,
+    level: 2,
+    title: questionTitle,
+    summary: measurement ? `Measurement: ${measurement}` : null,
+    meta,
+    badges,
+    hasChildren: false
+  });
+  target.appendChild(node);
 }
 
-function buildTestCell(test) {
-  const div = document.createElement('div');
-  div.className = 'plan-col';
-  if (!test) {
-    div.classList.add('plan-empty');
-    div.textContent = 'No proposed tests yet.';
-    return div;
+function buildTreeNode({ id, level, title, summary, meta, badges, hasChildren }) {
+  let expanded = hasChildren ? state.expandedNodes.has(id) : true;
+  if (hasChildren && !state.expandedNodes.has(id) && level < 2) {
+    state.expandedNodes.add(id);
+    expanded = true;
   }
-  const title = document.createElement('div');
-  title.className = 'title';
-  title.textContent = test.name || 'Test';
-  if (test.status) {
-    const badge = document.createElement('span');
-    badge.className = 'badge';
-    badge.textContent = test.status;
-    title.appendChild(badge);
+  const node = document.createElement('div');
+  node.className = `tree-node level-${level}`;
+
+  const header = document.createElement('div');
+  header.className = 'tree-node-header';
+
+  const toggle = document.createElement('button');
+  toggle.className = 'tree-toggle' + (hasChildren ? '' : ' leaf');
+  toggle.textContent = hasChildren ? (expanded ? '▼' : '▶') : '•';
+  if (hasChildren) {
+    const toggleExpand = (event) => {
+      event.stopPropagation();
+      if (state.expandedNodes.has(id)) state.expandedNodes.delete(id);
+      else state.expandedNodes.add(id);
+      renderPlanner();
+    };
+    toggle.addEventListener('click', toggleExpand);
+    header.addEventListener('click', (event) => {
+      if (event.target !== toggle) toggleExpand(event);
+    });
   }
-  div.appendChild(title);
-  if (test.description) {
-    const desc = document.createElement('div');
-    desc.className = 'summary';
-    desc.textContent = test.description;
-    div.appendChild(desc);
+  header.appendChild(toggle);
+
+  const titleEl = document.createElement('div');
+  titleEl.className = `tree-title level-${level}`;
+  titleEl.textContent = title || 'Untitled';
+  header.appendChild(titleEl);
+
+  node.appendChild(header);
+
+  if (summary) {
+    const summaryEl = document.createElement('div');
+    summaryEl.className = 'tree-summary';
+    summaryEl.textContent = summary;
+    node.appendChild(summaryEl);
   }
-  if (test.verification) {
-    const verify = document.createElement('div');
-    verify.className = 'summary';
-    verify.textContent = `Verify: ${test.verification}`;
-    div.appendChild(verify);
+  if (Array.isArray(meta)) {
+    meta.filter(Boolean).forEach((line) => {
+      const metaEl = document.createElement('div');
+      metaEl.className = 'tree-meta';
+      metaEl.textContent = line;
+      node.appendChild(metaEl);
+    });
   }
-  if (Array.isArray(test.tags) && test.tags.length) {
-    const tags = document.createElement('div');
-    tags.className = 'summary';
-    tags.textContent = `Tags: ${test.tags.join(', ')}`;
-    div.appendChild(tags);
+  if (Array.isArray(badges) && badges.length) {
+    const badgeWrap = document.createElement('div');
+    badgeWrap.className = 'tree-badges';
+    badges.forEach((badge) => {
+      const { label, variant } = normalizeBadge(badge);
+      const span = document.createElement('span');
+      span.className = 'tree-badge' + (variant ? ` ${variant}` : '');
+      span.textContent = label;
+      badgeWrap.appendChild(span);
+    });
+    node.appendChild(badgeWrap);
   }
-  return div;
+
+  return { node, expanded };
+}
+
+function normalizeId(slug, id) {
+  return `${slug || 'plan'}::${id}`;
+}
+
+function normaliseQuestion(test) {
+  const candidates = [
+    test && typeof test.question === 'string' ? test.question : null,
+    test && typeof test.name === 'string' ? test.name : null,
+    test && typeof test.title === 'string' ? test.title : null
+  ].filter(Boolean);
+  const base = candidates.length ? candidates[0] : 'Unknown test';
+  return ensureQuestion(base);
+}
+
+function ensureQuestion(text) {
+  if (!text) return 'Unknown test?';
+  let cleaned = text.trim();
+  if (!cleaned) return 'Unknown test?';
+  if (/[?！？]$/.test(cleaned)) return cleaned;
+  cleaned = cleaned.replace(/[.!;]+$/u, '').trim();
+  const lowered = cleaned.toLowerCase();
+  const prefixes = ['does ', 'is ', 'can ', 'will ', 'should ', 'did ', 'are '];
+  if (prefixes.some((p) => lowered.startsWith(p))) {
+    return `${cleaned}?`;
+  }
+  const first = cleaned.charAt(0).toUpperCase();
+  return `Does ${first}${cleaned.slice(1)}?`;
+}
+
+function extractMeasurement(test) {
+  if (!test) return '';
+  if (typeof test.measurement === 'string' && test.measurement.trim()) {
+    return test.measurement.trim();
+  }
+  if (typeof test.verification === 'string' && test.verification.trim()) {
+    return test.verification.trim();
+  }
+  if (typeof test.description === 'string' && test.description.trim()) {
+    return test.description.trim();
+  }
+  return '';
+}
+
+function extractContext(test) {
+  if (!test) return '';
+  if (typeof test.context === 'string' && test.context.trim()) {
+    return test.context.trim();
+  }
+  const desc = typeof test.description === 'string' ? test.description.trim() : '';
+  const measurement = extractMeasurement(test);
+  if (desc && measurement && measurement.includes(desc)) {
+    return '';
+  }
+  return desc;
+}
+
+function normalizeBadge(badge) {
+  if (!badge) return { label: '', variant: '' };
+  if (typeof badge === 'string') {
+    return { label: badge, variant: '' };
+  }
+  if (typeof badge === 'object') {
+    const label = badge.label || badge.value || '';
+    return {
+      label: String(label),
+      variant: badge.variant ? String(badge.variant) : ''
+    };
+  }
+  return { label: String(badge), variant: '' };
+}
+
+function filterStrings(values) {
+  if (!Array.isArray(values)) return [];
+  return values.filter(Boolean);
 }
 
 function escapeHtml(s) {
