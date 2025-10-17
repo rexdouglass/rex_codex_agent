@@ -21,6 +21,10 @@ The Bash wrapper is now a shim; all orchestration lives in the Python package `r
 
 Keep these expectations visible-both docs and templates must reinforce them so future LLM audits stay aligned.
 
+> Repository-specific guardrails belong in `AGENTS.local.md`. This template is
+> seeded alongside the global doc and never overwritten, so you can keep
+> project-specific notes, integrations, and tribal knowledge there.
+
 ---
 
 ## Scope Boundaries

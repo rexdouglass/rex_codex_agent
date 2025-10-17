@@ -24,3 +24,4 @@ def test_init_copies_requirements(monkeypatch, tmp_path: Path) -> None:
     expected = (repo_root / "requirements.txt").read_text(encoding="utf-8")
     actual = (tmp_path / "requirements.txt").read_text(encoding="utf-8")
     assert actual == expected
+    assert (tmp_path / "AGENTS.local.md").exists()

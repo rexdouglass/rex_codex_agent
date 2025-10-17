@@ -53,6 +53,7 @@ def run_init(
     template_root = AGENT_SRC / "templates"
     copies = {
         "AGENTS.md": root / "AGENTS.md",
+        "AGENTS.local.md": root / "AGENTS.local.md",
         "pytest.ini": root / "pytest.ini",
         "pyproject.toml": root / "pyproject.toml",
         "mypy.ini": root / "mypy.ini",
