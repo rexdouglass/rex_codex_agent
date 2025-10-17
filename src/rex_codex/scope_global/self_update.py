@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import os
 
-from .config import AGENT_SRC
-from .utils import run
+from ..scope_project.config import AGENT_SRC
+from ..scope_project.utils import run
 
 
 def self_update(channel: str | None = None) -> None:

@@ -22,7 +22,11 @@ shim_dir="$workspace/.shim"
 mkdir -p "$shim_dir"
 ln -sf "$(command -v python3)" "$shim_dir/python"
 export PATH="$shim_dir:$PATH"
-export PYTHONPATH="$workspace/src:${PYTHONPATH:-}"
+if [[ -d "$workspace/src/src" ]]; then
+  export PYTHONPATH="$workspace/src/src:${PYTHONPATH:-}"
+else
+  export PYTHONPATH="$workspace/src:${PYTHONPATH:-}"
+fi
 export ROOT="$workspace"
 export PYTHONHASHSEED=0
 
@@ -187,7 +191,7 @@ export REX_AGENT_CHANNEL=main
 export REX_AGENT_FORCE=1
 export REX_AGENT_SKIP_DOCTOR=1
 
-run bash "$repo_root/scripts/install.sh" --force --channel main
+run bash "$repo_root/packaging/install.sh" --force --channel main
 
 export CODEX_BIN="$fake_codex"
 export REX_AGENT_NO_UPDATE=1

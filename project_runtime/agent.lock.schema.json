@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rexcodex.dev/schemas/agent.lock.schema.json",
+  "title": "rex-codex project runtime lockfile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["agent"],
+  "properties": {
+    "agent": {
+      "type": "object",
+      "required": ["name", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {"type": "string"},
+        "version": {"type": "string"}
+      }
+    },
+    "python": {"type": "string"},
+    "plugins": {
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "templates": {
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "checksum": {"type": "string"}
+  }
+}

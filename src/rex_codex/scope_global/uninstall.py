@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import shutil
 
-from .utils import RexContext, ask_confirmation
+from ..scope_project.utils import RexContext, ask_confirmation
 
 
 def uninstall_agent(

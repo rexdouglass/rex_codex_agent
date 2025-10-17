@@ -23,11 +23,21 @@ Keep these expectations visible-both docs and templates must reinforce them so f
 
 ---
 
+## Scope Boundaries
+
+- **S0 – Global shim** (`bin/rex-codex`, `packaging/`): installers, uninstallers, and the thin CLI wrapper that dispatches into Python.
+- **S1 – Project runtime** (`src/rex_codex/`, `project_runtime/`): pinned Python modules, templates, and manifest helpers copied into each consumer repo.
+- **S2 – Sandbox** (`tests/e2e/`, `tests/unit/`, `tests/fixtures/`): hermetic self-tests that exercise the agent in throwaway repositories.
+
+Treat each scope as a separately versioned surface: upgrade the global shim without disturbing existing projects, and evolve the sandbox without touching published runtimes.
+
+---
+
 ## Golden Path (from empty repo to green)
 
 1. **Install wrapper (inside the target repo)**
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/scripts/install.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/packaging/install.sh | bash
    ```
 2. **Bootstrap guardrails and tooling**
    ```bash
@@ -75,7 +85,7 @@ Need the latest frame without attaching to TTY? Call the single-shot helpers-or 
 
 - `bin/fake-codex` emulates Codex and emits deterministic, hermetic diffs under `tests/feature_specs/<slug>/`. Keep it executable and versioned with the agent.
 - `scripts/selftest_loop.sh` resets `.selftest_workspace/`, installs the current checkout, runs two Feature Cards (`hello_greet`, `hello_cli`) through generator -> discriminator, appends logs/status/spec listings/runtime code to the latest audit file, then removes the workspace (`SELFTEST_KEEP=1` preserves it for debugging).
-- `scripts/smoke_e2e.sh` spins up a temp repo, installs the current checkout via `scripts/install.sh`, scaffolds the `hello_greet` and `hello_cli` Feature Cards, runs `./rex-codex loop --feature-only`, then executes the global discriminator sweep. Export `KEEP=1` while debugging to retain the workspace.
+- `scripts/smoke_e2e.sh` spins up a temp repo, installs the current checkout via `packaging/install.sh`, scaffolds the `hello_greet` and `hello_cli` Feature Cards, runs `./rex-codex loop --feature-only`, then executes the global discriminator sweep. Export `KEEP=1` while debugging to retain the workspace.
 - Run the selftest loop before accepting PRs, bumping `VERSION`, or cutting releases; use the broader smoke harness to cross-check longer flows. Treat failures as blockers-they signal the agent can no longer bootstrap itself offline.
 - After both loops pass, repeat the Golden Path manually in a new repo (your target project-e.g. the practice Pong game) to confirm end-to-end behaviour beyond the stub.
 
@@ -118,7 +128,7 @@ Need the latest frame without attaching to TTY? Call the single-shot helpers-or 
 - `./rex-codex init` - seed guardrails and tooling (idempotent).
 - `./rex-codex card new` - scaffold a Feature Card; `card list` / `card validate` keep hygiene tight.
 - `./rex-codex install --force` - refresh the agent sources in-place and automatically rerun `init`/`doctor` (use `--skip-init` / `--skip-doctor` to opt out).
-- `curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/scripts/install.sh | bash -s -- --force --channel main` - reinstall the latest agent snapshot from anywhere.
+- `curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/packaging/install.sh | bash -s -- --force --channel main` - reinstall the latest agent snapshot from anywhere.
 - `./rex-codex generator --tail 120` - replay Codex diffs and tail logs when the generator fails (add `--quiet` to silence).
 - `./rex-codex discriminator --feature-only` / `--global` - run the shard or full ladder; add `--tail 120` (and `--quiet` if you want silence) during debug sessions.
 - `./rex-codex loop --tail 120` - generator -> feature shard -> global sweep with inline diff previews (use `--quiet` to suppress diff chatter).

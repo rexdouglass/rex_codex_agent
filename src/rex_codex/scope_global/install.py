@@ -5,10 +5,10 @@ from __future__ import annotations
 import os
 import subprocess
 
-from .config import AGENT_SRC
-from .doctor import run_doctor
-from .init import run_init
-from .utils import RexContext, RexError
+from ..scope_project.config import AGENT_SRC
+from ..scope_project.doctor import run_doctor
+from ..scope_project.init import run_init
+from ..scope_project.utils import RexContext, RexError
 
 
 def run_install(
@@ -21,7 +21,7 @@ def run_install(
 ) -> None:
     """Invoke the bundled install script to (re)install the agent."""
     context = context or RexContext.discover()
-    script = AGENT_SRC / "scripts" / "install.sh"
+    script = AGENT_SRC / "packaging" / "install.sh"
     if not script.exists():
         raise RexError(f"Install script not found: {script}")
 

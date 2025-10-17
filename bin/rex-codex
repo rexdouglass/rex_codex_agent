@@ -12,6 +12,11 @@ if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
 fi
 
 export ROOT REX_HOME REX_SRC
-export PYTHONPATH="$REX_SRC${PYTHONPATH:+:$PYTHONPATH}"
+if [[ -d "$REX_SRC/src" ]]; then
+  PYTHON_ROOT="$REX_SRC/src"
+else
+  PYTHON_ROOT="$REX_SRC"
+fi
+export PYTHONPATH="$PYTHON_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 exec "$PYTHON_BIN" -m rex_codex "$@"

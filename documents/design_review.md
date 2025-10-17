@@ -49,7 +49,7 @@ Adopt the hybrid approach: retain `./rex-codex` as a shell shim, but keep genera
 
 1. **Install and bootstrap**
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/scripts/install.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/packaging/install.sh | bash
    ./rex-codex init
    ./rex-codex doctor
    ```

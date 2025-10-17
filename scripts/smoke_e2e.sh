@@ -106,7 +106,7 @@ export REX_AGENT_CHANNEL=main
 export REX_AGENT_FORCE=1
 export REX_AGENT_SKIP_DOCTOR=1
 
-bash "$repo_root/scripts/install.sh" --force --channel main
+bash "$repo_root/packaging/install.sh" --force --channel main
 
 declare -a SLUGS=("hello_greet" "hello_cli")
 declare -A TITLES

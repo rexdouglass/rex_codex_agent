@@ -16,6 +16,24 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
 
 ---
 
+## Scope Boundaries
+
+The repository is split into three explicit scopes so the agent can act as both
+a published product and its own lab:
+
+- **S0 – Global shim** (`bin/rex-codex`, `packaging/`): minimal entrypoints that
+  install/upgrade/uninstall the agent on a user’s machine.
+- **S1 – Project runtime** (`src/rex_codex/`, `project_runtime/`): the pinned
+  Python package, templates, and helpers that live inside each target repo.
+- **S2 – Sandbox** (`tests/e2e/`, `tests/unit/`, `tests/fixtures/`): hermetic
+  self-tests that spin up throwaway repos, exercise the agent, and burn them
+  down cleanly.
+
+Each scope versiones independently so historical projects can stay pinned while
+the global shim and sandbox continue evolving.
+
+---
+
 ## Requirements
 
 - Linux (or WSL) with Bash 4+, `git`, and GNU `timeout` (Python handles advisory locks via `fcntl`).
@@ -48,7 +66,7 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
 
 1. **Install the wrapper inside your repo**
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/scripts/install.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/packaging/install.sh | bash
    ```
 
 2. **Bootstrap guardrails and tooling** *(the install step now runs these automatically; rerun anytime for assurance)*
@@ -107,7 +125,7 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
    - `./rex-codex uninstall --force` – remove the agent (add `--keep-wrapper` to preserve the shim).
 
 **Troubleshooting cheat sheet**
-- `curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/scripts/install.sh | bash -s -- --force --channel main` – drop the latest agent into the current repo.
+- `curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/packaging/install.sh | bash -s -- --force --channel main` – drop the latest agent into the current repo.
 - `./rex-codex generator --tail 120` – replay Codex output and show the latest diff/log on failure (add `--quiet` to silence).
 - `./rex-codex loop --tail 120` – run generator + discriminator with live diff previews and automatic log tails.
 - `./rex-codex logs --generator --lines 200` – dump the most recent generator response/patch when you need manual inspection.
@@ -218,7 +236,7 @@ Guardrails:
 
 - `bin/fake-codex` emulates `npx @openai/codex` and emits hermetic diffs limited to `tests/feature_specs/<slug>/`. Keep it executable so offline runs remain available.
 - `scripts/selftest_loop.sh` resets `.selftest_workspace/`, installs the current checkout, exercises two feature cards (`hello_greet`, `hello_cli`) covering the default greeting and CLI flags, appends the command log/status/spec listing/runtime code to the latest audit file, then removes the workspace (set `SELFTEST_KEEP=1` to inspect).
-- `scripts/smoke_e2e.sh` creates a throwaway repo, installs the current checkout via `scripts/install.sh`, scaffolds the `hello_greet` and `hello_cli` Feature Cards, and runs `./rex-codex loop --feature-only` followed by the global discriminator sweep (`KEEP=1` preserves the temp repo).
+- `scripts/smoke_e2e.sh` creates a throwaway repo, installs the current checkout via `packaging/install.sh`, scaffolds the `hello_greet` and `hello_cli` Feature Cards, and runs `./rex-codex loop --feature-only` followed by the global discriminator sweep (`KEEP=1` preserves the temp repo).
 - Run the selftest loop before landing changes, bumping `VERSION`, or publishing docs; treat failures as release blockers. Follow up with the broader smoke harness as needed to validate longer paths.
 - Once both pass, repeat the documented Golden Path in a fresh repo (e.g. your practice Pong game) to validate real-world usage with or without the Codex stub.
 - Every selftest run appends its command log, generated sources, and discriminator outcomes to the latest `for_external_GPT5_pro_audit/audit_*.md` file. Leave that audit update in your commit so downstream reviewers (human or GPT5-Pro) can replay the evidence.

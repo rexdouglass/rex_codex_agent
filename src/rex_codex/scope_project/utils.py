@@ -142,12 +142,17 @@ class RexContext:
 
     def is_agent_repo(self) -> bool:
         """Return True when the current root appears to be the agent source tree."""
-        sentinels = [
+        package_sentinels = [
+            self.root / "src" / "rex_codex" / "__init__.py",
             self.root / "rex_codex" / "__init__.py",
+        ]
+        if not any(candidate.exists() for candidate in package_sentinels):
+            return False
+        other_sentinels = [
             self.root / "scripts" / "selftest_loop.sh",
             self.root / "bin" / "fake-codex",
         ]
-        return all(item.exists() for item in sentinels)
+        return all(item.exists() for item in other_sentinels)
 
 
 class FileLock:
@@ -291,6 +296,7 @@ def _audit_candidate_paths(root: Path) -> List[Path]:
         "scripts/**/*.py",
         "scripts/**/*.sh",
         "rex_codex/**/*.py",
+        "src/rex_codex/**/*.py",
     ]
     seen: Set[Path] = set()
     excluded_root = root / "for_external_GPT5_pro_audit"

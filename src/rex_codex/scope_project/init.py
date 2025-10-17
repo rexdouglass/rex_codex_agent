@@ -5,7 +5,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from . import __version__
+from .. import __version__
 from .config import AGENT_SRC
 from .self_update import self_update
 from .utils import (
