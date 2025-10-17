@@ -68,8 +68,10 @@ the global shim and sandbox continue evolving.
    ```bash
    curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/packaging/install.sh | bash
    ```
-   The installer clones the pinned agent sources and then strips development-only
-   artefacts (audit snapshots, CI logs) so downstream projects start clean.
+   The installer clones the pinned agent sources, removes development-only
+   artefacts (audit snapshots, CI logs), and **always** reinstalls from scratch—any
+   previous `.rex_agent/` is backed up then removed automatically, with the backup
+   discarded once the install succeeds.
 
 2. **Bootstrap guardrails and tooling** *(the install step now runs these automatically; rerun anytime for assurance)*
    ```bash

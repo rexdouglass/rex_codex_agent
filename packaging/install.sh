@@ -15,7 +15,7 @@ Usage: ./rex-codex install [--force] [--channel <ref>]
        curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/packaging/install.sh | bash -s -- [options]
 
 Options:
-  --force, -f       Remove any existing .rex_agent before reinstalling.
+  --force, -f       Backwards compatibility shim (reinstalls already reset the agent).
   --channel <ref>   Source ref to install (stable, main, tag, or commit).
   --skip-init       Do not run ./rex-codex init after installation.
   --skip-doctor     Do not run ./rex-codex doctor after installation.
@@ -61,9 +61,13 @@ SRC_DIR="$AGENT_DIR/src"
 WRAPPER="$ROOT/rex-codex"
 
 BACKUP_DIR=""
-if [[ -d "$AGENT_DIR" && "$FORCE" == "1" ]]; then
+if [[ -d "$AGENT_DIR" ]]; then
   BACKUP_DIR="${AGENT_DIR}.bak.$(date +%s)"
-  echo "[*] Removing existing agent (backup at ${BACKUP_DIR})"
+  if [[ "$FORCE" == "1" ]]; then
+    echo "[*] Removing existing agent (backup at ${BACKUP_DIR})"
+  else
+    echo "[*] Existing agent detected; backing up to ${BACKUP_DIR} before reinstall."
+  fi
   mv "$AGENT_DIR" "$BACKUP_DIR"
 fi
 

@@ -27,3 +27,14 @@ def test_packaging_install_prunes_dev_artifacts(tmp_path: Path) -> None:
     assert not (src_dir / "for_external_GPT5_pro_audit").exists()
     assert not (src_dir / ".codex_ci").exists()
     assert not (src_dir / ".agent" / "logs").exists()
+
+    # Run installer again to exercise reinstall path (should back up + clean).
+    subprocess.run(
+        ["bash", str(repo_root / "packaging" / "install.sh")],
+        cwd=tmp_path,
+        check=True,
+        env=env,
+    )
+    backup_candidates = list(tmp_path.glob(".rex_agent.bak.*"))
+    assert not backup_candidates, "Backup directory should be cleaned after reinstall"
+    assert not (src_dir / "for_external_GPT5_pro_audit").exists()
