@@ -4,12 +4,12 @@ status: proposed
 
 ## Summary
 
-Provide a simple command-line greeting that demonstrates the generator HUD.
+Expose CLI flags so the greeting can be customised without editing the code.
 
 ## Acceptance Criteria
 
-- Run with default arguments and print `Hello World`.
 - Accept `--message` to override the greeting text.
+- Return a zero exit status when the CLI succeeds.
 - Support `--quiet` to suppress output entirely.
 
 ## Links
@@ -18,10 +18,10 @@ Provide a simple command-line greeting that demonstrates the generator HUD.
 
 ## Spec Trace
 
-- [AC#1] "Run with default arguments and print `Hello World`."
-  -> tests/feature_specs/hello_cli/test_cli.py::test_default_greeting
-- [AC#2] "Accept `--message` to override the greeting text."
+- [AC#1] "Accept `--message` to override the greeting text."
   -> tests/feature_specs/hello_cli/test_cli.py::test_message_override
   -> tests/feature_specs/hello_cli/test_cli.py::test_message_flag_requires_value
+- [AC#2] "Return a zero exit status when the CLI succeeds."
+  -> (pending)
 - [AC#3] "Support `--quiet` to suppress output entirely."
   -> tests/feature_specs/hello_cli/test_cli.py::test_quiet_mode_suppresses_output

@@ -1,0 +1,44 @@
+{
+  "card_path": "/media/skynet3/8tb_a1/rex_codex_agent/documents/feature_cards/hello_greet.md",
+  "card_hash": "4ae9e0643d95d8f384968efb9d37dd57e8a7f5fec622a9a0c2d0485db9f3858e",
+  "generated_at": "2025-10-18T16:49:07Z",
+  "status": "completed",
+  "components": [
+    {
+      "id": "hello_greet-runtime",
+      "name": "Runtime greeting",
+      "summary": "Ensure the base module prints the Hello World greeting and exposes helpers for tests.",
+      "notes": "Covers the bare minimum toy project so other cards can layer behaviour.",
+      "subcomponents": [
+        {
+          "id": "hello_greet-default-cli",
+          "name": "Default CLI entry",
+          "summary": "Running `python -m hello` produces the expected greeting with exit code 0.",
+          "tests": [
+            {
+              "id": "hello_greet.default_output",
+              "question": "Does `python -m hello` print Hello World by default?",
+              "measurement": "Run `python -m hello` via subprocess and confirm exit status 0, stdout == 'Hello World\\n', stderr empty.",
+              "status": "proposed",
+              "tags": ["cli", "happy-path"]
+            }
+          ]
+        },
+        {
+          "id": "hello_greet-helper",
+          "name": "Reusable greeting helper",
+          "summary": "Expose a callable so tests can reuse the default greeting behaviour.",
+          "tests": [
+            {
+              "id": "hello_greet.helper_callable",
+              "question": "Is there a helper that returns the default greeting text?",
+              "measurement": "Import the greeting helper and ensure it returns 'Hello World'.",
+              "status": "proposed",
+              "tags": ["unit", "helper"]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
