@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+import pytest
+
 from rex_codex.scope_project import cards as cards_module
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -31,3 +33,6 @@ def test_ac1_error_missing_card_raises_file_not_found(tmp_path: Path) -> None:
     """AC#1 Surface a FileNotFoundError when a Feature Card is missing."""
 
     missing_path = tmp_path / "feature_card.md"
+
+    with pytest.raises(FileNotFoundError):
+        cards_module.read_card_sections(missing_path)
