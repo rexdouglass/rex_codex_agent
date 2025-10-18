@@ -75,7 +75,10 @@ function normalizeEvent(rawLine) {
       task: json.task || json.step || undefined,
       status: json.status || undefined,
       progress: typeof json.progress === 'number' ? json.progress : undefined,
-      meta: json.meta || json.data || undefined
+      meta: json.meta || json.data || undefined,
+      type: json.type || undefined,
+      slug: json.slug || undefined,
+      phase: json.phase || undefined
     };
     // Bound progress
     if (typeof e.progress === 'number') {
@@ -131,7 +134,14 @@ function updateSummary(e) {
     summary.componentPlans[e.meta.slug] = e.meta.plan;
   }
   if (e.meta) {
-    ingestCodingMeta(e.meta, e.ts);
+    const metaWithType = { ...e.meta };
+    if (!metaWithType.type) {
+      metaWithType.type = e.type;
+    }
+    if (!metaWithType.slug) {
+      metaWithType.slug = e.slug || (metaWithType.meta_slug ?? undefined);
+    }
+    ingestCodingMeta(metaWithType, e.ts);
   }
 }
 
@@ -359,14 +369,6 @@ function extractStrategyEntry(raw) {
     normalizeStrategySteps(raw.strategies) ||
     normalizeStrategySteps(raw.steps) ||
     normalizeStrategySteps(raw.plan);
-  if (!strategy.length && typeof raw.measurement === 'string' && raw.measurement.trim()) {
-    const fallback = normalizeStrategySteps(raw.measurement) || [];
-    if (fallback.length) {
-      strategy.push(...fallback);
-    } else {
-      strategy.push(raw.measurement.trim());
-    }
-  }
   const files = normalizeFileList(raw);
   const status = typeof raw.status === 'string' ? raw.status : undefined;
   const notes =
@@ -377,6 +379,40 @@ function extractStrategyEntry(raw) {
         : undefined;
   const source = typeof raw.source === 'string' ? raw.source : undefined;
   return { id, strategy, files, status, notes, source };
+}
+
+function summarizeStageHints(meta) {
+  const hints = [];
+  const identifier = (meta.identifier || '').toString();
+  const description = (meta.description || '').toString().toLowerCase();
+  const reason = (meta.failure_reason || '').toString();
+  const tail = (meta.tail || '').toString();
+
+  if (meta.ok === false) {
+    if (tail.includes('SameFileError')) {
+      hints.push('Guard requirements copy when source and destination are identical (skip duplicate shutil.copyfile).');
+      hints.push('Re-run the failing unit grid after adding the guard.');
+    } else if (identifier.startsWith('03.') || description.includes('unit')) {
+      hints.push(reason || 'Investigate unit grid failures and fix failing tests.');
+    } else if (identifier.startsWith('04.') || description.includes('coverage')) {
+      hints.push('Add or broaden tests to raise src coverage to at least the 80% threshold.');
+    } else if (identifier.startsWith('06.1') || description.includes('black')) {
+      hints.push('Run black on the repo (or targeted modules) and commit formatting fixes.');
+    } else if (identifier.startsWith('06.2') || description.includes('isort')) {
+      hints.push('Apply isort to reorder imports (use --profile black for consistency).');
+    } else if (identifier.startsWith('06.3') || description.includes('ruff')) {
+      hints.push('Resolve ruff lint findings and re-run the style gate.');
+    } else if (identifier.startsWith('06.4') || description.includes('flake8')) {
+      hints.push(reason || 'Address flake8 style violations (e.g., line length, unused imports).');
+    } else if (identifier.startsWith('06.5') || description.includes('mypy')) {
+      hints.push('Fix typing issues reported by mypy and re-run the discriminator.');
+    }
+    if (!hints.length && reason) {
+      hints.push(reason);
+    }
+  }
+
+  return hints;
 }
 
 function extractStrategiesFromPlan(plan) {
@@ -570,31 +606,22 @@ function ingestCodingMeta(meta, ts) {
   }
 
   if (type === 'stage_end') {
-    const command = meta.command || '';
-    const isPytestStage = typeof command === 'string' && command.includes('pytest');
-    if (!isPytestStage) return;
+    const hints = summarizeStageHints(meta) || [];
     if (meta.ok === false) {
-      const failed = Array.isArray(meta.failed_tests) ? meta.failed_tests : [];
-      const reason = meta.failure_reason || `Stage ${meta.identifier || ''} failed`;
-      if (failed.length) {
-        failed.forEach((testId) => {
-          applyStrategyUpdate(slug, [testId], ts, (entry) => {
-            appendStep(entry, reason);
-            const failedFiles = Array.isArray(meta.failed_files) ? meta.failed_files : [];
-            mergeFiles(entry, failedFiles);
-            entry.status = 'failed';
-          });
-        });
-      } else {
+      const files = Array.isArray(meta.failed_files) ? meta.failed_files : [];
+      applyStrategyUpdate(slug, null, ts, (entry) => {
+        hints.forEach((hint) => appendStep(entry, hint));
+        mergeFiles(entry, files);
+        entry.status = 'failed';
+      });
+    } else if (meta.ok) {
+      const command = meta.command || '';
+      const isPytestStage = typeof command === 'string' && command.includes('pytest');
+      if (isPytestStage) {
         applyStrategyUpdate(slug, null, ts, (entry) => {
-          appendStep(entry, reason);
-          entry.status = entry.status === 'pass' ? entry.status : 'failed';
+          entry.status = 'pass';
         });
       }
-    } else if (meta.ok) {
-      applyStrategyUpdate(slug, null, ts, (entry) => {
-        entry.status = 'pass';
-      });
     }
     return;
   }

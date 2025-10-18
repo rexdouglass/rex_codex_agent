@@ -1,0 +1,7 @@
+test_id,feature_card,capability,scenario,observables,assumptions,test_type,components
+FC-HELLO-CLI-CAP-1-SC-01,FC-HELLO-CLI,CAP-1,SC-01,,A-001; A-002,e2e; integration,tests
+FC-HELLO-CLI-CAP-1-SC-02,FC-HELLO-CLI,CAP-1,SC-02,State unchanged,A-003,integration; property,tests
+FC-HELLO-CLI-CAP-2-SC-01,FC-HELLO-CLI,CAP-2,SC-01,,A-004,e2e; integration,tests
+FC-HELLO-CLI-CAP-2-SC-02,FC-HELLO-CLI,CAP-2,SC-02,State unchanged,A-005,integration; property,tests
+FC-HELLO-CLI-CAP-3-SC-01,FC-HELLO-CLI,CAP-3,SC-01,,A-006; A-007,e2e; integration,tests
+FC-HELLO-CLI-CAP-3-SC-02,FC-HELLO-CLI,CAP-3,SC-02,State unchanged,A-008,integration; property,tests

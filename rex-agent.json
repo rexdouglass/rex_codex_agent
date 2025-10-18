@@ -2,7 +2,12 @@
   "feature": {
     "active_card": "documents/feature_cards/hello_cli.md",
     "active_slug": "hello_cli",
-    "updated_at": null
+    "updated_at": "2025-10-18T18:25:31Z"
+  },
+  "generator": {
+    "pass_durations": [
+      1.96
+    ]
   },
   "llm": {
     "bin": "npx --yes @openai/codex",

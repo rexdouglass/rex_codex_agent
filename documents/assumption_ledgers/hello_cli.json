@@ -1,0 +1,91 @@
+{
+  "feature_id": "FC-HELLO-CLI",
+  "assumptions": [
+    {
+      "id": "A-001",
+      "text": "CAP-1: clarify trigger condition",
+      "rationale": "Auto-generated because the Feature Card omits this detail.",
+      "risk": "medium",
+      "default_choice": "Document behaviour with product/QA follow-up.",
+      "ways_to_falsify": [
+        "Product guidance contradicts this assumption",
+        "Existing implementation documents explicit behaviour"
+      ]
+    },
+    {
+      "id": "A-002",
+      "text": "CAP-1: clarify observable outcome",
+      "rationale": "Auto-generated because the Feature Card omits this detail.",
+      "risk": "medium",
+      "default_choice": "Document behaviour with product/QA follow-up.",
+      "ways_to_falsify": [
+        "Product guidance contradicts this assumption",
+        "Existing implementation documents explicit behaviour"
+      ]
+    },
+    {
+      "id": "A-003",
+      "text": "CAP-1: repeated trigger should be idempotent",
+      "rationale": "Guard against regressions when actions repeat.",
+      "risk": "medium",
+      "default_choice": "Repeated invocation preserves state.",
+      "ways_to_falsify": [
+        "Existing system intentionally allows repeated side-effects"
+      ]
+    },
+    {
+      "id": "A-004",
+      "text": "CAP-2: clarify observable outcome",
+      "rationale": "Auto-generated because the Feature Card omits this detail.",
+      "risk": "medium",
+      "default_choice": "Document behaviour with product/QA follow-up.",
+      "ways_to_falsify": [
+        "Product guidance contradicts this assumption",
+        "Existing implementation documents explicit behaviour"
+      ]
+    },
+    {
+      "id": "A-005",
+      "text": "CAP-2: repeated trigger should be idempotent",
+      "rationale": "Guard against regressions when actions repeat.",
+      "risk": "medium",
+      "default_choice": "Repeated invocation preserves state.",
+      "ways_to_falsify": [
+        "Existing system intentionally allows repeated side-effects"
+      ]
+    },
+    {
+      "id": "A-006",
+      "text": "CAP-3: clarify trigger condition",
+      "rationale": "Auto-generated because the Feature Card omits this detail.",
+      "risk": "medium",
+      "default_choice": "Document behaviour with product/QA follow-up.",
+      "ways_to_falsify": [
+        "Product guidance contradicts this assumption",
+        "Existing implementation documents explicit behaviour"
+      ]
+    },
+    {
+      "id": "A-007",
+      "text": "CAP-3: clarify observable outcome",
+      "rationale": "Auto-generated because the Feature Card omits this detail.",
+      "risk": "medium",
+      "default_choice": "Document behaviour with product/QA follow-up.",
+      "ways_to_falsify": [
+        "Product guidance contradicts this assumption",
+        "Existing implementation documents explicit behaviour"
+      ]
+    },
+    {
+      "id": "A-008",
+      "text": "CAP-3: repeated trigger should be idempotent",
+      "rationale": "Guard against regressions when actions repeat.",
+      "risk": "medium",
+      "default_choice": "Repeated invocation preserves state.",
+      "ways_to_falsify": [
+        "Existing system intentionally allows repeated side-effects"
+      ]
+    }
+  ],
+  "escalation_hints": []
+}

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.036" timestamp="2025-10-18T11:25:42.779834-07:00" hostname="skynet3"><testcase classname="tests.feature_specs.hello_cli.test_cli" name="test_default_greeting" time="0.001"><failure message="ImportError: No module named hello">run_app = &lt;function run_app.&lt;locals&gt;._run at 0x7ef9ac922340&gt;
+capsys = &lt;_pytest.capture.CaptureFixture object at 0x7ef9ad1c6cf0&gt;
+
+    def test_default_greeting(run_app, capsys):
+        """AC#1 Run with default arguments and print `Hello World`."""
+    
+&gt;       run_app()
+
+tests/feature_specs/hello_cli/test_cli.py:9: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/feature_specs/hello_cli/conftest.py:55: in _run
+    runpy.run_module("hello", run_name="__main__")
+&lt;frozen runpy&gt;:222: in run_module
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+mod_name = 'hello', error = &lt;class 'ImportError'&gt;
+
+&gt;   ???
+E   ImportError: No module named hello
+
+&lt;frozen runpy&gt;:142: ImportError</failure></testcase></testsuite></testsuites>

@@ -91,7 +91,22 @@ function renderSummary(s) {
 
   if (els.planCard) {
     state.componentPlans = s.componentPlans || {};
-    state.codingStrategies = s.codingStrategies || {};
+    const summaryStrategies = s.codingStrategies || {};
+    Object.entries(summaryStrategies).forEach(([slug, bucket]) => {
+      if (!slug || !bucket) return;
+      const existing = state.codingStrategies[slug] || { tests: {} };
+      const tests = existing.tests || {};
+      const incomingTests = bucket.tests || {};
+      Object.entries(incomingTests).forEach(([testId, entry]) => {
+        if (!testId || !entry) return;
+        tests[testId] = { ...entry };
+      });
+      existing.tests = tests;
+      state.codingStrategies[slug] = existing;
+    });
+    Object.entries(state.componentPlans).forEach(([slug, plan]) => {
+      seedStrategiesFromPlan(slug, plan);
+    });
     if (!state.selectedPlan || !(state.selectedPlan in state.componentPlans)) {
       const slugs = Object.keys(state.componentPlans);
       state.selectedPlan = slugs.length ? slugs[0] : null;
@@ -281,6 +296,39 @@ function normalizeStrategyKey(value) {
   return String(value).toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 
+function guessDefaultTargetsClient(slug) {
+  if (!slug) return ['src'];
+  const safe = String(slug).replace(/[^a-z0-9_]+/gi, '_');
+  return [`src/${safe}.py`, `src/${safe}`];
+}
+
+function seedStrategiesFromPlan(slug, plan) {
+  if (!slug || !plan) return;
+  const bucket = state.codingStrategies[slug] || { tests: {} };
+  const tests = bucket.tests || {};
+  const components = Array.isArray(plan.components) ? plan.components : [];
+
+  const ensureTest = (test) => {
+    if (!test || typeof test !== 'object') return;
+    const id = extractTestId(test, null);
+    if (!id) return;
+    tests[id] = tests[id] || { strategy: [], files: guessDefaultTargetsClient(slug), status: test.status || 'proposed' };
+    tests[id].normalized = tests[id].normalized || normalizeStrategyKey(id);
+  };
+
+  const walk = (node) => {
+    if (!node || typeof node !== 'object') return;
+    const testsList = Array.isArray(node.tests) ? node.tests : [];
+    testsList.forEach(ensureTest);
+    const subs = Array.isArray(node.subcomponents) ? node.subcomponents : [];
+    subs.forEach(walk);
+  };
+
+  components.forEach(walk);
+  bucket.tests = tests;
+  state.codingStrategies[slug] = bucket;
+}
+
 function ensureStrategyBucket(slug) {
   state.codingStrategies[slug] = state.codingStrategies[slug] || { tests: {} };
   const bucket = state.codingStrategies[slug];
@@ -347,6 +395,39 @@ function applyStrategyUpdateClient(slug, testIds, ts, updater) {
     entry.lastUpdated = ts;
     tests[key] = entry;
   });
+}
+
+function summarizeStageHintsClient(meta) {
+  const hints = [];
+  const identifier = (meta.identifier || '').toString();
+  const description = (meta.description || '').toString().toLowerCase();
+  const reason = (meta.failure_reason || '').toString();
+  const tail = (meta.tail || '').toString();
+
+  if (meta.ok === false) {
+    if (tail.includes('SameFileError')) {
+      hints.push('Guard requirements copy when source and destination match to avoid shutil.SameFileError.');
+      hints.push('Re-run the failing unit grid after adding the guard.');
+    } else if (identifier.startsWith('03.') || description.includes('unit')) {
+      hints.push(reason || 'Investigate failing unit grid tests and address the underlying error.');
+    } else if (identifier.startsWith('04.') || description.includes('coverage')) {
+      hints.push('Add or broaden tests to raise src coverage to the 80% threshold.');
+    } else if (identifier.startsWith('06.1') || description.includes('black')) {
+      hints.push('Run black on the affected modules and commit formatting fixes.');
+    } else if (identifier.startsWith('06.2') || description.includes('isort')) {
+      hints.push('Apply isort (e.g., isort --profile black) to reorder imports.');
+    } else if (identifier.startsWith('06.3') || description.includes('ruff')) {
+      hints.push('Resolve ruff lint findings then re-run the style gate.');
+    } else if (identifier.startsWith('06.4') || description.includes('flake8')) {
+      hints.push(reason || 'Fix flake8 violations (line length, unused imports, etc.).');
+    } else if (identifier.startsWith('06.5') || description.includes('mypy')) {
+      hints.push('Fix the highlighted typing issues and re-run mypy.');
+    }
+    if (!hints.length && reason) {
+      hints.push(reason);
+    }
+  }
+  return hints;
 }
 
 function findStrategyEntry(strategies, testId) {
@@ -558,28 +639,18 @@ function mergeCodingMeta(meta, ts) {
     });
     changed = true;
   } else if (type === 'stage_end') {
-    const command = meta.command || '';
-    const isPytestStage = typeof command === 'string' && command.includes('pytest');
-    if (isPytestStage) {
-      if (meta.ok === false) {
-        const failed = Array.isArray(meta.failed_tests) ? meta.failed_tests : [];
-        const reason = meta.failure_reason || `Stage ${meta.identifier || ''} failed`;
-        if (failed.length) {
-          failed.forEach((testId) => {
-            applyStrategyUpdateClient(slug, [testId], ts, (entry) => {
-              appendStepEntry(entry, reason);
-              mergeFilesEntry(entry, meta.failed_files);
-              entry.status = 'failed';
-            });
-          });
-        } else {
-          applyStrategyUpdateClient(slug, null, ts, (entry) => {
-            appendStepEntry(entry, reason);
-            if (entry.status !== 'pass') entry.status = 'failed';
-          });
-        }
-        changed = true;
-      } else if (meta.ok) {
+    const hints = summarizeStageHintsClient(meta) || [];
+    if (meta.ok === false) {
+      applyStrategyUpdateClient(slug, null, ts, (entry) => {
+        hints.forEach((hint) => appendStepEntry(entry, hint));
+        mergeFilesEntry(entry, meta.failed_files);
+        entry.status = 'failed';
+      });
+      changed = true;
+    } else if (meta.ok) {
+      const command = meta.command || '';
+      const isPytestStage = typeof command === 'string' && command.includes('pytest');
+      if (isPytestStage) {
         applyStrategyUpdateClient(slug, null, ts, (entry) => {
           entry.status = 'pass';
         });
@@ -983,9 +1054,14 @@ async function init() {
       fetch('/api/summary').then(r => r.json()),
       fetch('/api/events?limit=200').then(r => r.json())
     ]);
-    for (const e of ev.items || []) logItems.push(e);
-    renderLog();
     renderSummary(s);
+    for (const e of ev.items || []) {
+      if (e && e.meta) {
+        mergeCodingMeta(e.meta, e.ts || e.timestamp || new Date().toISOString());
+      }
+      logItems.push(e);
+    }
+    renderLog();
   } catch (e) {
     console.error('Failed to initialize:', e);
   }

@@ -1,0 +1,40 @@
+Feature Card ID: FC-HELLO-CLI
+Title: Hello CLI
+Priority: UNKNOWN | Risk: unknown | Owner: unknown
+Summary: Expose CLI flags so the greeting can be customised without editing the code.
+
+Acceptance Criteria → Capabilities:
+- CAP-1 (AC-1): Accept `--message` to override the greeting text.
+  Test types: integration, unit
+    • SC-01 [happy_path]: Validate Accept `--message` to override the greeting text.
+      Assumptions: A-001, A-002
+    • SC-02 [idempotency]: Repeated execution of Accept `--message` to override the greeting text. is idempotent
+      Assumptions: A-003
+- CAP-2 (AC-2): Return a zero exit status when the CLI succeeds.
+  Triggers: Return a zero exit status when the CLI succeeds.
+  Test types: integration, unit
+    • SC-01 [happy_path]: Validate Return a zero exit status when the CLI succeeds.
+      Assumptions: A-004
+    • SC-02 [idempotency]: Repeated execution of Return a zero exit status when the CLI succeeds. is idempotent
+      Assumptions: A-005
+- CAP-3 (AC-3): Support `--quiet` to suppress output entirely.
+  Test types: e2e, integration, unit
+    • SC-01 [happy_path]: Validate Support `--quiet` to suppress output entirely.
+      Assumptions: A-006, A-007
+    • SC-02 [idempotency]: Repeated execution of Support `--quiet` to suppress output entirely. is idempotent
+      Assumptions: A-008
+
+Assumption Ledger:
+- A-001 (medium): CAP-1: clarify trigger condition [default=Document behaviour with product/QA follow-up.]
+- A-002 (medium): CAP-1: clarify observable outcome [default=Document behaviour with product/QA follow-up.]
+- A-003 (medium): CAP-1: repeated trigger should be idempotent [default=Repeated invocation preserves state.]
+- A-004 (medium): CAP-2: clarify observable outcome [default=Document behaviour with product/QA follow-up.]
+- A-005 (medium): CAP-2: repeated trigger should be idempotent [default=Repeated invocation preserves state.]
+- A-006 (medium): CAP-3: clarify trigger condition [default=Document behaviour with product/QA follow-up.]
+- A-007 (medium): CAP-3: clarify observable outcome [default=Document behaviour with product/QA follow-up.]
+- A-008 (medium): CAP-3: repeated trigger should be idempotent [default=Repeated invocation preserves state.]
+
+Repository Signals:
+- Languages: javascript, python, typescript
+- Test frameworks: pytest
+- Known events: .codex_ci, hooks, logs, runtime, utf-8
