@@ -513,6 +513,16 @@ function applyStrategyUpdate(slug, testIds, ts, updater) {
   if (!targetIds.length) return;
   targetIds.forEach((candidate) => {
     const matchKey = findMatchingTestKey(tests, candidate);
+    if (!matchKey && !(candidate in tests) && Object.keys(tests).length) {
+      Object.keys(tests).forEach((key) => {
+        const entry = tests[key] || { strategy: [], files: [] };
+        entry.normalized = entry.normalized || normalizeKey(key);
+        updater(entry, key);
+        entry.lastUpdated = ts;
+        tests[key] = entry;
+      });
+      return;
+    }
     const key = matchKey || candidate;
     const entry = tests[key] || { strategy: [], files: [] };
     entry.normalized = entry.normalized || normalizeKey(key);
