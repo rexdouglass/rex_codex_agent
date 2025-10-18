@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import os
 import subprocess
+from collections.abc import Mapping, MutableMapping
 from pathlib import Path
-from typing import Mapping, MutableMapping
 
 
 def _repo_root() -> Path:

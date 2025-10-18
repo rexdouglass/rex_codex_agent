@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import argparse
-from typing import Iterable, List, Optional
+from collections.abc import Iterable
+from typing import Optional
 
 DEFAULT_MESSAGE = "Hello World"
 
@@ -36,7 +37,7 @@ def build_greeting(message: str, repeat: int) -> str:
     return "\n".join(lines) + "\n"
 
 
-def main(argv: Optional[Iterable[str]] = None) -> int:
+def main(argv: Iterable[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
 

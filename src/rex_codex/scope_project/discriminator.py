@@ -13,25 +13,37 @@ import sys
 import threading
 import time
 from collections import OrderedDict
+from collections.abc import Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from .cards import discover_cards, find_orphan_spec_slugs, load_rex_agent
-from .config import (AGENT_SRC, DEFAULT_COVERAGE_MIN,
-                     DEFAULT_DISCRIMINATOR_MAX_FILES,
-                     DEFAULT_DISCRIMINATOR_MAX_LINES, DEFAULT_PROTECTED_PATHS,
-                     DEFAULT_RUNTIME_ALLOWLIST)
+from .config import (
+    AGENT_SRC,
+    DEFAULT_COVERAGE_MIN,
+    DEFAULT_DISCRIMINATOR_MAX_FILES,
+    DEFAULT_DISCRIMINATOR_MAX_LINES,
+    DEFAULT_PROTECTED_PATHS,
+    DEFAULT_RUNTIME_ALLOWLIST,
+)
 from .events import emit_event
 from .generator import _split_command
 from .monitoring import ensure_monitor_server
 from .self_update import self_update
-from .utils import (RexContext, activate_venv, dump_json, ensure_dir,
-                    ensure_python, ensure_requirements_installed, load_json,
-                    lock_file, run)
+from .utils import (
+    RexContext,
+    activate_venv,
+    dump_json,
+    ensure_dir,
+    ensure_python,
+    ensure_requirements_installed,
+    load_json,
+    lock_file,
+    run,
+)
 
 _FAILED_TEST_RE = re.compile(r"FAILED\s+([\w./:-]+)")
 
@@ -39,7 +51,7 @@ _FAILED_TEST_RE = re.compile(r"FAILED\s+([\w./:-]+)")
 @dataclass
 class DiscriminatorOptions:
     mode: str = "global"  # "feature" or "global"
-    slug: Optional[str] = None
+    slug: str | None = None
     continuous: bool = True
     max_passes: int = int(os.environ.get("DISCRIMINATOR_MAX_PASSES", "25"))
     disable_llm: bool = os.environ.get("DISABLE_LLM", "1") == "1"
@@ -47,7 +59,7 @@ class DiscriminatorOptions:
     codex_flags: str = os.environ.get("CODEX_FLAGS", "--yolo")
     codex_model: str = os.environ.get("MODEL", "")
     verbose: bool = True
-    stage_timeout: Optional[int] = None
+    stage_timeout: int | None = None
 
 
 @dataclass
@@ -60,7 +72,7 @@ class Stage:
 @dataclass
 class StageGroup:
     title: str
-    stages: List[Stage]
+    stages: list[Stage]
 
 
 def _write_discriminator_result(
@@ -321,7 +333,7 @@ def _run_locked(options: DiscriminatorOptions, context: RexContext) -> int:
     return 1
 
 
-def _discover_active_slug(context: RexContext) -> Optional[str]:
+def _discover_active_slug(context: RexContext) -> str | None:
     data = load_rex_agent(context)
     feature = data.get("feature", {})
     slug = feature.get("active_slug")
@@ -334,7 +346,7 @@ def _discover_active_slug(context: RexContext) -> Optional[str]:
 def _run_stage_plan(
     *,
     mode: str,
-    slug: Optional[str],
+    slug: str | None,
     env: dict[str, str],
     context: RexContext,
     log_path: Path,
@@ -391,13 +403,13 @@ def _run_stage_plan(
 
     groups = _build_stage_groups(mode, slug, pytest_flags, env, context)
     overall_ok = True
-    summary: List[dict[str, object]] = []
-    first_failure: Optional[dict[str, object]] = None
+    summary: list[dict[str, object]] = []
+    first_failure: dict[str, object] | None = None
     coverage_failed = False
     coverage_min = env.get("COVERAGE_MIN")
     coverage_targets_config = env.get("COVERAGE_TARGETS")
     coverage_targets = coverage_targets_config or "."
-    coverage_targets_display: Optional[str] = coverage_targets_config or (
+    coverage_targets_display: str | None = coverage_targets_config or (
         coverage_targets if coverage_min else None
     )
     coverage_threshold = coverage_min
@@ -444,8 +456,8 @@ def _run_stage_plan(
             }
             summary.append(record)
             failure_reason = _summarize_failure_reason(tail) if not ok else ""
-            failed_tests: List[str] = []
-            failed_files: List[str] = []
+            failed_tests: list[str] = []
+            failed_files: list[str] = []
             if not ok and "pytest" in stage.command:
                 failed_tests = _parse_failed_tests(tail)
                 failed_files = sorted(
@@ -590,7 +602,7 @@ def _run_stage_plan(
 
 def _configure_pytest_flags(
     mode: str, env: dict[str, str], context: RexContext
-) -> List[str]:
+) -> list[str]:
     flags = ["-q", "-ra"]
     if mode == "feature":
         flags += ["-x", "--maxfail=1"]
@@ -613,11 +625,11 @@ def _configure_pytest_flags(
 
 def _build_stage_groups(
     mode: str,
-    slug: Optional[str],
+    slug: str | None,
     pytest_flags: Sequence[str],
     env: dict[str, str],
     context: RexContext,
-) -> List[StageGroup]:
+) -> list[StageGroup]:
     pytest_flags_str = " ".join(shlex.quote(flag) for flag in pytest_flags)
     specs_dir = f"tests/feature_specs/{slug}" if slug else ""
     coverage_min = env.get("COVERAGE_MIN")
@@ -636,7 +648,7 @@ def _build_stage_groups(
     else:
         mypy_raw = "."
     mypy_targets = _format_targets(mypy_raw)
-    groups: List[StageGroup] = []
+    groups: list[StageGroup] = []
 
     level00 = StageGroup(
         title="Level 00 - Repo & System Health",
@@ -741,7 +753,7 @@ def _build_stage_groups(
                 )
             )
 
-    level05_stages: List[Stage] = []
+    level05_stages: list[Stage] = []
     if env.get("PIP_AUDIT") == "1":
         level05_stages.append(
             Stage(
@@ -825,8 +837,8 @@ def _execute_stage(
     context: RexContext,
     log_path: Path,
     latest_log_path: Path,
-    print_lock: Optional[threading.Lock] = None,
-) -> Tuple[bool, float, str]:
+    print_lock: threading.Lock | None = None,
+) -> tuple[bool, float, str]:
     with print_lock or nullcontext():
         print(f"\n  Question {stage.identifier}: {stage.description}")
         print(f"    Command: {stage.command}")
@@ -876,7 +888,7 @@ def _run_parallel_stage_group(
     log_path: Path,
     latest_log_path: Path,
     print_lock: threading.Lock,
-) -> Iterable[Tuple[Stage, bool, float, str]]:
+) -> Iterable[tuple[Stage, bool, float, str]]:
     if not stages:
         return
     max_workers = min(5, len(stages))
@@ -902,7 +914,7 @@ def _run_parallel_stage_group(
 _COVERAGE_TOTAL_RE = re.compile(r"TOTAL\s+\d+\s+\d+\s+\d+\s+(\d+)%")
 
 
-def _parse_coverage_percent(text: str) -> Optional[float]:
+def _parse_coverage_percent(text: str) -> float | None:
     for line in reversed((text or "").splitlines()):
         match = _COVERAGE_TOTAL_RE.search(line)
         if match:
@@ -913,7 +925,7 @@ def _parse_coverage_percent(text: str) -> Optional[float]:
     return None
 
 
-def _split_targets_for_events(raw: str) -> List[str]:
+def _split_targets_for_events(raw: str) -> list[str]:
     tokens = [
         token.strip() for token in re.split(r"[,\s]+", raw or "") if token.strip()
     ]
@@ -921,9 +933,9 @@ def _split_targets_for_events(raw: str) -> List[str]:
 
 
 def _render_stage_summary(
-    summary: List[dict[str, object]],
+    summary: list[dict[str, object]],
     overall_ok: bool,
-    first_failure: Optional[dict[str, object]],
+    first_failure: dict[str, object] | None,
     palette: SimpleNamespace,
     context: RexContext,
     mode: str,
@@ -931,7 +943,7 @@ def _render_stage_summary(
     if not summary:
         return
     print("\n--- Summary -----------------------------------------------------")
-    grouped: "OrderedDict[str, List[dict[str, object]]]" = OrderedDict()
+    grouped: OrderedDict[str, list[dict[str, object]]] = OrderedDict()
     for record in summary:
         key = record["group"]  # type: ignore[index]
         grouped.setdefault(key, []).append(record)
@@ -988,7 +1000,7 @@ def _summarize_failure_reason(tail: object) -> str:
     return ""
 
 
-def shutil_which(name: str) -> Optional[str]:
+def shutil_which(name: str) -> str | None:
     from shutil import which
 
     return which(name)
@@ -1000,10 +1012,10 @@ def _ensure_node_present() -> bool:
 
 def _collect_test_count(
     mode: str,
-    slug: Optional[str],
+    slug: str | None,
     context: RexContext,
     env: dict[str, str],
-) -> Optional[int]:
+) -> int | None:
     cmd = ["pytest", "--collect-only"]
     if mode == "feature" and slug:
         specs_dir = context.root / "tests" / "feature_specs" / slug
@@ -1020,7 +1032,7 @@ def _collect_test_count(
         return None
 
 
-def _protected_patterns() -> List[str]:
+def _protected_patterns() -> list[str]:
     raw = os.environ.get("DISCRIMINATOR_PROTECTED_PATHS")
     if raw:
         return [token for token in raw.split() if token.strip()]
@@ -1066,7 +1078,7 @@ def _snapshot_protected_paths(context: RexContext) -> dict[str, str]:
 
 def _detect_protected_changes(
     baseline: dict[str, str], context: RexContext
-) -> List[str]:
+) -> list[str]:
     current = _snapshot_protected_paths(context)
     changed: set[str] = set()
     for path, digest in baseline.items():
@@ -1131,7 +1143,7 @@ def _reject_non_runtime_changes(context: RexContext) -> bool:
         capture_output=True,
         check=False,
     ).stdout.splitlines()
-    rejects: List[str] = []
+    rejects: list[str] = []
     for path in sorted(set(changed)):
         if not path or path.startswith(".codex_ci/"):
             continue
@@ -1191,7 +1203,7 @@ def _enforce_patch_size(context: RexContext) -> bool:
     return True
 
 
-def _list_changed_files(context: RexContext, *, staged: bool = False) -> List[str]:
+def _list_changed_files(context: RexContext, *, staged: bool = False) -> list[str]:
     cmd = ["git", "diff", "--name-only"]
     if staged:
         cmd.append("--cached")
@@ -1199,7 +1211,7 @@ def _list_changed_files(context: RexContext, *, staged: bool = False) -> List[st
     return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
 
 
-def _list_commit_files(context: RexContext, ref: str = "HEAD") -> List[str]:
+def _list_commit_files(context: RexContext, ref: str = "HEAD") -> list[str]:
     completed = run(
         ["git", "show", "--pretty=", "--name-only", ref],
         cwd=context.root,
@@ -1209,7 +1221,7 @@ def _list_commit_files(context: RexContext, ref: str = "HEAD") -> List[str]:
     return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
 
 
-def _parse_failed_tests(tail: str | None) -> List[str]:
+def _parse_failed_tests(tail: str | None) -> list[str]:
     if not tail:
         return []
     seen: set[str] = set()
@@ -1222,7 +1234,7 @@ def _parse_failed_tests(tail: str | None) -> List[str]:
 
 def _apply_mechanical_fixes(
     mode: str,
-    slug: Optional[str],
+    slug: str | None,
     context: RexContext,
     env: dict[str, str],
     *,
@@ -1232,8 +1244,8 @@ def _apply_mechanical_fixes(
 ) -> bool:
     print("Mechanical fixes (ruff/black/isort)…")
     tools = ["ruff", "black", "isort"]
-    targets: List[str] = []
-    reason: Optional[str] = None
+    targets: list[str] = []
+    reason: str | None = None
     if mode == "feature":
         if not slug:
             reason = "missing_slug"
@@ -1324,7 +1336,7 @@ def _apply_mechanical_fixes(
     return True
 
 
-def _detect_runtime_targets(context: RexContext) -> List[str]:
+def _detect_runtime_targets(context: RexContext) -> list[str]:
     overrides = os.environ.get("DISCRIMINATOR_RUNTIME_ALLOWLIST")
     if overrides:
         runtime = sorted(
@@ -1356,7 +1368,7 @@ def _tail_text(path: Path, lines: int = 120) -> str:
 def _invoke_llm_once(
     options: DiscriminatorOptions,
     mode: str,
-    slug: Optional[str],
+    slug: str | None,
     context: RexContext,
     env: dict[str, str],
     log_path: Path,
@@ -1443,7 +1455,7 @@ def _invoke_llm_once(
 
 def _record_success(
     mode: str,
-    slug: Optional[str],
+    slug: str | None,
     context: RexContext,
     env: dict[str, str],
 ) -> None:

@@ -6,8 +6,9 @@ import json
 import sys
 import time
 from collections import OrderedDict
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
+from typing import Any
 
 from .cards import latest_card
 from .events import events_path as default_events_path
@@ -40,9 +41,7 @@ def _load_events(path: Path) -> Iterable[dict[str, Any]]:
     return results
 
 
-def _resolve_generator_slug(
-    slug: Optional[str], *, context: RexContext
-) -> Optional[str]:
+def _resolve_generator_slug(slug: str | None, *, context: RexContext) -> str | None:
     if slug:
         return slug
     card = latest_card()
@@ -90,7 +89,7 @@ def _follow_generator_hud(
     if not sys.stdout.isatty():
         # Fallback: poll snapshots without terminal control.
         last_render = ""
-        done_since: Optional[float] = None
+        done_since: float | None = None
         while True:
             events = list(_load_events(events_path))
             if events:
@@ -136,7 +135,7 @@ def _follow_generator_hud(
         terminal=sys.stdout,
     )
     hud._events_path = events_path
-    done_since: Optional[float] = None
+    done_since: float | None = None
     try:
         hud._activate_alternate()
         hud._hide_cursor()
@@ -171,7 +170,7 @@ def _follow_generator_hud(
         hud._show_cursor()
 
 
-def _format_elapsed(value: Any) -> Optional[str]:
+def _format_elapsed(value: Any) -> str | None:
     if isinstance(value, (int, float)):
         return f"{float(value):.2f}s"
     return None
@@ -180,19 +179,19 @@ def _format_elapsed(value: Any) -> Optional[str]:
 class DiscriminatorHUDModel:
     def __init__(self) -> None:
         self.mode = "global"
-        self.slug: Optional[str] = None
-        self.pass_number: Optional[int] = None
-        self.run_id: Optional[int] = None
+        self.slug: str | None = None
+        self.pass_number: int | None = None
+        self.run_id: int | None = None
         self.stage_groups: list[str] = []
-        self.stages: "OrderedDict[str, Dict[str, Any]]" = OrderedDict()
-        self.coverage_percent: Optional[float] = None
-        self.coverage_threshold: Optional[str] = None
+        self.stages: OrderedDict[str, dict[str, Any]] = OrderedDict()
+        self.coverage_percent: float | None = None
+        self.coverage_threshold: str | None = None
         self.coverage_targets: list[str] = []
-        self.mechanical: Optional[dict[str, Any]] = None
-        self.llm_decision: Optional[dict[str, Any]] = None
-        self.result: Optional[bool] = None
+        self.mechanical: dict[str, Any] | None = None
+        self.llm_decision: dict[str, Any] | None = None
+        self.result: bool | None = None
 
-    def _reset_for_run(self, pass_number: Optional[int], run_id: int) -> None:
+    def _reset_for_run(self, pass_number: int | None, run_id: int) -> None:
         self.pass_number = pass_number
         self.run_id = run_id
         self.stage_groups = []
@@ -204,10 +203,10 @@ class DiscriminatorHUDModel:
         self.llm_decision = None
         self.result = None
 
-    def apply_event(self, event: Dict[str, Any]) -> None:
+    def apply_event(self, event: dict[str, Any]) -> None:
         if event.get("phase") != "discriminator":
             return
-        data: Dict[str, Any] = event.get("data", {}) or {}
+        data: dict[str, Any] = event.get("data", {}) or {}
         run_id = data.get("run_id")
         pass_number = data.get("pass_number")
 
@@ -353,7 +352,7 @@ class DiscriminatorHUDModel:
 
 def render_discriminator_snapshot(
     *,
-    slug: Optional[str],
+    slug: str | None,
     events: Iterable[dict[str, Any]],
     printer: _HUDPrinter,
 ) -> str:
@@ -376,7 +375,7 @@ def render_discriminator_snapshot(
     return f"{header}\n{snapshot}\n"
 
 
-def discriminator_snapshot_text(slug: Optional[str], path: Path) -> str:
+def discriminator_snapshot_text(slug: str | None, path: Path) -> str:
     events = _load_events(path)
     if not events:
         return ""
@@ -387,8 +386,8 @@ def discriminator_snapshot_text(slug: Optional[str], path: Path) -> str:
 def render_hud(
     *,
     phase: str,
-    slug: Optional[str],
-    events_file: Optional[str],
+    slug: str | None,
+    events_file: str | None,
     context: RexContext,
     follow: bool = False,
     refresh: float = 1.0,

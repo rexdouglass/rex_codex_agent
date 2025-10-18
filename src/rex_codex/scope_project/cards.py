@@ -6,13 +6,12 @@ import hashlib
 import re
 import shutil
 import sys
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
-from .utils import (RexContext, dump_json, ensure_dir, load_json, prompt,
-                    repo_root, run)
+from .utils import RexContext, dump_json, ensure_dir, load_json, prompt, repo_root, run
 
 CARD_DIR = Path("documents/feature_cards")
 CARD_FILENAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
@@ -24,7 +23,7 @@ def card_path_for(context: RexContext, slug: str) -> Path:
     return card_directory(context) / f"{slug}.md"
 
 
-def read_card_sections(path: Path) -> Dict[str, object]:
+def read_card_sections(path: Path) -> dict[str, object]:
     text = path.read_text(encoding="utf-8")
     lines = text.splitlines()
     title = path.stem.replace("-", " ").title()
@@ -32,9 +31,9 @@ def read_card_sections(path: Path) -> Dict[str, object]:
         if line.startswith("# "):
             title = line[2:].strip()
             break
-    current_section: Optional[str] = None
-    summary_lines: List[str] = []
-    acceptance: List[str] = []
+    current_section: str | None = None
+    summary_lines: list[str] = []
+    acceptance: list[str] = []
     for line in lines:
         stripped = line.strip()
         if stripped.startswith("## "):
@@ -53,7 +52,7 @@ def spec_directory(context: RexContext, slug: str) -> Path:
     return context.root / SPEC_ROOT / slug
 
 
-def card_content_hash(path: Path) -> Optional[str]:
+def card_content_hash(path: Path) -> str | None:
     if not path.exists():
         return None
     digest = hashlib.sha256()
@@ -63,7 +62,7 @@ def card_content_hash(path: Path) -> Optional[str]:
     return digest.hexdigest()
 
 
-def _list_test_functions(path: Path) -> List[str]:
+def _list_test_functions(path: Path) -> list[str]:
     try:
         source = path.read_text(encoding="utf-8")
     except OSError:
@@ -74,7 +73,7 @@ def _list_test_functions(path: Path) -> List[str]:
         tree = ast.parse(source, filename=str(path))
     except SyntaxError:
         return []
-    names: List[str] = []
+    names: list[str] = []
     for node in tree.body:
         if isinstance(
             node, (ast.FunctionDef, ast.AsyncFunctionDef)
@@ -124,13 +123,13 @@ def discover_cards(
     statuses: Iterable[str] | None = None,
     *,
     context: RexContext | None = None,
-) -> List[FeatureCard]:
+) -> list[FeatureCard]:
     context = context or RexContext.discover()
     directory = card_directory(context)
     if not directory.exists():
         return []
     normalized_statuses = {s.lower() for s in (statuses or [])}
-    matches: List[FeatureCard] = []
+    matches: list[FeatureCard] = []
     for path in sorted(directory.glob("*.md")):
         slug = slug_from_filename(path)
         status = read_status(path)
@@ -140,7 +139,7 @@ def discover_cards(
     return matches
 
 
-def latest_card(statuses: Sequence[str] | None = None) -> Optional[FeatureCard]:
+def latest_card(statuses: Sequence[str] | None = None) -> FeatureCard | None:
     cards = discover_cards(statuses)
     return cards[0] if cards else None
 
@@ -235,8 +234,8 @@ def create_card(
     return card
 
 
-def lint_card(path: Path) -> List[str]:
-    errors: List[str] = []
+def lint_card(path: Path) -> list[str]:
+    errors: list[str] = []
     if not path.exists():
         return [f"{path}: missing file"]
     text = path.read_text(encoding="utf-8").splitlines()
@@ -253,10 +252,10 @@ def lint_card(path: Path) -> List[str]:
     return errors
 
 
-def lint_all_cards(context: RexContext | None = None) -> List[str]:
+def lint_all_cards(context: RexContext | None = None) -> list[str]:
     context = context or RexContext.discover()
     directory = card_directory(context)
-    errors: List[str] = []
+    errors: list[str] = []
     if not directory.exists():
         return ["No Feature Cards found; run `rex-codex card new` first."]
     for card in discover_cards(context=context):
@@ -303,7 +302,7 @@ def archive_card(
         raise FileNotFoundError(f"Feature Card not found: {path}")
     lines = path.read_text(encoding="utf-8").splitlines()
     replaced = False
-    new_lines: List[str] = []
+    new_lines: list[str] = []
     for line in lines:
         if STATUS_RE.match(line):
             new_lines.append(f"status: {status}")
@@ -321,7 +320,7 @@ def split_card(
     source_slug: str,
     slug_a: str,
     slug_b: str,
-) -> Tuple[FeatureCard, FeatureCard]:
+) -> tuple[FeatureCard, FeatureCard]:
     directory = card_directory(context)
     source_path = directory / f"{source_slug}.md"
     if not source_path.exists():
@@ -392,12 +391,12 @@ def prune_spec_directories(
     *,
     include_archived: bool = True,
     assume_yes: bool = False,
-) -> List[Path]:
+) -> list[Path]:
     specs_root = context.root / SPEC_ROOT
     if not specs_root.exists():
         return []
     cards = {card.slug: card.status for card in discover_cards(context=context)}
-    targets: List[Path] = []
+    targets: list[Path] = []
     for path in sorted(specs_root.iterdir()):
         if not path.is_dir():
             continue
@@ -407,7 +406,7 @@ def prune_spec_directories(
             continue
         if include_archived and cards[slug].lower() == "archived":
             targets.append(path)
-    removed: List[Path] = []
+    removed: list[Path] = []
     for path in targets:
         rel = path.relative_to(context.root)
         if _git_path_dirty(context, path):
@@ -425,12 +424,12 @@ def prune_spec_directories(
     return removed
 
 
-def find_orphan_spec_slugs(context: RexContext) -> List[str]:
+def find_orphan_spec_slugs(context: RexContext) -> list[str]:
     specs_root = context.root / SPEC_ROOT
     if not specs_root.exists():
         return []
     existing = {card.slug for card in discover_cards(context=context)}
-    orphans: List[str] = []
+    orphans: list[str] = []
     for path in sorted(specs_root.iterdir()):
         if not path.is_dir():
             continue

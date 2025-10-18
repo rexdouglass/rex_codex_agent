@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import shutil
 import sys
+from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Mapping, MutableMapping
+from typing import Any
 
 from rex_codex.scope_project import utils as runtime_utils
 
@@ -57,7 +58,7 @@ class RuntimeBootstrapper:
     context: runtime_utils.RexContext
 
     @classmethod
-    def from_root(cls, root: Path | None = None) -> "RuntimeBootstrapper":
+    def from_root(cls, root: Path | None = None) -> RuntimeBootstrapper:
         root = root or runtime_utils.repo_root()
         context = runtime_utils.RexContext(
             root=root,

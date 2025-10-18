@@ -13,24 +13,34 @@ import sys
 import textwrap
 import time
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 
 from .cards import FeatureCard, discover_cards, update_active_card
 from .component_planner import ensure_component_plan
-from .config import (AGENT_SRC, DEFAULT_GENERATOR_MAX_FILES,
-                     DEFAULT_GENERATOR_MAX_LINES)
+from .config import AGENT_SRC, DEFAULT_GENERATOR_MAX_FILES, DEFAULT_GENERATOR_MAX_LINES
 from .events import emit_event, events_path
 from .generator_ui import GeneratorHUD
 from .hud import generator_snapshot_text
 from .monitoring import ensure_monitor_server
 from .playbook import build_playbook_artifacts
 from .self_update import self_update
-from .utils import (RexContext, activate_venv, dump_json, ensure_dir,
-                    ensure_python, ensure_requirements_installed, load_json,
-                    lock_file, repo_root, run, which)
+from .utils import (
+    RexContext,
+    activate_venv,
+    dump_json,
+    ensure_dir,
+    ensure_python,
+    ensure_requirements_installed,
+    load_json,
+    lock_file,
+    repo_root,
+    run,
+    which,
+)
 
 PROGRESS_INTERVAL_SECONDS = max(
     5, int(os.environ.get("GENERATOR_PROGRESS_SECONDS", "15"))
@@ -60,16 +70,16 @@ def _ansi_palette() -> SimpleNamespace:
     )
 
 
-def _extract_section(lines: List[str], heading: str) -> List[str]:
+def _extract_section(lines: list[str], heading: str) -> list[str]:
     target = f"## {heading}".lower()
-    start: Optional[int] = None
+    start: int | None = None
     for idx, line in enumerate(lines):
         if line.strip().lower() == target:
             start = idx + 1
             break
     if start is None:
         return []
-    body: List[str] = []
+    body: list[str] = []
     for line in lines[start:]:
         if line.strip().startswith("## "):
             break
@@ -81,8 +91,8 @@ def _extract_section(lines: List[str], heading: str) -> List[str]:
     return body
 
 
-def _extract_card_metadata(card_path: Path) -> Dict[str, object]:
-    metadata: Dict[str, object] = {"title": card_path.stem.replace("-", " ").title()}
+def _extract_card_metadata(card_path: Path) -> dict[str, object]:
+    metadata: dict[str, object] = {"title": card_path.stem.replace("-", " ").title()}
     try:
         text = card_path.read_text(encoding="utf-8")
     except OSError:
@@ -104,10 +114,10 @@ def _extract_card_metadata(card_path: Path) -> Dict[str, object]:
     return metadata
 
 
-def _list_existing_specs(specs_dir: Path) -> List[str]:
+def _list_existing_specs(specs_dir: Path) -> list[str]:
     if not specs_dir.exists():
         return []
-    items: List[str] = []
+    items: list[str] = []
     for path in sorted(specs_dir.rglob("*.py")):
         try:
             items.append(str(path.relative_to(specs_dir)))
@@ -123,8 +133,8 @@ def _render_generator_dashboard(
     focus: str,
     passes: int,
     options: GeneratorOptions,
-    metadata: Optional[Dict[str, object]] = None,
-    existing_specs: Optional[List[str]] = None,
+    metadata: dict[str, object] | None = None,
+    existing_specs: list[str] | None = None,
 ) -> None:
     palette = _ansi_palette()
     metadata = metadata or _extract_card_metadata(card.path)
@@ -158,10 +168,10 @@ def _render_generator_dashboard(
     print(divider)
 
 
-def _summarize_diff(diff_text: str) -> Tuple[List[Dict[str, object]], Dict[str, int]]:
-    entries: List[Dict[str, object]] = []
+def _summarize_diff(diff_text: str) -> tuple[list[dict[str, object]], dict[str, int]]:
+    entries: list[dict[str, object]] = []
     totals = defaultdict(int)
-    current: Optional[Dict[str, object]] = None
+    current: dict[str, object] | None = None
     for line in diff_text.splitlines():
         if line.startswith("diff --git "):
             if current:
@@ -236,19 +246,19 @@ class _TestMetadata:
 class _SpecTraceEntry:
     index: int
     text: str
-    tests: List[_TestMetadata]
+    tests: list[_TestMetadata]
 
 
 @dataclass
 class _SpecTraceResult:
-    entries: List[_SpecTraceEntry]
-    missing: List[_SpecTraceEntry]
-    orphans: List[_TestMetadata]
-    section_lines: List[str]
+    entries: list[_SpecTraceEntry]
+    missing: list[_SpecTraceEntry]
+    orphans: list[_TestMetadata]
+    section_lines: list[str]
 
 
-def _spec_trace_payload(result: _SpecTraceResult) -> Dict[str, Any]:
-    def _entry_payload(entry: _SpecTraceEntry) -> Dict[str, Any]:
+def _spec_trace_payload(result: _SpecTraceResult) -> dict[str, Any]:
+    def _entry_payload(entry: _SpecTraceEntry) -> dict[str, Any]:
         return {
             "index": entry.index,
             "text": entry.text,
@@ -313,8 +323,8 @@ def _tokenize_spec_text(text: str) -> set[str]:
 _AC_PATTERN = re.compile(r"AC#(\d+)", re.IGNORECASE)
 
 
-def _attribute_chain(node: ast.AST) -> List[str]:
-    parts: List[str] = []
+def _attribute_chain(node: ast.AST) -> list[str]:
+    parts: list[str] = []
     current = node
     while isinstance(current, ast.Attribute):
         parts.append(current.attr)
@@ -324,7 +334,7 @@ def _attribute_chain(node: ast.AST) -> List[str]:
     return list(reversed(parts))
 
 
-def _literal_int(node: ast.AST) -> Optional[int]:
+def _literal_int(node: ast.AST) -> int | None:
     if isinstance(node, ast.Constant) and isinstance(node.value, int):
         return int(node.value)
     if isinstance(node, ast.Num):  # pragma: no cover - python <3.8 compat
@@ -358,10 +368,10 @@ def _extract_acceptance_indexes(node: ast.AST) -> set[int]:
     return indexes
 
 
-def _collect_test_metadata(root: Path, specs_dir: Path) -> List[_TestMetadata]:
+def _collect_test_metadata(root: Path, specs_dir: Path) -> list[_TestMetadata]:
     if not specs_dir.exists():
         return []
-    results: List[_TestMetadata] = []
+    results: list[_TestMetadata] = []
     for path in sorted(specs_dir.rglob("*.py")):
         try:
             source = path.read_text(encoding="utf-8")
@@ -421,7 +431,7 @@ def _build_spec_trace_result(
     card: FeatureCard,
     slug: str,
     context: RexContext,
-) -> Optional[_SpecTraceResult]:
+) -> _SpecTraceResult | None:
     metadata = _extract_card_metadata(card.path)
     acceptance = metadata.get("acceptance") or []
     root = context.root
@@ -431,7 +441,7 @@ def _build_spec_trace_result(
         return None
 
     matched: set[str] = set()
-    entries: List[_SpecTraceEntry] = []
+    entries: list[_SpecTraceEntry] = []
     for index, text in enumerate(acceptance, start=1):
         matches = [
             candidate for candidate in tests if index in candidate.acceptance_indexes
@@ -441,7 +451,7 @@ def _build_spec_trace_result(
             matched.add(candidate.display)
         entries.append(_SpecTraceEntry(index=index, text=text, tests=matches_sorted))
 
-    section_lines: List[str] = []
+    section_lines: list[str] = []
     if entries:
         for entry in entries:
             section_lines.append(f'- [AC#{entry.index}] "{entry.text}"')
@@ -474,7 +484,7 @@ def _replace_card_section(
         return False
     lines = original.splitlines()
     heading_lower = f"## {heading}".lower()
-    start_idx: Optional[int] = None
+    start_idx: int | None = None
     for idx, line in enumerate(lines):
         if line.strip().lower() == heading_lower:
             start_idx = idx
@@ -490,7 +500,7 @@ def _replace_card_section(
     while end_idx < len(lines) and not lines[end_idx].strip().startswith("## "):
         end_idx += 1
 
-    replacement: List[str] = [""]
+    replacement: list[str] = [""]
     replacement.extend(content_lines)
     if content_lines:
         replacement.append("")
@@ -514,7 +524,7 @@ def _update_spec_trace(
     card: FeatureCard,
     slug: str,
     context: RexContext,
-) -> Tuple[Optional[_SpecTraceResult], bool]:
+) -> tuple[_SpecTraceResult | None, bool]:
     result = _build_spec_trace_result(card=card, slug=slug, context=context)
     if result is None:
         return None, False
@@ -552,7 +562,7 @@ def _print_spec_trace_result(result: _SpecTraceResult) -> None:
             print(f"      - {orphan.display} ({hint})")
 
 
-def _load_pass_durations(context: RexContext) -> List[float]:
+def _load_pass_durations(context: RexContext) -> list[float]:
     data = load_json(context.rex_agent_file)
     generator_state = data.get("generator", {})
     durations = generator_state.get("pass_durations", [])
@@ -561,7 +571,7 @@ def _load_pass_durations(context: RexContext) -> List[float]:
     return []
 
 
-def _average_pass_duration(context: RexContext) -> Optional[float]:
+def _average_pass_duration(context: RexContext) -> float | None:
     durations = _load_pass_durations(context)
     if len(durations) < 2:
         return None
@@ -583,7 +593,7 @@ def _emit_codex_updates(chunk: str, palette: SimpleNamespace, last_update: str) 
     lines = [line.strip() for line in chunk.splitlines() if line.strip()]
     if not lines:
         return last_update
-    interesting: List[str] = []
+    interesting: list[str] = []
     for line in lines:
         if line.startswith(
             ("diff --git", "index ", "--- ", "+++ ", "@@ ", "+", "-", "Applying diff")
@@ -603,7 +613,7 @@ def _emit_codex_updates(chunk: str, palette: SimpleNamespace, last_update: str) 
     return last_update
 
 
-def _diagnose_missing_cards(statuses: List[str], context: RexContext) -> None:
+def _diagnose_missing_cards(statuses: list[str], context: RexContext) -> None:
     cards = discover_cards(context=context)
     if not cards:
         print("[generator] No Feature Cards found in documents/feature_cards/.")
@@ -636,7 +646,7 @@ def _default_ui_hz() -> float:
     return value if value > 0 else 5.0
 
 
-def _parse_env_toggle(raw: Optional[str]) -> Optional[bool]:
+def _parse_env_toggle(raw: str | None) -> bool | None:
     if raw is None:
         return None
     value = raw.strip().lower()
@@ -669,7 +679,7 @@ def _default_popout_linger() -> float:
     return max(0.0, value)
 
 
-def _default_scrub_specs_flag() -> Optional[bool]:
+def _default_scrub_specs_flag() -> bool | None:
     return _parse_env_toggle(os.environ.get("GENERATOR_SCRUB_SPECS"))
 
 
@@ -688,9 +698,9 @@ class GeneratorOptions:
     continuous: bool = True
     max_passes: int = int(os.environ.get("GENERATOR_MAX_PASSES", "5"))
     focus: str = ""
-    card_path: Optional[Path] = None
+    card_path: Path | None = None
     iterate_all: bool = False
-    statuses: List[str] = field(default_factory=lambda: ["proposed"])
+    statuses: list[str] = field(default_factory=lambda: ["proposed"])
     codex_bin: str = os.environ.get("CODEX_BIN", "npx --yes @openai/codex")
     codex_flags: str = os.environ.get("CODEX_FLAGS", "--yolo")
     codex_model: str = os.environ.get("MODEL", "")
@@ -701,7 +711,7 @@ class GeneratorOptions:
     ui_refresh_hz: float = field(default_factory=_default_ui_hz)
     spawn_popout: bool = field(default_factory=_default_popout_enabled)
     popout_linger: float = field(default_factory=_default_popout_linger)
-    scrub_specs: Optional[bool] = field(default_factory=_default_scrub_specs_flag)
+    scrub_specs: bool | None = field(default_factory=_default_scrub_specs_flag)
 
 
 @dataclass
@@ -712,20 +722,20 @@ class _CodexResult:
     elapsed_seconds: int
 
 
-def parse_statuses(raw: str | None) -> List[str]:
+def parse_statuses(raw: str | None) -> list[str]:
     if not raw:
         return ["proposed"]
     tokens = [piece.strip().lower() for piece in raw.split(",") if piece.strip()]
     return tokens or ["proposed"]
 
 
-def _split_command(raw: str) -> List[str]:
+def _split_command(raw: str) -> list[str]:
     import shlex
 
     return shlex.split(raw)
 
 
-_TERMINAL_CANDIDATES: List[Tuple[str, List[str]]] = [
+_TERMINAL_CANDIDATES: list[tuple[str, list[str]]] = [
     ("gnome-terminal", ["--title", "{title}", "--", "bash", "-lc", "{command}"]),
     ("kitty", ["--title", "{title}", "bash", "-lc", "{command}"]),
     ("wezterm", ["start", "--", "bash", "-lc", "{command}"]),
@@ -737,7 +747,7 @@ _TERMINAL_CANDIDATES: List[Tuple[str, List[str]]] = [
 
 def _format_terminal_args(
     executable: str, tokens: Sequence[str], *, title: str, command: str
-) -> List[str]:
+) -> list[str]:
     args = [executable]
     for token in tokens:
         if token == "{title}":
@@ -749,9 +759,7 @@ def _format_terminal_args(
     return args
 
 
-def _launch_terminal(
-    title: str, command: str
-) -> Optional[Tuple[subprocess.Popen, str]]:
+def _launch_terminal(title: str, command: str) -> tuple[subprocess.Popen, str] | None:
     for exe, tokens in _TERMINAL_CANDIDATES:
         exe_path = which(exe)
         if not exe_path:
@@ -771,7 +779,7 @@ def _spawn_generator_tui_popout(
     *,
     context: RexContext,
     slug: str,
-) -> Optional[subprocess.Popen]:
+) -> subprocess.Popen | None:
     env_toggle = _parse_env_toggle(os.environ.get("GENERATOR_UI_TUI"))
     if env_toggle is False:
         return None
@@ -824,7 +832,7 @@ def _spawn_generator_popout(
     slug: str,
     refresh_hz: float,
     linger: float,
-) -> Optional[subprocess.Popen]:
+) -> subprocess.Popen | None:
     tui_process = _spawn_generator_tui_popout(context=context, slug=slug)
     if tui_process is not None:
         return tui_process
@@ -850,7 +858,7 @@ def _spawn_generator_popout(
     return process
 
 
-def _should_scrub_specs(context: RexContext, option: Optional[bool]) -> bool:
+def _should_scrub_specs(context: RexContext, option: bool | None) -> bool:
     if option is not None:
         return option
     return context.root.name == "rex_codex_agent"
@@ -886,8 +894,8 @@ def _run_codex_with_progress(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    stdout_buffer: List[str] = []
-    stderr_buffer: List[str] = []
+    stdout_buffer: list[str] = []
+    stderr_buffer: list[str] = []
     palette = _ansi_palette()
     last_update = ""
     while True:
@@ -1068,7 +1076,7 @@ def run_generator(
         ensure_requirements_installed(context, requirements_template)
         if options.scrub_specs is None:
             options.scrub_specs = _should_scrub_specs(context, None)
-        cards: List[FeatureCard]
+        cards: list[FeatureCard]
         if options.card_path:
             if not options.card_path.exists():
                 print(f"[generator] Feature Card not found: {options.card_path}")
@@ -1266,7 +1274,7 @@ def _run_once(
     total_passes: int,
     options: GeneratorOptions,
     context: RexContext,
-) -> Tuple[int, Optional[str]]:
+) -> tuple[int, str | None]:
     root = context.root
     specs_dir = root / "tests" / "feature_specs" / slug
     specs_dir.mkdir(parents=True, exist_ok=True)
@@ -1277,13 +1285,13 @@ def _run_once(
         print(f"[generator] Failed to refresh playbook artefacts in run loop: {exc}")
 
     card_path = root / "documents" / "feature_cards" / f"{slug}.md"
-    baseline_card_text: Optional[str] = None
+    baseline_card_text: str | None = None
     if card_path.exists():
         try:
             baseline_card_text = card_path.read_text(encoding="utf-8")
         except OSError:
             baseline_card_text = None
-    spec_trace_result: Optional[_SpecTraceResult] = None
+    spec_trace_result: _SpecTraceResult | None = None
     card_trace_changed = False
 
     prompt_path = context.codex_ci_dir / "generator_prompt.txt"
@@ -1491,7 +1499,7 @@ def _normalize_unified_diff(diff_text: str) -> str:
 def _extract_diff(response_path: Path, slug: str) -> str:
     text = response_path.read_text(encoding="utf-8", errors="replace")
     pattern = re.compile(r"^diff --git .*$", re.MULTILINE)
-    segments: List[str] = []
+    segments: list[str] = []
     allowed_doc = f"documents/feature_cards/{slug}.md"
     allowed_prefix = f"tests/feature_specs/{slug}/"
 
@@ -1570,7 +1578,7 @@ def _print_diff_preview(diff_text: str) -> None:
         print(f"[generator] … (diff truncated, {remaining} more lines)")
 
 
-def _apply_patch(patch_path: Path, root: Path) -> Tuple[bool, Optional[str]]:
+def _apply_patch(patch_path: Path, root: Path) -> tuple[bool, str | None]:
     apply_index = run(
         ["git", "apply", "--index", str(patch_path)],
         cwd=root,
@@ -1595,7 +1603,7 @@ def _apply_patch(patch_path: Path, root: Path) -> Tuple[bool, Optional[str]]:
     return False, combined_error or None
 
 
-def _guard_card_edits(slug: str, root: Path, baseline_text: Optional[str]) -> bool:
+def _guard_card_edits(slug: str, root: Path, baseline_text: str | None) -> bool:
     card_path = root / "documents" / "feature_cards" / f"{slug}.md"
     if not card_path.exists():
         return True
@@ -1626,14 +1634,14 @@ def _guard_card_edits(slug: str, root: Path, baseline_text: Optional[str]) -> bo
 
     allowed_headers = {"## Links", "## Spec Trace"}
 
-    def nearest_header(lines: List[str], idx: int) -> Optional[str]:
+    def nearest_header(lines: list[str], idx: int) -> str | None:
         for pos in range(min(idx, len(lines)) - 1, -1, -1):
             stripped = lines[pos].strip()
             if stripped.startswith("## "):
                 return stripped
         return None
 
-    def header_key(header: Optional[str]) -> Optional[str]:
+    def header_key(header: str | None) -> str | None:
         if header is None:
             return None
         return next(
@@ -1811,7 +1819,7 @@ def _run_critic(
     generation_pass: int,
     options: GeneratorOptions,
     context: RexContext,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     root = context.root
     prompt_path = context.codex_ci_dir / "generator_critic_prompt.txt"
     response_path = context.codex_ci_dir / "generator_critic_response.log"

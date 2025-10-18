@@ -375,7 +375,15 @@ function findMatchingTestKeyClient(tests, candidate) {
 function applyStrategyUpdateClient(slug, testIds, ts, updater) {
   const tests = ensureStrategyBucket(slug);
   const ids = testIds && testIds.length ? testIds : Object.keys(tests);
-  if (!ids.length) return;
+  if (!ids.length) {
+    const key = '__global__';
+    const entry = tests[key] || { strategy: [], files: [] };
+    entry.normalized = entry.normalized || normalizeStrategyKey(key);
+    updater(entry, key);
+    entry.lastUpdated = ts;
+    tests[key] = entry;
+    return;
+  }
   ids.forEach((candidate) => {
     const matchKey = findMatchingTestKeyClient(tests, candidate);
     if (!matchKey && !(candidate in tests) && Object.keys(tests).length) {
@@ -434,14 +442,18 @@ function findStrategyEntry(strategies, testId) {
   if (!strategies || !testId) return null;
   if (strategies[testId]) return strategies[testId];
   const targetKey = normalizeStrategyKey(testId);
+  let fallback = null;
   for (const key of Object.keys(strategies)) {
     const entry = strategies[key];
     const normalized = entry && entry.normalized ? entry.normalized : normalizeStrategyKey(key);
     if (normalized && normalized === targetKey) {
       return entry;
     }
+    if (!fallback && (key === '__global__' || normalizeStrategyKey(key) === normalizeStrategyKey(testId.split('.')[0]))) {
+      fallback = entry;
+    }
   }
-  return null;
+  return fallback;
 }
 
 function normalizeStrategySteps(value) {
@@ -1056,9 +1068,15 @@ async function init() {
     ]);
     renderSummary(s);
     for (const e of ev.items || []) {
-      if (e && e.meta) {
-        mergeCodingMeta(e.meta, e.ts || e.timestamp || new Date().toISOString());
-      }
+    if (e && e.meta) {
+      const meta = {
+        ...e.meta,
+        type: e.meta.type || e.type,
+        slug: e.meta.slug || e.slug,
+        phase: e.meta.phase || e.phase
+      };
+      mergeCodingMeta(meta, e.ts || e.timestamp || new Date().toISOString());
+    }
       logItems.push(e);
     }
     renderLog();
@@ -1099,8 +1117,16 @@ function connectSSE() {
         }
         plannerChanged = true;
       }
-      if (e.meta && mergeCodingMeta(e.meta, e.ts)) {
-        plannerChanged = true;
+      if (e.meta) {
+        const meta = {
+          ...e.meta,
+          type: e.meta.type || e.type,
+          slug: e.meta.slug || e.slug,
+          phase: e.meta.phase || e.phase
+        };
+        if (mergeCodingMeta(meta, e.ts || e.timestamp || new Date().toISOString())) {
+          plannerChanged = true;
+        }
       }
       if (plannerChanged) {
         renderPlanner();

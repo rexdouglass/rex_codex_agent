@@ -6,19 +6,18 @@ import json
 import os
 import shlex
 import subprocess
+from collections.abc import Iterator, Mapping, MutableMapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import (Dict, Iterator, List, Mapping, MutableMapping, Optional,
-                    Sequence, Set)
 
 
 class RexError(RuntimeError):
     """Raised when a command should exit with a non-zero status."""
 
 
-def _env_root() -> Optional[Path]:
+def _env_root() -> Path | None:
     root = os.environ.get("ROOT")
     if root:
         return Path(root).resolve()
@@ -71,7 +70,7 @@ def dump_json(path: Path, data: Mapping) -> None:
     path.write_text(f"{text}\n", encoding="utf-8")
 
 
-def which(executable: str) -> Optional[str]:
+def which(executable: str) -> str | None:
     from shutil import which as _which
 
     return _which(executable)
@@ -96,7 +95,7 @@ def run(
         merged_env = os.environ.copy()
     else:
         merged_env = {**os.environ, **env}
-    kwargs: Dict[str, object] = {"cwd": cwd, "env": merged_env, "check": check}
+    kwargs: dict[str, object] = {"cwd": cwd, "env": merged_env, "check": check}
     if capture_output:
         kwargs["stdout"] = subprocess.PIPE
         kwargs["stderr"] = subprocess.PIPE
@@ -114,7 +113,7 @@ class RexContext:
     venv_dir: Path
 
     @classmethod
-    def discover(cls) -> "RexContext":
+    def discover(cls) -> RexContext:
         root = repo_root()
         codex_ci = ensure_dir(root / ".codex_ci")
         monitor_logs = ensure_dir(root / ".agent" / "logs")
@@ -152,7 +151,7 @@ class FileLock:
 
     def __init__(self, lock_path: Path):
         self.lock_path = lock_path
-        self._fd: Optional[int] = None
+        self._fd: int | None = None
 
     def acquire(self, blocking: bool = False) -> None:
         import fcntl
@@ -179,7 +178,7 @@ class FileLock:
             os.close(self._fd)
             self._fd = None
 
-    def __enter__(self) -> "FileLock":
+    def __enter__(self) -> FileLock:
         self.acquire()
         return self
 
@@ -219,7 +218,7 @@ def ensure_python(context: RexContext, *, quiet: bool = False) -> None:
     )
 
 
-def activate_venv(context: RexContext) -> Dict[str, str]:
+def activate_venv(context: RexContext) -> dict[str, str]:
     env = os.environ.copy()
     env["VIRTUAL_ENV"] = str(context.venv_dir)
     bin_path = context.venv_dir / "bin"
@@ -228,7 +227,7 @@ def activate_venv(context: RexContext) -> Dict[str, str]:
     return env
 
 
-def read_lines(path: Path) -> List[str]:
+def read_lines(path: Path) -> list[str]:
     if not path.exists():
         return []
     return [line.rstrip("\n") for line in path.read_text(encoding="utf-8").splitlines()]
@@ -262,7 +261,7 @@ def ensure_requirements_installed(
 ) -> None:
     env = activate_venv(context)
     pip = context.venv_dir / "bin" / "pip"
-    base_cmd: List[str] = [str(pip), "install"]
+    base_cmd: list[str] = [str(pip), "install"]
     if quiet:
         base_cmd.append("-q")
     if requirements_template.exists():
@@ -281,7 +280,7 @@ def ensure_requirements_installed(
         run(base_cmd + baseline, env=env)
 
 
-def _audit_candidate_paths(root: Path) -> List[Path]:
+def _audit_candidate_paths(root: Path) -> list[Path]:
     patterns = [
         "*.md",
         "AGENTS.md",
@@ -296,7 +295,7 @@ def _audit_candidate_paths(root: Path) -> List[Path]:
         "rex_codex/**/*.py",
         "src/rex_codex/**/*.py",
     ]
-    seen: Set[Path] = set()
+    seen: set[Path] = set()
     excluded_root = root / "for_external_GPT5_pro_audit"
     for pattern in patterns:
         for path in root.glob(pattern):
@@ -338,8 +337,8 @@ def _render_directory_listing(root: Path) -> str:
         ".idea",
     }
     skip_contents_dirs = {".git"}
-    gitignore_cache: Dict[Path, bool] = {}
-    lines: List[str] = []
+    gitignore_cache: dict[Path, bool] = {}
+    lines: list[str] = []
     truncated = False
 
     def add_line(text: str) -> bool:
@@ -375,7 +374,7 @@ def _render_directory_listing(root: Path) -> str:
             add_line(f"{'  ' * (depth + 1)}[Error listing {path.name}: {exc}]")
             return
 
-        filtered: List[Path] = []
+        filtered: list[Path] = []
         for entry in entries:
             if entry.is_dir() and entry.name in skip_dir_names:
                 continue
@@ -418,7 +417,7 @@ def _render_directory_listing(root: Path) -> str:
     return "\n".join(lines)
 
 
-def _write_audit_file(audit_path: Path, root: Path, files: List[Path]) -> None:
+def _write_audit_file(audit_path: Path, root: Path, files: list[Path]) -> None:
     with audit_path.open("w", encoding="utf-8") as fh:
         fh.write("# External GPT5-Pro Audit Snapshot\n")
         fh.write(f"Generated at {datetime.now(UTC).isoformat()}\n\n")
@@ -478,7 +477,7 @@ def create_audit_snapshot(
     context: RexContext,
     *,
     auto_commit: bool = True,
-    extra_sections: Optional[List[tuple[str, Sequence[str]]]] = None,
+    extra_sections: list[tuple[str, Sequence[str]]] | None = None,
 ) -> Path:
     root = context.root
     audit_dir = ensure_dir(root / "for_external_GPT5_pro_audit")

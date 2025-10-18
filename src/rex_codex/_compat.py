@@ -5,10 +5,9 @@ from __future__ import annotations
 import sys
 from importlib import import_module
 from types import ModuleType
-from typing import Dict
 
 
-def reexport(module_path: str, global_ns: Dict[str, object]) -> ModuleType:
+def reexport(module_path: str, global_ns: dict[str, object]) -> ModuleType:
     """Populate ``global_ns`` with attributes from ``module_path``.
 
     This preserves backwards compatibility for modules that used to live at the

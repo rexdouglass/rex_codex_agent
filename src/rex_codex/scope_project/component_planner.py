@@ -8,9 +8,10 @@ import shlex
 import subprocess
 import time
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Mapping
+from typing import Any
 
 from .cards import FeatureCard
 from .events import emit_event
@@ -19,7 +20,7 @@ from .utils import RexContext
 
 @dataclass
 class PlannerResult:
-    plan: Dict[str, Any]
+    plan: dict[str, Any]
     path: Path
 
 
@@ -57,7 +58,7 @@ def ensure_component_plan(
         card_path=str(card_path),
     )
 
-    base_plan: Dict[str, Any] = {
+    base_plan: dict[str, Any] = {
         "card_path": str(card_path),
         "card_hash": card_hash,
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
@@ -93,7 +94,7 @@ def ensure_component_plan(
     for index, component in enumerate(components, start=1):
         comp_name = component.get("name") or f"Component {index}"
         comp_uid = component.get("id") or f"{slug}-c{index}-{uuid.uuid4().hex[:6]}"
-        comp_entry: Dict[str, Any] = {
+        comp_entry: dict[str, Any] = {
             "id": comp_uid,
             "name": comp_name,
             "summary": component.get("summary") or "",
@@ -130,7 +131,7 @@ def ensure_component_plan(
         for sub_index, sub in enumerate(subcomponents, start=1):
             sub_name = sub.get("name") or f"{comp_name} :: Subcomponent {sub_index}"
             sub_uid = sub.get("id") or f"{comp_uid}-s{sub_index}-{uuid.uuid4().hex[:6]}"
-            sub_entry: Dict[str, Any] = {
+            sub_entry: dict[str, Any] = {
                 "id": sub_uid,
                 "name": sub_name,
                 "summary": sub.get("summary") or "",
@@ -222,9 +223,9 @@ def ensure_component_plan(
 
 
 def _emit_plan_snapshot(
-    slug: str, plan: Dict[str, Any], *, plan_path: Path | None = None
+    slug: str, plan: dict[str, Any], *, plan_path: Path | None = None
 ) -> None:
-    meta: Dict[str, Any] = {"plan": plan, "plan_slug": slug}
+    meta: dict[str, Any] = {"plan": plan, "plan_slug": slug}
     if plan_path is not None:
         meta["plan_path"] = str(plan_path)
     emit_event(
@@ -240,8 +241,8 @@ def _hash_path(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _collect_other_cards(cards_dir: Path, exclude: Path) -> List[Dict[str, str]]:
-    payload: List[Dict[str, str]] = []
+def _collect_other_cards(cards_dir: Path, exclude: Path) -> list[dict[str, str]]:
+    payload: list[dict[str, str]] = []
     if not cards_dir.exists():
         return payload
     for item in sorted(cards_dir.glob("*.md")):
@@ -260,7 +261,7 @@ def _collect_other_cards(cards_dir: Path, exclude: Path) -> List[Dict[str, str]]
 
 
 def _component_prompt(
-    slug: str, card_text: str, other_cards: List[Dict[str, str]]
+    slug: str, card_text: str, other_cards: list[dict[str, str]]
 ) -> str:
     extras = (
         "\n".join(f"- {card['name']} ({card['path']})" for card in other_cards)
@@ -299,7 +300,7 @@ def _subcomponent_prompt(
     *,
     slug: str,
     card_text: str,
-    component: Dict[str, Any],
+    component: dict[str, Any],
 ) -> str:
     summary = component.get("summary", "")
     rationale = component.get("rationale", "")
@@ -336,8 +337,8 @@ def _test_prompt(
     *,
     slug: str,
     card_text: str,
-    component: Dict[str, Any],
-    subcomponent: Dict[str, Any],
+    component: dict[str, Any],
+    subcomponent: dict[str, Any],
 ) -> str:
     summary = subcomponent.get("summary", "")
     deps = ", ".join(subcomponent.get("dependencies") or []) or "None stated"
@@ -387,7 +388,7 @@ def _run_codex_json(
     codex_flags: str,
     codex_model: str,
     verbose: bool,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     if verbose:
         print(f"[planner] Calling Codex ({label})…")
     emit_event(
@@ -436,7 +437,7 @@ def _run_codex_json(
     return payload
 
 
-def _extract_json(text: str) -> Dict[str, Any]:
+def _extract_json(text: str) -> dict[str, Any]:
     stripped = text.strip()
     if not stripped:
         return {}

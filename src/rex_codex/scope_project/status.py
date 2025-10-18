@@ -4,11 +4,17 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, Iterable
+from typing import Any
 
-from .cards import (FeatureCard, card_content_hash, card_path_for,
-                    discover_cards, load_rex_agent)
+from .cards import (
+    FeatureCard,
+    card_content_hash,
+    card_path_for,
+    discover_cards,
+    load_rex_agent,
+)
 from .utils import RexContext
 
 
@@ -23,7 +29,7 @@ def _format_timestamp(value: str | None) -> str:
     return when.isoformat(timespec="seconds")
 
 
-def summarize_context(context: RexContext) -> Dict[str, Any]:
+def summarize_context(context: RexContext) -> dict[str, Any]:
     data = load_rex_agent(context)
     feature = data.get("feature", {})
     active_slug = feature.get("active_slug")

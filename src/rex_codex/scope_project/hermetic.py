@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
-from typing import List, Tuple
 
 BANNED_IMPORT_MODULES = {
     "requests": "network access via requests",
@@ -57,7 +56,7 @@ class HermeticVisitor(ast.NodeVisitor):
     def __init__(self, path: Path) -> None:
         self.path = path
         self.aliases: dict[str, str] = {}
-        self.violations: List[Tuple[Path, int, str]] = []
+        self.violations: list[tuple[Path, int, str]] = []
 
     def add_violation(self, lineno: int, detail: str) -> None:
         self.violations.append((self.path, lineno, detail))
@@ -145,7 +144,7 @@ class HermeticVisitor(ast.NodeVisitor):
 
 
 def ensure_hermetic(specs_dir: Path) -> bool:
-    violations: List[Tuple[Path, int, str]] = []
+    violations: list[tuple[Path, int, str]] = []
     for path in specs_dir.rglob("*.py"):
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))

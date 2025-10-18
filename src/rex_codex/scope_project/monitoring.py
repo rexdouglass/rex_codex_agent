@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import subprocess
-from typing import Optional
 
 from .utils import RexContext, which
 
@@ -15,7 +14,7 @@ def ensure_monitor_server(
     context: RexContext,
     *,
     open_browser: bool = True,
-    extra_env: Optional[dict[str, str]] = None,
+    extra_env: dict[str, str] | None = None,
 ) -> None:
     """Launch the monitor web server in the background if available.
 

@@ -9,9 +9,10 @@ import sys
 import threading
 import time
 from collections import deque
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Deque, Dict, Iterable, List, Optional
+from typing import Any
 
 from .events import events_path
 
@@ -32,7 +33,7 @@ def _shorten(text: str, width: int) -> str:
     return text[: width - 1] + "…"
 
 
-def _format_duration(seconds: Optional[float]) -> str:
+def _format_duration(seconds: float | None) -> str:
     if not seconds or seconds <= 0:
         return "0s"
     if seconds < 60:
@@ -48,7 +49,7 @@ def _format_duration(seconds: Optional[float]) -> str:
 class AcceptanceItem:
     index: int
     text: str
-    tests: List[str] = field(default_factory=list)
+    tests: list[str] = field(default_factory=list)
     status: str = "planned"
 
 
@@ -60,23 +61,23 @@ class GeneratorHUDModel:
         self.feature_title = slug
         self.feature_status = ""
         self.feature_summary = ""
-        self.acceptance: List[AcceptanceItem] = []
+        self.acceptance: list[AcceptanceItem] = []
         self.iteration_current = 0
         self.iteration_total = 0
         self.iteration_status = "idle"
-        self.iteration_history: List[float] = []
+        self.iteration_history: list[float] = []
         self.codex_status = "idle"
         self.codex_elapsed_hint = 0.0
-        self.codex_returncode: Optional[int] = None
-        self.diff_files: List[Dict[str, Any]] = []
-        self.diff_totals: Dict[str, int] = {}
+        self.codex_returncode: int | None = None
+        self.diff_files: list[dict[str, Any]] = []
+        self.diff_totals: dict[str, int] = {}
         self.pytest_status = "pending"
         self.pytest_output = ""
         self.critic_status = "pending"
         self.critic_guidance = ""
         self.feature_outcome = "running"
-        self.orphan_tests: List[str] = []
-        self.messages: Deque[str] = deque(maxlen=8)
+        self.orphan_tests: list[str] = []
+        self.messages: deque[str] = deque(maxlen=8)
         self.coverage_percent: float = 0.0
         self.coverage_linked = 0
         self.coverage_total = 0
@@ -90,7 +91,7 @@ class GeneratorHUDModel:
         ]
         self._recompute_coverage_metrics()
 
-    def _update_acceptance_tests(self, coverage: Dict[str, Any]) -> None:
+    def _update_acceptance_tests(self, coverage: dict[str, Any]) -> None:
         entries = coverage.get("entries") or []
         indexed_tests = {
             entry.get("index"): entry.get("tests", []) for entry in entries
@@ -116,7 +117,7 @@ class GeneratorHUDModel:
             self.coverage_total = 0
             self.coverage_failing = 0
             return
-        contributions: List[float] = []
+        contributions: list[float] = []
         linked = 0
         failing = 0
         for item in self.acceptance:
@@ -152,7 +153,7 @@ class GeneratorHUDModel:
             return
         self.messages.append(text)
 
-    def apply_event(self, event: Dict[str, Any]) -> None:
+    def apply_event(self, event: dict[str, Any]) -> None:
         data = event.get("data", {})
         etype = event.get("type", "")
         if etype == "feature_started":
@@ -241,10 +242,10 @@ class GeneratorHUDModel:
                 self._add_message("Feature failed.")
             self._recompute_coverage_metrics()
 
-    def _acceptance_rows(self) -> List[str]:
+    def _acceptance_rows(self) -> list[str]:
         if not self.acceptance:
             return ["  (no acceptance criteria listed)"]
-        rows: List[str] = []
+        rows: list[str] = []
         for item in self.acceptance:
             icon = STATUS_ICONS.get(item.status, "[ ]")
             tests = ", ".join(_shorten(t, 40) for t in item.tests) or "(missing)"
@@ -263,7 +264,7 @@ class GeneratorHUDModel:
         total_blocks = 10
         filled_blocks = max(0, min(total_blocks, int(round(percent_display / 10))))
         bar = "█" * filled_blocks + "░" * (total_blocks - filled_blocks)
-        summary_parts: List[str] = []
+        summary_parts: list[str] = []
         if self.coverage_total:
             summary_parts.append(
                 f"{self.coverage_linked}/{self.coverage_total} bullets linked"
@@ -297,7 +298,7 @@ class GeneratorHUDModel:
             parts.append(f"+{added}/-{removed} lines")
         return ", ".join(parts) if parts else "pending"
 
-    def _iteration_summary(self, elapsed: Optional[float]) -> str:
+    def _iteration_summary(self, elapsed: float | None) -> str:
         if not self.iteration_total:
             return "Idle"
         current = self.iteration_current or 1
@@ -312,7 +313,7 @@ class GeneratorHUDModel:
             parts.append(f"avg {_format_duration(avg)}")
         return ", ".join(parts)
 
-    def _codex_summary(self, elapsed: Optional[float]) -> str:
+    def _codex_summary(self, elapsed: float | None) -> str:
         status = self.codex_status
         if status == "idle":
             return "Idle"
@@ -346,9 +347,9 @@ class GeneratorHUDModel:
         return "Waiting"
 
     def render(
-        self, iteration_elapsed: Optional[float], codex_elapsed: Optional[float]
+        self, iteration_elapsed: float | None, codex_elapsed: float | None
     ) -> str:
-        lines: List[str] = []
+        lines: list[str] = []
         state = self.feature_outcome.upper()
         header = f"Feature: {self.feature_title}  [status: {self.feature_status or 'unknown'}]  → {state}"
         lines.append(header)
@@ -426,10 +427,10 @@ class GeneratorHUD(contextlib.AbstractContextManager["GeneratorHUD"]):
             self.terminal = _sys.__stdout__
         self.enabled = self._should_enable()
         self.log_path = codex_ci_dir / f"generator_console_{slug}.log"
-        self._stack: Optional[contextlib.ExitStack] = None
-        self._capture: Optional[_HUDCapture] = None
-        self._log_handle: Optional[io.TextIOBase] = None
-        self._thread: Optional[threading.Thread] = None
+        self._stack: contextlib.ExitStack | None = None
+        self._capture: _HUDCapture | None = None
+        self._log_handle: io.TextIOBase | None = None
+        self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
         self._events_path = events_path()
         self._offset = 0
@@ -438,8 +439,8 @@ class GeneratorHUD(contextlib.AbstractContextManager["GeneratorHUD"]):
         self._cursor_hidden = False
         self._alt_screen = False
         self._use_alternate = self.ui_mode == "monitor"
-        self._iteration_start: Optional[float] = None
-        self._codex_start: Optional[float] = None
+        self._iteration_start: float | None = None
+        self._codex_start: float | None = None
 
     def _should_enable(self) -> bool:
         if self.ui_mode == "off":
@@ -489,7 +490,7 @@ class GeneratorHUD(contextlib.AbstractContextManager["GeneratorHUD"]):
 
     # Context manager --------------------------------------------------
 
-    def __enter__(self) -> "GeneratorHUD":
+    def __enter__(self) -> GeneratorHUD:
         if not self.enabled:
             return self
         self._offset = 0

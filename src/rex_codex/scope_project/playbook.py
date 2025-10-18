@@ -11,9 +11,9 @@ from __future__ import annotations
 import csv
 import json
 import re
+from collections.abc import Iterable, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .cards import FeatureCard
 from .utils import RexContext, ensure_dir
@@ -36,10 +36,10 @@ def _normalize_heading(name: str) -> str:
     return normalized or "section"
 
 
-def _parse_sections(text: str) -> Tuple[Dict[str, List[str]], Optional[str]]:
-    sections: Dict[str, List[str]] = {"__root__": []}
+def _parse_sections(text: str) -> tuple[dict[str, list[str]], str | None]:
+    sections: dict[str, list[str]] = {"__root__": []}
     current = "__root__"
-    first_heading: Optional[str] = None
+    first_heading: str | None = None
     for raw_line in text.splitlines():
         line = raw_line.rstrip("\n")
         heading = re.match(r"^(#{1,6})\s+(.*)$", line)
@@ -56,8 +56,8 @@ def _parse_sections(text: str) -> Tuple[Dict[str, List[str]], Optional[str]]:
     return sections, first_heading
 
 
-def _extract_metadata(lines: List[str]) -> Dict[str, str]:
-    metadata: Dict[str, str] = {}
+def _extract_metadata(lines: list[str]) -> dict[str, str]:
+    metadata: dict[str, str] = {}
     for line in lines:
         if not line or line.lstrip().startswith("#"):
             continue
@@ -72,8 +72,8 @@ def _extract_metadata(lines: List[str]) -> Dict[str, str]:
     return metadata
 
 
-def _extract_bullets(lines: List[str]) -> List[str]:
-    bullets: List[str] = []
+def _extract_bullets(lines: list[str]) -> list[str]:
+    bullets: list[str] = []
     for line in lines:
         stripped = line.strip()
         if stripped.startswith("- "):
@@ -81,9 +81,9 @@ def _extract_bullets(lines: List[str]) -> List[str]:
     return bullets
 
 
-def _extract_keyed_lists(lines: List[str]) -> Dict[str, List[str]]:
-    keyed: Dict[str, List[str]] = {}
-    current: Optional[str] = None
+def _extract_keyed_lists(lines: list[str]) -> dict[str, list[str]]:
+    keyed: dict[str, list[str]] = {}
+    current: str | None = None
     for line in lines:
         stripped = line.strip()
         if not stripped:
@@ -103,7 +103,7 @@ def _extract_keyed_lists(lines: List[str]) -> Dict[str, List[str]]:
     return keyed
 
 
-def _parse_csv_list(value: str) -> List[str]:
+def _parse_csv_list(value: str) -> list[str]:
     if not value:
         return []
     value = value.strip()
@@ -127,19 +127,19 @@ class AcceptanceCriterion:
     id: str
     text: str
 
-    def to_dict(self) -> Dict[str, str]:
+    def to_dict(self) -> dict[str, str]:
         return {"id": self.id, "text": self.text}
 
 
 @dataclass
 class ObservabilityHints:
-    logs: List[str] = field(default_factory=list)
-    events: List[str] = field(default_factory=list)
-    metrics: List[str] = field(default_factory=list)
-    traces: List[str] = field(default_factory=list)
-    other: List[str] = field(default_factory=list)
+    logs: list[str] = field(default_factory=list)
+    events: list[str] = field(default_factory=list)
+    metrics: list[str] = field(default_factory=list)
+    traces: list[str] = field(default_factory=list)
+    other: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, List[str]]:
+    def to_dict(self) -> dict[str, list[str]]:
         return {
             "logs": self.logs,
             "events": self.events,
@@ -160,16 +160,16 @@ class FeatureCardModel:
     priority: str
     owner: str
     version: int
-    dependencies: List[str]
-    acceptance_criteria: List[AcceptanceCriterion]
-    non_goals: List[str]
-    open_questions: List[str]
-    constraints: Dict[str, List[str]]
+    dependencies: list[str]
+    acceptance_criteria: list[AcceptanceCriterion]
+    non_goals: list[str]
+    open_questions: list[str]
+    constraints: dict[str, list[str]]
     observability: ObservabilityHints
     notes: str
     summary: str
 
-    def to_dict(self) -> Dict[str, object]:
+    def to_dict(self) -> dict[str, object]:
         data = asdict(self)
         data["acceptance_criteria"] = [
             criterion.to_dict() for criterion in self.acceptance_criteria
@@ -202,7 +202,7 @@ def canonicalize_feature_card(card: FeatureCard) -> FeatureCardModel:
         "epic": "epic",
     }
 
-    meta_store: Dict[str, str] = {}
+    meta_store: dict[str, str] = {}
     for key, value in metadata.items():
         target = meta_aliases.get(key)
         if not target:
@@ -228,7 +228,7 @@ def canonicalize_feature_card(card: FeatureCard) -> FeatureCardModel:
             acceptance_lines = sections.get(tag, [])
             break
     acceptance_bullets = _extract_bullets(acceptance_lines)
-    acceptance: List[AcceptanceCriterion] = []
+    acceptance: list[AcceptanceCriterion] = []
     for index, bullet in enumerate(acceptance_bullets, start=1):
         match = re.match(
             r"^(AC(?:[-_#\s]?)(\d+))[:\s.-]*(.*)$", bullet, flags=re.IGNORECASE
@@ -322,9 +322,9 @@ class Assumption:
     rationale: str = ""
     risk: str = "medium"
     default_choice: str = ""
-    ways_to_falsify: List[str] = field(default_factory=list)
+    ways_to_falsify: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, object]:
+    def to_dict(self) -> dict[str, object]:
         return {
             "id": self.id,
             "text": self.text,
@@ -339,12 +339,12 @@ class AssumptionLedger:
     def __init__(self, path: Path, feature_id: str):
         self.path = path
         self.feature_id = feature_id
-        self.assumptions: List[Assumption] = []
-        self.escalation_hints: List[str] = []
-        self._index: Dict[str, Assumption] = {}
+        self.assumptions: list[Assumption] = []
+        self.escalation_hints: list[str] = []
+        self._index: dict[str, Assumption] = {}
 
     @classmethod
-    def load(cls, context: RexContext, feature: FeatureCardModel) -> "AssumptionLedger":
+    def load(cls, context: RexContext, feature: FeatureCardModel) -> AssumptionLedger:
         ledger_dir = ensure_dir(context.root / "documents" / "assumption_ledgers")
         ledger_path = ledger_dir / f"{feature.slug}.json"
         ledger = cls(ledger_path, feature.id)
@@ -386,7 +386,7 @@ class AssumptionLedger:
         rationale: str,
         risk: str = "medium",
         default_choice: str = "",
-        ways_to_falsify: Optional[Sequence[str]] = None,
+        ways_to_falsify: Sequence[str] | None = None,
     ) -> str:
         normalized = _normalise_assumption_text(text)
         existing = self._index.get(normalized)
@@ -411,7 +411,7 @@ class AssumptionLedger:
         if cleaned not in self.escalation_hints:
             self.escalation_hints.append(cleaned)
 
-    def to_dict(self) -> Dict[str, object]:
+    def to_dict(self) -> dict[str, object]:
         return {
             "feature_id": self.feature_id,
             "assumptions": [assumption.to_dict() for assumption in self.assumptions],
@@ -447,14 +447,14 @@ EXTENSION_LANG_MAP = {
 
 @dataclass
 class RepositoryInventory:
-    languages: List[str]
-    test_frameworks: List[str]
-    important_paths: Dict[str, str]
-    feature_tags: Dict[str, List[str]]
-    api_schemas: List[str]
-    event_emitters: Dict[str, List[str]]
+    languages: list[str]
+    test_frameworks: list[str]
+    important_paths: dict[str, str]
+    feature_tags: dict[str, list[str]]
+    api_schemas: list[str]
+    event_emitters: dict[str, list[str]]
 
-    def to_dict(self) -> Dict[str, object]:
+    def to_dict(self) -> dict[str, object]:
         return {
             "languages": self.languages,
             "test_frameworks": self.test_frameworks,
@@ -464,7 +464,7 @@ class RepositoryInventory:
             "event_emitters": self.event_emitters,
         }
 
-    def components_for_feature(self, feature_id: str, slug: str) -> List[str]:
+    def components_for_feature(self, feature_id: str, slug: str) -> list[str]:
         matches = set()
         lookup_keys = {feature_id.upper(), slug.upper(), slug.replace("-", "_").upper()}
         for key, paths in self.feature_tags.items():
@@ -476,8 +476,8 @@ class RepositoryInventory:
 def inventory_repository(context: RexContext) -> RepositoryInventory:
     root = context.root
     languages: set[str] = set()
-    feature_tags: Dict[str, List[str]] = {}
-    event_emitters: Dict[str, List[str]] = {}
+    feature_tags: dict[str, list[str]] = {}
+    event_emitters: dict[str, list[str]] = {}
 
     feature_pattern = re.compile(r"FC-[A-Za-z0-9_-]+")
     event_pattern = re.compile(
@@ -513,7 +513,7 @@ def inventory_repository(context: RexContext) -> RepositoryInventory:
                 continue
             event_emitters.setdefault(event_name, []).append(rel_path)
 
-    test_frameworks: List[str] = []
+    test_frameworks: list[str] = []
     if (root / "pytest.ini").exists() or (root / "pyproject.toml").exists():
         test_frameworks.append("pytest")
     if (root / "playwright.config.ts").exists() or (
@@ -532,7 +532,7 @@ def inventory_repository(context: RexContext) -> RepositoryInventory:
         if "jest" in combined and "jest" not in test_frameworks:
             test_frameworks.append("jest")
 
-    api_schemas: List[str] = []
+    api_schemas: list[str] = []
     for candidate in root.rglob("*.yaml"):
         name = candidate.name.lower()
         if "openapi" in name or "swagger" in name:
@@ -568,15 +568,15 @@ class Scenario:
     id: str
     kind: str
     summary: str
-    preconditions: List[str]
-    steps: List[str]
-    assertions: List[str]
-    observables: List[str]
-    assumptions: List[str]
-    test_types: List[str]
-    components: List[str]
+    preconditions: list[str]
+    steps: list[str]
+    assertions: list[str]
+    observables: list[str]
+    assumptions: list[str]
+    test_types: list[str]
+    components: list[str]
 
-    def to_dict(self) -> Dict[str, object]:
+    def to_dict(self) -> dict[str, object]:
         return asdict(self)
 
 
@@ -585,17 +585,17 @@ class Capability:
     id: str
     source_ac: str
     statement: str
-    preconditions: List[str]
-    triggers: List[str]
-    observables: List[str]
-    negative_space: List[str]
-    measurement_strategy: List[str]
-    test_types: List[str]
-    edge_cases: List[str]
-    invariants: List[str]
-    scenarios: List[Scenario]
+    preconditions: list[str]
+    triggers: list[str]
+    observables: list[str]
+    negative_space: list[str]
+    measurement_strategy: list[str]
+    test_types: list[str]
+    edge_cases: list[str]
+    invariants: list[str]
+    scenarios: list[Scenario]
 
-    def to_dict(self) -> Dict[str, object]:
+    def to_dict(self) -> dict[str, object]:
         data = asdict(self)
         data["scenarios"] = [scenario.to_dict() for scenario in self.scenarios]
         return data
@@ -604,16 +604,16 @@ class Capability:
 @dataclass
 class TestSpecGraph:
     feature_card_id: str
-    capabilities: List[Capability]
+    capabilities: list[Capability]
 
-    def to_dict(self) -> Dict[str, object]:
+    def to_dict(self) -> dict[str, object]:
         return {
             "feature_card_id": self.feature_card_id,
             "capabilities": [capability.to_dict() for capability in self.capabilities],
         }
 
 
-def _split_sentences(text: str) -> List[str]:
+def _split_sentences(text: str) -> list[str]:
     raw = re.split(r"(?<=[.!?])\s+", text)
     return [segment.strip() for segment in raw if segment.strip()]
 
@@ -624,8 +624,8 @@ def _lower(text: str) -> str:
 
 def _extract_phrases_by_keywords(
     sentences: Iterable[str], keywords: Sequence[str]
-) -> List[str]:
-    matches: List[str] = []
+) -> list[str]:
+    matches: list[str] = []
     for sentence in sentences:
         lowered = sentence.lower()
         if any(keyword in lowered for keyword in keywords):
@@ -648,8 +648,8 @@ def _fallback_assumption(
     )
 
 
-def _derive_measurements(observables: List[str]) -> List[str]:
-    measurements: List[str] = []
+def _derive_measurements(observables: list[str]) -> list[str]:
+    measurements: list[str] = []
     for observable in observables:
         measurements.append(f"Validate observable: {observable}")
     if not measurements:
@@ -659,8 +659,8 @@ def _derive_measurements(observables: List[str]) -> List[str]:
     return measurements
 
 
-def _derive_invariants(constraints: Dict[str, List[str]]) -> List[str]:
-    invariants: List[str] = []
+def _derive_invariants(constraints: dict[str, list[str]]) -> list[str]:
+    invariants: list[str] = []
     for key, values in constraints.items():
         if "invariant" in key or "domain" in key:
             invariants.extend(values)
@@ -669,11 +669,11 @@ def _derive_invariants(constraints: Dict[str, List[str]]) -> List[str]:
 
 def _select_test_types(
     capability_statement: str,
-    observables: List[str],
+    observables: list[str],
     repo_inventory: RepositoryInventory,
-) -> List[str]:
+) -> list[str]:
     lowered = capability_statement.lower()
-    types: List[str] = ["unit", "integration"]
+    types: list[str] = ["unit", "integration"]
     if any(term in lowered for term in ("api", "endpoint", "http", "response")):
         types.append("contract")
     if any(term in lowered for term in ("ui", "screen", "button", "page")):
@@ -685,7 +685,7 @@ def _select_test_types(
     return sorted(dict.fromkeys(types))
 
 
-def _scenario_test_types(kind: str, base_types: Sequence[str]) -> List[str]:
+def _scenario_test_types(kind: str, base_types: Sequence[str]) -> list[str]:
     mapping = {
         "happy_path": ("integration", "e2e"),
         "boundary": ("unit", "property", "integration"),
@@ -697,7 +697,7 @@ def _scenario_test_types(kind: str, base_types: Sequence[str]) -> List[str]:
 
 def _derive_components(
     inventory: RepositoryInventory, feature_id: str, slug: str
-) -> List[str]:
+) -> list[str]:
     components = inventory.components_for_feature(feature_id, slug)
     if components:
         return components
@@ -709,11 +709,11 @@ def _build_scenarios_for_capability(
     *,
     feature: FeatureCardModel,
     capability: Capability,
-    sentences: List[str],
+    sentences: list[str],
     ledger: AssumptionLedger,
     inventory: RepositoryInventory,
-) -> List[Scenario]:
-    scenarios: List[Scenario] = []
+) -> list[Scenario]:
+    scenarios: list[Scenario] = []
     counter = 1
 
     def next_id() -> str:
@@ -727,7 +727,7 @@ def _build_scenarios_for_capability(
     # Happy path scenario
     happy_id = next_id()
     happy_observables = capability.observables or capability.preconditions
-    happy_assumptions: List[str] = []
+    happy_assumptions: list[str] = []
     if not capability.triggers:
         happy_assumptions.append(
             _fallback_assumption(ledger, capability.id, "trigger condition")
@@ -846,7 +846,7 @@ def build_test_spec_graph(
     ledger: AssumptionLedger,
     inventory: RepositoryInventory,
 ) -> TestSpecGraph:
-    capabilities: List[Capability] = []
+    capabilities: list[Capability] = []
     constraints = feature.constraints
     invariants = _derive_invariants(constraints)
 
@@ -946,10 +946,10 @@ class PlaybookArtifacts:
     inventory: RepositoryInventory
     graph: TestSpecGraph
     ledger: AssumptionLedger
-    traceability_rows: List[Dict[str, str]]
+    traceability_rows: list[dict[str, str]]
     prompt_block: str
 
-    def to_dict(self) -> Dict[str, object]:
+    def to_dict(self) -> dict[str, object]:
         return {
             "feature_card": self.feature.to_dict(),
             "repository_inventory": self.inventory.to_dict(),
@@ -962,8 +962,8 @@ class PlaybookArtifacts:
 
 def _build_traceability_rows(
     feature: FeatureCardModel, graph: TestSpecGraph
-) -> List[Dict[str, str]]:
-    rows: List[Dict[str, str]] = []
+) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
     for capability in graph.capabilities:
         for scenario in capability.scenarios:
             test_id = "-".join(

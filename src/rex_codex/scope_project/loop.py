@@ -7,18 +7,22 @@ import os
 import sys
 from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
-from typing import List, Optional
 
-from .cards import (card_content_hash, card_path_for, discover_cards,
-                    load_rex_agent)
+from .cards import card_content_hash, card_path_for, discover_cards, load_rex_agent
 from .discriminator import DiscriminatorOptions, run_discriminator
 from .doctor import run_doctor
 from .generator import GeneratorOptions, run_generator
 from .logs import show_latest_logs
 from .monitoring import ensure_monitor_server
 from .self_update import self_update
-from .utils import (RexContext, activate_venv, create_audit_snapshot,
-                    dump_json, lock_file, run)
+from .utils import (
+    RexContext,
+    activate_venv,
+    create_audit_snapshot,
+    dump_json,
+    lock_file,
+    run,
+)
 
 GENERATOR_EXIT_MESSAGES = {
     0: "Specs updated",
@@ -38,14 +42,14 @@ DISCRIMINATOR_EXIT_MESSAGES = {
 }
 
 
-def _current_card_hash(context: RexContext, slug: str | None) -> Optional[str]:
+def _current_card_hash(context: RexContext, slug: str | None) -> str | None:
     if not slug:
         return None
     path = card_path_for(context, slug)
     return card_content_hash(path)
 
 
-def _stored_card_hash(context: RexContext, slug: str | None) -> Optional[str]:
+def _stored_card_hash(context: RexContext, slug: str | None) -> str | None:
     if not slug:
         return None
     data = load_rex_agent(context)
@@ -67,7 +71,7 @@ def _record_card_hash(context: RexContext, slug: str | None) -> None:
     dump_json(context.rex_agent_file, data)
 
 
-def _card_drift_message(context: RexContext, slug: str | None) -> Optional[str]:
+def _card_drift_message(context: RexContext, slug: str | None) -> str | None:
     if not slug:
         return None
     stored = _stored_card_hash(context, slug)
@@ -87,10 +91,10 @@ def _load_discriminator_metadata(context: RexContext) -> dict[str, object]:
         return {}
 
 
-def _missing_tooling(context: RexContext) -> List[str]:
+def _missing_tooling(context: RexContext) -> list[str]:
     env = activate_venv(context)
     modules = ["pytest", "pytest_cov", "black", "isort", "ruff", "flake8", "mypy"]
-    missing: List[str] = []
+    missing: list[str] = []
     for module in modules:
         result = run(
             ["python", "-c", f"import {module}"],
@@ -149,7 +153,7 @@ def _render_loop_summary(
     *,
     generator_code: int | None,
     discriminator_code: int | None,
-    notes: Optional[List[str]] = None,
+    notes: list[str] | None = None,
 ) -> None:
     palette = _ansi_palette()
     gen_state, gen_message = _describe_generator_exit(generator_code)
@@ -182,9 +186,9 @@ def _render_loop_summary(
 def _collect_summary_lines(
     generator_code: int | None,
     discriminator_code: int | None,
-    notes: Optional[List[str]] = None,
-) -> List[str]:
-    lines: List[str] = []
+    notes: list[str] | None = None,
+) -> list[str]:
+    lines: list[str] = []
     gen_state, gen_message = _describe_generator_exit(generator_code)
     lines.append(f"Generator: {gen_state.upper()} — {gen_message}")
     disc_state, disc_message = _describe_discriminator_exit(discriminator_code)
@@ -194,7 +198,7 @@ def _collect_summary_lines(
     return lines
 
 
-def _perform_audit(context: RexContext, summary: Optional[List[str]] = None) -> None:
+def _perform_audit(context: RexContext, summary: list[str] | None = None) -> None:
     try:
         extra = [("Loop Summary", summary)] if summary else None
         create_audit_snapshot(context, extra_sections=extra)
@@ -202,14 +206,14 @@ def _perform_audit(context: RexContext, summary: Optional[List[str]] = None) -> 
         print(f"[loop] Audit snapshot failed: {exc}")
 
 
-def _print_batch_summary(entries: List[dict[str, Optional[int]]]) -> None:
+def _print_batch_summary(entries: list[dict[str, int | None]]) -> None:
     if not entries:
         return
     palette = _ansi_palette()
     print("\n=== Loop Batch Summary =======================================")
     print(f"{'Slug':<24} {'Generator':<16} {'Discriminator':<16}")
 
-    def format_status(code: Optional[int]) -> str:
+    def format_status(code: int | None) -> str:
         if code is None:
             return f"{palette.dim}SKIP{palette.reset}"
         if code == 0:
@@ -224,8 +228,8 @@ def _print_batch_summary(entries: List[dict[str, Optional[int]]]) -> None:
     print("==============================================================")
 
 
-def _batch_summary_lines(entries: List[dict[str, Optional[int]]]) -> List[str]:
-    lines: List[str] = []
+def _batch_summary_lines(entries: list[dict[str, int | None]]) -> list[str]:
+    lines: list[str] = []
     for entry in entries:
         slug = entry.get("slug", "")
         gen = entry.get("generator")
@@ -279,8 +283,8 @@ def run_loop(options: LoopOptions, *, context: RexContext | None = None) -> int:
         return _run_single(options, context)
 
 
-def _describe_plan(options: LoopOptions, context: RexContext) -> List[str]:
-    lines: List[str] = []
+def _describe_plan(options: LoopOptions, context: RexContext) -> list[str]:
+    lines: list[str] = []
     statuses = options.generator_options.statuses or ["proposed"]
     lines.append(
         f"Self-update: {'enabled' if options.perform_self_update else 'disabled'} "
@@ -327,7 +331,7 @@ def _run_each(options: LoopOptions, context: RexContext) -> int:
         print(f"[loop] No Feature Cards with statuses: {statuses}")
         return 1
 
-    batch_results: List[dict[str, Optional[int]]] = []
+    batch_results: list[dict[str, int | None]] = []
     final_exit = 0
 
     for card in cards:
@@ -337,8 +341,8 @@ def _run_each(options: LoopOptions, context: RexContext) -> int:
             palette = _ansi_palette()
             print(f"{palette.warning}[loop] WARNING:{palette.reset} {drift}")
 
-        generator_exit: Optional[int] = None
-        discriminator_exit: Optional[int] = None
+        generator_exit: int | None = None
+        discriminator_exit: int | None = None
 
         if options.run_generator:
             generator_opts = replace(options.generator_options, card_path=card.path)
@@ -415,18 +419,18 @@ def _run_each(options: LoopOptions, context: RexContext) -> int:
 
 
 def _run_single(options: LoopOptions, context: RexContext) -> int:
-    summary_notes: List[str] = []
+    summary_notes: list[str] = []
     seen_notes: set[str] = set()
     palette = _ansi_palette()
 
-    def note_warning(message: Optional[str]) -> None:
+    def note_warning(message: str | None) -> None:
         if not message or message in seen_notes:
             return
         seen_notes.add(message)
         print(f"{palette.warning}[loop] WARNING:{palette.reset} {message}")
         summary_notes.append(message)
 
-    slug_hint: Optional[str] = None
+    slug_hint: str | None = None
     if options.generator_options.card_path:
         slug_hint = options.generator_options.card_path.stem
     else:

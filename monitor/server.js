@@ -141,6 +141,9 @@ function updateSummary(e) {
     if (!metaWithType.slug) {
       metaWithType.slug = e.slug || (metaWithType.meta_slug ?? undefined);
     }
+    if (!metaWithType.phase) {
+      metaWithType.phase = e.phase;
+    }
     ingestCodingMeta(metaWithType, e.ts);
   }
 }
@@ -546,7 +549,15 @@ function applyStrategyUpdate(slug, testIds, ts, updater) {
   if (!bucket) return;
   const tests = bucket.tests || (bucket.tests = {});
   const targetIds = testIds && testIds.length ? testIds : Object.keys(tests);
-  if (!targetIds.length) return;
+  if (!targetIds.length) {
+    const key = "__global__";
+    const entry = tests[key] || { strategy: [], files: [] };
+    entry.normalized = entry.normalized || normalizeKey(key);
+    updater(entry, key);
+    entry.lastUpdated = ts;
+    tests[key] = entry;
+    return;
+  }
   targetIds.forEach((candidate) => {
     const matchKey = findMatchingTestKey(tests, candidate);
     if (!matchKey && !(candidate in tests) && Object.keys(tests).length) {
