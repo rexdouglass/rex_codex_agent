@@ -8,26 +8,38 @@
 </head>
 <body>
   <header class="hdr">
-    <div class="brand">
+    <div class="hdr-left">
       <span class="dot" id="connDot"></span>
-      <h1>Agent Monitor</h1>
-      <div id="eventsPerMin" class="epm">0 evt/min</div>
+      <span class="brand-title">Agent Monitor</span>
+      <span class="brand-subtitle">Live build activity and plan traceability</span>
+      <span id="eventsPerMin" class="epm">0 evt/min</span>
     </div>
-    <nav class="links">
-      <a href="/api/summary" target="_blank">Summary JSON</a>
-      <a href="/api/events" target="_blank">Events JSON</a>
-      <a id="healthLink" href="/api/health" target="_blank">Health</a>
-    </nav>
+    <div class="hdr-right">
+      <div class="hdr-feature">
+        <span class="feature-title">Feature: <strong id="planFeature">—</strong></span>
+        <span id="planStatus" class="plan-status plan-status-unknown">Unknown</span>
+        <div class="plan-progress">
+          <div class="plan-progress-bar" id="planProgressTrack" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <span id="planProgressBar"></span>
+          </div>
+          <span id="planProgressLabel">0/0 Passing</span>
+        </div>
+      </div>
+      <div class="context-controls">
+        <select id="planSelect" aria-label="Select feature card"></select>
+        <button id="planInfo" class="info-button" type="button" title="Planner data unavailable." disabled>ℹ️</button>
+        <nav class="view-links">
+          <a href="/api/summary" target="_blank">SUMMARY</a>
+          <a href="/api/events" target="_blank">EVENTS</a>
+          <a id="healthLink" href="/api/health" target="_blank">HEALTH</a>
+        </nav>
+      </div>
+    </div>
   </header>
 
   <main class="grid">
     <section class="card plan-card" id="planCard">
-      <div class="plan-header">
-        <h2>Feature Planner</h2>
-        <select id="planSelect"></select>
-      </div>
-      <div class="plan-meta" id="planMeta">Waiting for planner…</div>
-      <div class="plan-tree" id="planTree"></div>
+      <div class="plan-table-wrap" id="planTree"></div>
     </section>
 
     <section class="card">

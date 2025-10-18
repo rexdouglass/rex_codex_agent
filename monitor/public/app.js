@@ -14,7 +14,12 @@ const els = {
   searchBox: document.getElementById('searchBox'),
   planCard: document.getElementById('planCard'),
   planSelect: document.getElementById('planSelect'),
-  planMeta: document.getElementById('planMeta'),
+  planFeature: document.getElementById('planFeature'),
+  planStatus: document.getElementById('planStatus'),
+  planProgressTrack: document.getElementById('planProgressTrack'),
+  planProgressBar: document.getElementById('planProgressBar'),
+  planProgressLabel: document.getElementById('planProgressLabel'),
+  planInfo: document.getElementById('planInfo'),
   planTree: document.getElementById('planTree')
 };
 
@@ -22,10 +27,13 @@ const state = {
   filters: new Set(['info', 'warn', 'error']),
   query: '',
   componentPlans: {},
-  selectedPlan: null,
-  expandedNodes: new Set(),
-  lastPlanSelected: null
+  selectedPlan: null
 };
+
+const PASS_STATUSES = new Set(['pass', 'passed', 'complete', 'completed', 'success', 'succeeded', 'done']);
+const FAIL_STATUSES = new Set(['fail', 'failed', 'error', 'broken']);
+
+updatePlanTopbar(null, []);
 
 els.filters.forEach(cb => {
   cb.addEventListener('change', () => {
@@ -125,7 +133,7 @@ function renderErrors(errs) {
 }
 
 function renderPlanner() {
-  if (!els.planCard || !els.planSelect || !els.planMeta || !els.planTree) {
+  if (!els.planCard || !els.planSelect || !els.planTree) {
     return;
   }
   const slugs = Object.keys(state.componentPlans || {}).sort();
@@ -136,7 +144,7 @@ function renderPlanner() {
   els.planCard.style.display = '';
 
   const select = els.planSelect;
-  const current = select ? select.value : null;
+  const previous = select ? select.value : null;
   if (select) {
     select.innerHTML = '';
     for (const slug of slugs) {
@@ -148,194 +156,26 @@ function renderPlanner() {
   }
   if (state.selectedPlan && slugs.includes(state.selectedPlan)) {
     if (select) select.value = state.selectedPlan;
-  } else if (current && slugs.includes(current)) {
-    state.selectedPlan = current;
-    if (select) select.value = current;
+  } else if (previous && slugs.includes(previous)) {
+    state.selectedPlan = previous;
+    if (select) select.value = previous;
   } else {
     state.selectedPlan = slugs[0];
     if (select) select.value = state.selectedPlan;
   }
 
-  if (state.selectedPlan !== state.lastPlanSelected) {
-    state.expandedNodes = new Set();
-    state.lastPlanSelected = state.selectedPlan;
-  }
-
   const plan = state.componentPlans[state.selectedPlan];
   if (!plan) {
-    els.planMeta.textContent = 'Planner data unavailable yet.';
     els.planTree.innerHTML = '';
+    updatePlanTopbar(null, []);
     return;
   }
 
-  const updated = plan.generated_at || plan.generatedAt || plan.generatedAtUtc;
-  const status = plan.status || 'in_progress';
-  const label = status === 'completed' ? 'Plan generated' : 'Planning in progress';
-  const timestamp = updated ? new Date(updated).toLocaleString() : '—';
-  els.planMeta.textContent = `${label} · Card: ${plan.card_path || 'unknown'} · Updated ${timestamp}`;
-
-  const tree = document.createDocumentFragment();
-  const components = Array.isArray(plan.components) ? plan.components : [];
-  if (!components.length) {
-    const empty = document.createElement('div');
-    empty.className = 'tree-node level-0';
-    empty.textContent = 'No components mapped yet.';
-    tree.appendChild(empty);
-  } else {
-    components.forEach((component, index) => {
-      appendComponent(tree, component, index, state.selectedPlan);
-    });
-  }
-
+  const rows = collectPlanRows(plan);
+  updatePlanTopbar(plan, rows);
+  const table = buildPlanTable(rows);
   els.planTree.innerHTML = '';
-  els.planTree.appendChild(tree);
-}
-
-function appendComponent(target, component, index, slug) {
-  const id = normalizeId(slug, component && component.id ? component.id : `component-${index}`);
-  const children = component && Array.isArray(component.subcomponents) ? component.subcomponents : [];
-  const { node, expanded } = buildTreeNode({
-    id,
-    level: 0,
-    title: component && component.name ? component.name : 'Component',
-    summary: component && component.summary ? component.summary : null,
-    meta: filterStrings([
-      component && component.rationale,
-      component && component.notes
-    ]),
-    badges: [],
-    hasChildren: children.length > 0
-  });
-  target.appendChild(node);
-  if (expanded) {
-    children.forEach((sub, subIdx) => appendSubcomponent(target, sub, subIdx, slug, id));
-  }
-}
-
-function appendSubcomponent(target, subcomponent, index, slug, parentId) {
-  const id = normalizeId(slug, subcomponent && subcomponent.id ? subcomponent.id : `${parentId}-sub-${index}`);
-  const tests = subcomponent && Array.isArray(subcomponent.tests) ? subcomponent.tests : [];
-  const metaLines = filterStrings([
-    subcomponent && subcomponent.summary,
-    Array.isArray(subcomponent && subcomponent.dependencies) && subcomponent.dependencies.length
-      ? `Deps: ${subcomponent.dependencies.join(', ')}`
-      : null,
-    Array.isArray(subcomponent && subcomponent.risks) && subcomponent.risks.length
-      ? `Risks: ${subcomponent.risks.join(', ')}`
-      : null
-  ]);
-  const { node, expanded } = buildTreeNode({
-    id,
-    level: 1,
-    title: subcomponent && subcomponent.name ? subcomponent.name : 'Subcomponent',
-    summary: null,
-    meta: metaLines,
-    badges: [],
-    hasChildren: tests.length > 0
-  });
-  target.appendChild(node);
-  if (expanded) {
-    tests.forEach((test, testIdx) => appendTest(target, test, testIdx, slug, id));
-  }
-}
-
-function appendTest(target, test, index, slug, parentId) {
-  const id = normalizeId(slug, test && test.id ? test.id : `${parentId}-test-${index}`);
-  const tags = Array.isArray(test && test.tags) ? test.tags : [];
-  const questionTitle = normaliseQuestion(test);
-  const measurement = extractMeasurement(test);
-  const contextLines = [];
-  const context = extractContext(test);
-  if (context) {
-    contextLines.push(`Context: ${context}`);
-  }
-  const meta = filterStrings(contextLines);
-  const badges = [];
-  if (test && typeof test.status === 'string' && test.status.trim()) {
-    badges.push({ label: test.status, variant: `status-${test.status.trim().toLowerCase()}` });
-  }
-  tags.forEach((tag) => badges.push({ label: tag, variant: 'tag' }));
-
-  const { node } = buildTreeNode({
-    id,
-    level: 2,
-    title: questionTitle,
-    summary: measurement ? `Measurement: ${measurement}` : null,
-    meta,
-    badges,
-    hasChildren: false
-  });
-  target.appendChild(node);
-}
-
-function buildTreeNode({ id, level, title, summary, meta, badges, hasChildren }) {
-  let expanded = hasChildren ? state.expandedNodes.has(id) : true;
-  if (hasChildren && !state.expandedNodes.has(id) && level < 2) {
-    state.expandedNodes.add(id);
-    expanded = true;
-  }
-  const node = document.createElement('div');
-  node.className = `tree-node level-${level}`;
-
-  const header = document.createElement('div');
-  header.className = 'tree-node-header';
-
-  const toggle = document.createElement('button');
-  toggle.className = 'tree-toggle' + (hasChildren ? '' : ' leaf');
-  toggle.textContent = hasChildren ? (expanded ? '▼' : '▶') : '•';
-  if (hasChildren) {
-    const toggleExpand = (event) => {
-      event.stopPropagation();
-      if (state.expandedNodes.has(id)) state.expandedNodes.delete(id);
-      else state.expandedNodes.add(id);
-      renderPlanner();
-    };
-    toggle.addEventListener('click', toggleExpand);
-    header.addEventListener('click', (event) => {
-      if (event.target !== toggle) toggleExpand(event);
-    });
-  }
-  header.appendChild(toggle);
-
-  const titleEl = document.createElement('div');
-  titleEl.className = `tree-title level-${level}`;
-  titleEl.textContent = title || 'Untitled';
-  header.appendChild(titleEl);
-
-  node.appendChild(header);
-
-  if (summary) {
-    const summaryEl = document.createElement('div');
-    summaryEl.className = 'tree-summary';
-    summaryEl.textContent = summary;
-    node.appendChild(summaryEl);
-  }
-  if (Array.isArray(meta)) {
-    meta.filter(Boolean).forEach((line) => {
-      const metaEl = document.createElement('div');
-      metaEl.className = 'tree-meta';
-      metaEl.textContent = line;
-      node.appendChild(metaEl);
-    });
-  }
-  if (Array.isArray(badges) && badges.length) {
-    const badgeWrap = document.createElement('div');
-    badgeWrap.className = 'tree-badges';
-    badges.forEach((badge) => {
-      const { label, variant } = normalizeBadge(badge);
-      const span = document.createElement('span');
-      span.className = 'tree-badge' + (variant ? ` ${variant}` : '');
-      span.textContent = label;
-      badgeWrap.appendChild(span);
-    });
-    node.appendChild(badgeWrap);
-  }
-
-  return { node, expanded };
-}
-
-function normalizeId(slug, id) {
-  return `${slug || 'plan'}::${id}`;
+  els.planTree.appendChild(table);
 }
 
 function normaliseQuestion(test) {
@@ -390,28 +230,358 @@ function extractContext(test) {
   return desc;
 }
 
-function normalizeBadge(badge) {
-  if (!badge) return { label: '', variant: '' };
-  if (typeof badge === 'string') {
-    return { label: badge, variant: '' };
-  }
-  if (typeof badge === 'object') {
-    const label = badge.label || badge.value || '';
-    return {
-      label: String(label),
-      variant: badge.variant ? String(badge.variant) : ''
-    };
-  }
-  return { label: String(badge), variant: '' };
-}
-
-function filterStrings(values) {
-  if (!Array.isArray(values)) return [];
-  return values.filter(Boolean);
-}
-
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function collectPlanRows(plan) {
+  const rows = [];
+  const components = Array.isArray(plan && plan.components) ? plan.components : [];
+  components.forEach((component, index) => {
+    const componentName = component && component.name ? component.name : `Component ${index + 1}`;
+    const scope = {
+      component: componentName,
+      componentTooltip: buildScopeTooltip(component),
+      componentRisks: dedupeStrings(component && Array.isArray(component.risks) ? component.risks : [])
+    };
+    rows.push(...collectRowsFromNode(component, scope));
+  });
+  return rows;
+}
+
+function collectRowsFromNode(node, scope) {
+  const rows = [];
+  if (!node || typeof node !== 'object') {
+    return rows;
+  }
+  const tests = normalizeTests(node.tests, scope.subcomponent || scope.component);
+  tests.forEach((test) => {
+    const risks = dedupeStrings([
+      ...(scope.componentRisks || []),
+      ...(scope.subcomponentRisks || []),
+      ...(test.risks || [])
+    ]);
+    rows.push({
+      component: scope.component,
+      componentTooltip: scope.componentTooltip || '',
+      subcomponent: scope.subcomponent || '',
+      subcomponentTooltip: scope.subcomponentTooltip || '',
+      test,
+      risks
+    });
+  });
+  const subs = Array.isArray(node.subcomponents) ? node.subcomponents : [];
+  subs.forEach((sub, index) => {
+    const subName = sub && sub.name ? sub.name : `Subcomponent ${index + 1}`;
+    const subScope = {
+      component: scope.component,
+      componentTooltip: scope.componentTooltip,
+      componentRisks: scope.componentRisks || [],
+      subcomponent: subName,
+      subcomponentTooltip: buildScopeTooltip(sub),
+      subcomponentRisks: dedupeStrings(sub && Array.isArray(sub.risks) ? sub.risks : [])
+    };
+    rows.push(...collectRowsFromNode(sub, subScope));
+  });
+  return rows;
+}
+
+function buildScopeTooltip(node) {
+  if (!node || typeof node !== 'object') return '';
+  const parts = [];
+  ['summary', 'rationale', 'notes'].forEach((field) => {
+    const value = node[field];
+    if (typeof value === 'string' && value.trim()) {
+      parts.push(value.trim());
+    }
+  });
+  return parts.join('\n\n');
+}
+
+function normalizeTests(tests, sourceName) {
+  if (!Array.isArray(tests) || !tests.length) return [];
+  const seen = new Set();
+  const items = [];
+  tests.forEach((test, index) => {
+    if (!test) return;
+    const identifier =
+      (test.id ||
+        test.question ||
+        test.name ||
+        test.title ||
+        `test-${index}`) +
+      `::${sourceName || 'component'}`;
+    const key = identifier.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    items.push({
+      title: normaliseQuestion(test),
+      measurement: extractMeasurement(test),
+      context: extractContext(test),
+      status: typeof test.status === 'string' ? test.status.toLowerCase() : 'proposed',
+      tags: Array.isArray(test.tags) ? test.tags : [],
+      source: sourceName || '',
+      risks: dedupeStrings(test && Array.isArray(test.risks) ? test.risks : []),
+      raw: test
+    });
+  });
+  return items;
+}
+
+function summariseRows(rows) {
+  let pass = 0;
+  let fail = 0;
+  let todo = 0;
+  rows.forEach((row) => {
+    const status = (row.test.status || '').toLowerCase();
+    if (PASS_STATUSES.has(status)) pass++;
+    else if (FAIL_STATUSES.has(status)) fail++;
+    else todo++;
+  });
+  return { pass, fail, todo, total: rows.length };
+}
+
+function updatePlanTopbar(plan, rows) {
+  if (!els.planFeature || !els.planStatus || !els.planProgressBar || !els.planProgressLabel || !els.planInfo) {
+    return;
+  }
+
+  const slug = state.selectedPlan || '';
+  const humanSlug = slug ? slug.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : '—';
+  els.planFeature.textContent = humanSlug;
+
+  const statusEl = els.planStatus;
+  statusEl.className = 'plan-status';
+  let statusClass = 'plan-status-in_progress';
+  let statusLabel = 'IN PROGRESS';
+  if (!plan) {
+    statusClass = 'plan-status-unknown';
+    statusLabel = 'UNKNOWN';
+  } else {
+    const status = (plan.status || 'in_progress').toLowerCase();
+    if (status === 'completed') {
+      statusClass = 'plan-status-completed';
+      statusLabel = 'COMPLETED';
+    } else if (status === 'failed') {
+      statusClass = 'plan-status-failed';
+      statusLabel = 'FAILED';
+    }
+  }
+  statusEl.classList.add(statusClass);
+  statusEl.textContent = statusLabel;
+
+  const summary = summariseRows(rows);
+  const pass = summary.pass;
+  const fail = summary.fail;
+  const total = summary.total;
+  const progress = total ? Math.round((pass / total) * 100) : 0;
+  if (els.planProgressBar) {
+    const width = Math.max(0, Math.min(progress, 100));
+    els.planProgressBar.style.width = `${width}%`;
+  }
+  if (els.planProgressTrack) {
+    els.planProgressTrack.setAttribute('aria-valuenow', String(progress));
+    const progressLabel = total
+      ? `Test progress: ${pass} passing, ${fail} failing, ${summary.todo} pending`
+      : 'Test progress unavailable';
+    els.planProgressTrack.setAttribute('aria-label', progressLabel);
+  }
+  els.planProgressLabel.textContent = total
+    ? `${pass}/${total} Passing · ${fail} Failing`
+    : '0/0 Passing · 0 Failing';
+
+  if (els.planInfo) {
+    if (!plan) {
+      els.planInfo.disabled = true;
+      els.planInfo.title = 'Planner data unavailable.';
+    } else {
+      const updated = plan.generated_at || plan.generatedAt || plan.generatedAtUtc;
+      const timestamp = updated ? new Date(updated).toLocaleString() : '—';
+      const parts = [];
+      if (plan.card_path) parts.push(`Card: ${plan.card_path}`);
+      parts.push(`Generated: ${timestamp}`);
+      parts.push(`Tests · Pass: ${pass} · Fail: ${fail} · Pending: ${summary.todo}`);
+      els.planInfo.disabled = false;
+      els.planInfo.title = parts.join('\n');
+    }
+  }
+}
+
+function buildPlanTable(rows) {
+  const table = document.createElement('table');
+  table.className = 'plan-table plan-table-compact';
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>Component</th>
+        <th>Subcomponent</th>
+        <th>Test Case</th>
+        <th>Status</th>
+        <th>Implementation &amp; Notes</th>
+        <th>Risks</th>
+      </tr>
+    </thead>
+  `;
+  const tbody = document.createElement('tbody');
+
+  if (!rows.length) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 6;
+    cell.className = 'muted';
+    cell.textContent = 'No planner data yet.';
+    row.appendChild(cell);
+    tbody.appendChild(row);
+  } else {
+    let lastGroupKey = null;
+    let lastComponentShown = null;
+    let isAlternateStrip = false;
+
+    rows.forEach((rowData, index) => {
+      const groupKey = `${rowData.component || ''}::${rowData.subcomponent || ''}`;
+      const isNewGroup = groupKey !== lastGroupKey;
+      if (isNewGroup) {
+        if (lastGroupKey !== null) {
+          isAlternateStrip = !isAlternateStrip;
+        }
+        lastGroupKey = groupKey;
+      }
+
+      const row = document.createElement('tr');
+      row.className = 'plan-row';
+      if (isNewGroup) row.classList.add('group-start');
+      if (isAlternateStrip) row.classList.add('group-alt');
+      const nextRow = rows[index + 1];
+      const nextKey = nextRow ? `${nextRow.component || ''}::${nextRow.subcomponent || ''}` : null;
+      if (!nextRow || nextKey !== groupKey) {
+        row.classList.add('group-end');
+      }
+
+      const componentCell = document.createElement('td');
+      componentCell.className = 'scope scope-component';
+      if (isNewGroup || rowData.component !== lastComponentShown) {
+        componentCell.textContent = rowData.component || '—';
+        if (rowData.componentTooltip) componentCell.title = rowData.componentTooltip;
+        lastComponentShown = rowData.component;
+      } else {
+        componentCell.textContent = '';
+        if (rowData.component) componentCell.setAttribute('aria-label', rowData.component);
+        componentCell.classList.add('scope-repeat');
+      }
+      row.appendChild(componentCell);
+
+      const subCell = document.createElement('td');
+      subCell.className = 'scope scope-sub';
+      if (rowData.subcomponent) {
+        if (isNewGroup) {
+          subCell.textContent = rowData.subcomponent;
+          if (rowData.subcomponentTooltip) subCell.title = rowData.subcomponentTooltip;
+        } else {
+          subCell.textContent = '';
+          subCell.setAttribute('aria-label', rowData.subcomponent);
+          subCell.classList.add('scope-repeat');
+        }
+      } else {
+        subCell.textContent = '—';
+        subCell.classList.add('scope-empty');
+      }
+      row.appendChild(subCell);
+
+      const testCell = document.createElement('td');
+      const strong = document.createElement('strong');
+      strong.textContent = rowData.test.title || 'Test case';
+      testCell.appendChild(strong);
+      if (rowData.test.context) {
+        const context = document.createElement('div');
+        context.className = 'meta meta-context';
+        context.textContent = rowData.test.context;
+        testCell.appendChild(context);
+      }
+      if (rowData.test.tags && rowData.test.tags.length) {
+        const tags = document.createElement('div');
+        tags.className = 'meta meta-tags';
+        tags.textContent = rowData.test.tags.map((tag) => `#${tag}`).join(' ');
+        testCell.appendChild(tags);
+      }
+      row.appendChild(testCell);
+
+      const statusCell = document.createElement('td');
+      statusCell.appendChild(buildStatusPill(rowData.test.status));
+      row.appendChild(statusCell);
+
+      const implCell = document.createElement('td');
+      implCell.className = 'impl';
+      if (rowData.test.measurement) {
+        implCell.innerHTML = formatRichText(rowData.test.measurement);
+      } else {
+        implCell.textContent = 'No measurement provided.';
+      }
+      row.appendChild(implCell);
+
+      const riskCell = document.createElement('td');
+      riskCell.className = 'risks';
+      if (rowData.risks.length) {
+        riskCell.classList.add('risk-alert');
+        rowData.risks.forEach((risk) => {
+          const line = document.createElement('div');
+          line.className = 'risk-line';
+          line.textContent = risk;
+          riskCell.appendChild(line);
+        });
+      } else {
+        riskCell.classList.add('risk-none');
+        riskCell.setAttribute('aria-label', 'No documented risks');
+      }
+      row.appendChild(riskCell);
+
+      tbody.appendChild(row);
+    });
+  }
+
+  table.appendChild(tbody);
+  return table;
+}
+
+function buildStatusPill(status) {
+  const pill = document.createElement('span');
+  const normalized = (status || '').toLowerCase();
+  let label = (status || 'proposed').toUpperCase();
+  let klass = 'status-proposed';
+  if (['pass', 'passed', 'completed', 'done', 'success'].includes(normalized)) {
+    klass = 'status-pass';
+    label = 'PASS';
+  } else if (['fail', 'failed', 'error', 'broken'].includes(normalized)) {
+    klass = 'status-fail';
+    label = 'FAIL';
+  }
+  pill.className = `status-pill ${klass}`;
+  pill.textContent = label;
+  return pill;
+}
+
+function formatRichText(text) {
+  if (!text) return '';
+  return text
+    .split('`')
+    .map((segment, idx) => {
+      const escaped = escapeHtml(segment);
+      return idx % 2 === 1 ? `<code>${escaped}</code>` : escaped;
+    })
+    .join('')
+    .replace(/\n/g, '<br>');
+}
+
+function dedupeStrings(values) {
+  if (!Array.isArray(values)) return [];
+  const seen = new Set();
+  const out = [];
+  values.forEach((value) => {
+    const val = typeof value === 'string' ? value.trim() : '';
+    if (!val || seen.has(val)) return;
+    seen.add(val);
+    out.push(val);
+  });
+  return out;
 }
 
 function renderLog() {
