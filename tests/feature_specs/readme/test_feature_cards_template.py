@@ -1,0 +1,33 @@
+"""Deterministic specs for the Feature Card README template."""
+
+from pathlib import Path
+
+from rex_codex.scope_project import cards as cards_module
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+README_PATH = REPO_ROOT / "documents" / "feature_cards" / "README.md"
+
+
+def test_ac1_happy_path_sections_are_parsed() -> None:
+    """AC#1 Ensure the template exposes deterministic summary and acceptance bullets."""
+
+    parsed = cards_module.read_card_sections(README_PATH)
+
+    assert parsed["title"] == "Feature Cards"
+    assert parsed["summary"] == "- short bullets describing the behaviour"
+    assert parsed["acceptance"] == ["deterministic checks a reviewer can run manually"]
+
+
+def test_ac1_env_toggle_respects_root_env_override() -> None:
+    """AC#1 Document the environment toggles required for offline audits."""
+
+    contents = README_PATH.read_text(encoding="utf-8")
+
+    assert "REX_DISABLE_AUTO_COMMIT=1" in contents
+    assert "REX_DISABLE_AUTO_PUSH=1" in contents
+
+
+def test_ac1_error_missing_card_raises_file_not_found(tmp_path: Path) -> None:
+    """AC#1 Surface a FileNotFoundError when a Feature Card is missing."""
+
+    missing_path = tmp_path / "feature_card.md"

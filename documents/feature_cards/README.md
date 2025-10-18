@@ -1,6 +1,17 @@
 # Feature Cards
 
+status: proposed
+
 Feature Cards describe upcoming Python work before implementation. Cards live beside this README and are consumed by the **Codex generator** to produce deterministic pytest specs. Keep them concise and machine-friendly.
+
+## Links
+- tests/feature_specs/readme/test_feature_cards_template.py
+
+## Spec Trace
+- [AC#1] "deterministic checks a reviewer can run manually"
+  -> [AC#1] tests/feature_specs/readme/test_feature_cards_template.py::test_ac1_happy_path_sections_are_parsed
+  -> [AC#1] tests/feature_specs/readme/test_feature_cards_template.py::test_ac1_env_toggle_respects_root_env_override
+  -> [AC#1] tests/feature_specs/readme/test_feature_cards_template.py::test_ac1_error_missing_card_raises_file_not_found
 
 ## Required structure
 
@@ -16,10 +27,13 @@ owner: optional-handle
 - deterministic checks a reviewer can run manually
 
 ## Links
-<!-- generator may append references here -->
+- (pending)
 
 ## Spec Trace
-<!-- generator may append references here -->
+- [AC#1] "deterministic checks a reviewer can run manually"
+  -> [AC#1] tests/feature_specs/readme/test_feature_cards_template.py::test_ac1_happy_path_sections_are_parsed
+  -> [AC#1] tests/feature_specs/readme/test_feature_cards_template.py::test_ac1_env_toggle_respects_root_env_override
+  -> [AC#1] tests/feature_specs/readme/test_feature_cards_template.py::test_ac1_error_missing_card_raises_file_not_found
 ```
 
 ### Guidelines
@@ -44,5 +58,9 @@ owner: optional-handle
    - Enforce patch-size limits (default 6 files / 300 lines).
 3. **Implement runtime code** under `src/...` (Python only) until the discriminator ladder is green.
 4. **Promote the card** to `status: accepted` once the discriminator passes; commit the change alongside your runtime code.
+
+Environment toggles for local iteration:
+- `REX_DISABLE_AUTO_COMMIT=1` while developing locally if you only want a snapshot without touching git state.
+- `REX_DISABLE_AUTO_PUSH=1` when you need an audit committed without pushing upstream.
 
 > This project focuses exclusively on **Python projects running on Linux** with OpenAI Codex as the LLM backend. Cards should not describe non-Python or cross-platform work unless you can satisfy it within those bounds.

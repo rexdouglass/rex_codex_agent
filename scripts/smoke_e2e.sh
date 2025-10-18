@@ -1,15 +1,9 @@
 #!/usr/bin/env bash
-# Deterministic end-to-end smoke of rex_codex_agent using the local checkout and Codex stub.
+# End-to-end smoke of rex_codex_agent using the local checkout and the real Codex CLI.
 set -Eeuo pipefail
 
 this_dir="$(dirname "${BASH_SOURCE[0]}")"
 repo_root="$(git -C "$this_dir/.." rev-parse --show-toplevel 2>/dev/null || realpath "$this_dir/..")"
-fake_codex="$repo_root/bin/fake-codex"
-
-if [[ ! -x "$fake_codex" ]]; then
-  echo "[!] Missing executable Codex stub at $fake_codex" >&2
-  exit 1
-fi
 
 workdir="$(mktemp -d -t rex-codex-smoke.XXXXXX)"
 keep="${KEEP:-0}"
@@ -129,7 +123,9 @@ for slug in "${SLUGS[@]}"; do
 done
 
 export PYTHON=python3
-export CODEX_BIN="$fake_codex"
+if [[ -z "${CODEX_BIN:-}" ]]; then
+  export CODEX_BIN="npx --yes @openai/codex"
+fi
 export REX_AGENT_NO_UPDATE=1
 export PYENV_VERSION="${PYENV_VERSION:-3.11.8}"
 

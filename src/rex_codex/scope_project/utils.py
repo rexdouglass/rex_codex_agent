@@ -141,7 +141,7 @@ class RexContext:
             return False
         other_sentinels = [
             self.root / "scripts" / "selftest_loop.sh",
-            self.root / "bin" / "fake-codex",
+            self.root / "bin" / "rex-codex",
         ]
         return all(item.exists() for item in other_sentinels)
 

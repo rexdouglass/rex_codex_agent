@@ -712,6 +712,9 @@ class GeneratorOptions:
     spawn_popout: bool = field(default_factory=_default_popout_enabled)
     popout_linger: float = field(default_factory=_default_popout_linger)
     scrub_specs: bool | None = field(default_factory=_default_scrub_specs_flag)
+    prompt_file: Path | None = None
+    prompt_target: Path | None = None
+    prompt_label: str | None = None
 
 
 @dataclass
@@ -881,11 +884,19 @@ def _run_codex_with_progress(
     slug: str | None = None,
 ) -> _CodexResult:
     start = time.time()
+    try:
+        max_seconds_raw = os.environ.get("CODEX_TIMEOUT_SECONDS", "300").strip()
+        max_seconds = int(max_seconds_raw or "300")
+    except ValueError:
+        max_seconds = 300
+    if max_seconds <= 0:
+        max_seconds = 0
     emit_event(
         "generator",
         "codex_started",
         slug=slug,
         command=list(cmd[:-1]) + ["<prompt>"] if cmd else [],
+        limit_seconds=max_seconds or None,
     )
     process = subprocess.Popen(
         cmd,
@@ -935,7 +946,54 @@ def _run_codex_with_progress(
                 slug=slug,
                 seconds=elapsed,
                 progress_label=progress_label,
+                limit_seconds=max_seconds or None,
+                progress=min(1.0, elapsed / max_seconds)
+                if max_seconds
+                else None,
             )
+            if max_seconds and elapsed >= max_seconds:
+                print(
+                    f"[generator] Codex CLI exceeded {max_seconds}s; terminating process.",
+                    flush=True,
+                )
+                emit_event(
+                    "generator",
+                    "codex_timeout",
+                    slug=slug,
+                    elapsed_seconds=elapsed,
+                    limit_seconds=max_seconds,
+                )
+                process.kill()
+                try:
+                    stdout, stderr = process.communicate(timeout=5)
+                    if stdout:
+                        if not isinstance(stdout, str):
+                            stdout = stdout.decode()
+                        stdout_buffer.append(stdout)
+                    if stderr:
+                        if not isinstance(stderr, str):
+                            stderr = stderr.decode()
+                        stderr_buffer.append(stderr)
+                except subprocess.TimeoutExpired:
+                    pass
+                elapsed_total = int(time.time() - start)
+                stdout_combined = "".join(stdout_buffer)
+                stderr_combined = "".join(stderr_buffer)
+                emit_event(
+                    "generator",
+                    "codex_completed",
+                    slug=slug,
+                    returncode=124,
+                    elapsed_seconds=elapsed_total,
+                    timeout=True,
+                    limit_seconds=max_seconds or None,
+                )
+                return _CodexResult(
+                    returncode=124,
+                    stdout=stdout_combined,
+                    stderr=stderr_combined,
+                    elapsed_seconds=elapsed_total,
+                )
     elapsed_total = int(time.time() - start)
     stdout_combined = "".join(stdout_buffer)
     stderr_combined = "".join(stderr_buffer)
@@ -945,6 +1003,7 @@ def _run_codex_with_progress(
         slug=slug,
         returncode=int(process.returncode or 0),
         elapsed_seconds=elapsed_total,
+        limit_seconds=max_seconds or None,
     )
     return _CodexResult(
         returncode=process.returncode or 0,
@@ -1059,6 +1118,153 @@ def _run_card_with_ui(
     return exit_code
 
 
+def _run_prompt_only(options: GeneratorOptions, context: RexContext) -> int:
+    if options.prompt_file is None:
+        print("[generator] --prompt-file is required for prompt-only mode.")
+        return 1
+    prompt_path = options.prompt_file
+    if not prompt_path.is_absolute():
+        prompt_path = (Path.cwd() / prompt_path).resolve()
+    if not prompt_path.exists():
+        print(f"[generator] Prompt file not found: {prompt_path}")
+        return 1
+
+    try:
+        prompt_text = prompt_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        print(f"[generator] Failed to read prompt file: {exc}")
+        return 1
+
+    target_path: Path | None = None
+    if options.prompt_target:
+        target_path = options.prompt_target
+        if not target_path.is_absolute():
+            target_path = (Path.cwd() / target_path).resolve()
+
+    label = options.prompt_label or prompt_path.stem
+    emit_event(
+        "generator",
+        "prompt_only_started",
+        slug=label,
+        prompt_file=str(prompt_path),
+        target=str(target_path) if target_path else None,
+    )
+
+    response_path = context.codex_ci_dir / "generator_response.log"
+    diff_path = context.codex_ci_dir / "generator_patch.diff"
+    prompt_log = context.codex_ci_dir / "generator_prompt.txt"
+    prompt_log.write_text(prompt_text, encoding="utf-8")
+
+    cmd = (
+        _split_command(options.codex_bin)
+        + ["exec"]
+        + _split_command(options.codex_flags)
+    )
+    if options.codex_model:
+        cmd += ["--model", options.codex_model]
+    cmd += ["--cd", str(context.root), "--", prompt_text]
+
+    if options.verbose:
+        print(f"[generator] Running one-shot Codex prompt ({prompt_path})")
+    completed = _run_codex_with_progress(
+        cmd,
+        cwd=context.root,
+        verbose=options.verbose,
+        progress_label=f"Codex CLI (prompt: {label})",
+        slug=label,
+    )
+    response_path.write_text(
+        (completed.stdout or "") + ("\n" if completed.stdout else ""),
+        encoding="utf-8",
+    )
+    if completed.stderr:
+        response_path.write_text(
+            response_path.read_text(encoding="utf-8") + completed.stderr,
+            encoding="utf-8",
+        )
+    if completed.returncode != 0:
+        print(
+            f"[generator] Codex CLI exited with status {completed.returncode} during prompt-only mode.",
+            file=sys.stderr,
+        )
+        emit_event(
+            "generator",
+            "prompt_only_failed",
+            slug=label,
+            exit_code=completed.returncode,
+        )
+        return completed.returncode or 1
+
+    diff_text = _extract_diff(response_path, None)
+    diff_path.write_text(diff_text, encoding="utf-8")
+    if not diff_text.strip():
+        print("[generator] Codex response did not contain a unified diff.")
+        emit_event(
+            "generator",
+            "prompt_only_failed",
+            slug=label,
+            exit_code=3,
+            reason="empty_diff",
+        )
+        return 3
+
+    if target_path:
+        target_rel = context.relative(target_path)
+        if target_rel not in diff_text:
+            print(
+                "[generator] Codex diff did not touch the requested target "
+                f"({target_rel})."
+            )
+            emit_event(
+                "generator",
+                "prompt_only_failed",
+                slug=label,
+                exit_code=3,
+                reason="target_not_modified",
+            )
+            return 3
+
+    if not _enforce_patch_size(diff_text):
+        emit_event(
+            "generator",
+            "prompt_only_failed",
+            slug=label,
+            exit_code=3,
+            reason="patch_size",
+        )
+        return 3
+
+    if options.verbose:
+        print(f"[generator] Applying diff from {context.relative(diff_path)}")
+        _print_diff_preview(diff_text)
+        _print_diff_summary(diff_text)
+
+    applied, patch_error = _apply_patch(diff_path, context.root)
+    if not applied:
+        print("[generator] Failed to apply Codex diff.")
+        if patch_error:
+            tail = "\n".join(patch_error.splitlines()[-8:])
+            print(tail)
+        emit_event(
+            "generator",
+            "prompt_only_failed",
+            slug=label,
+            exit_code=4,
+            reason="apply_failed",
+        )
+        return 4
+
+    emit_event(
+        "generator",
+        "prompt_only_completed",
+        slug=label,
+        prompt_file=str(prompt_path),
+        target=str(target_path) if target_path else None,
+    )
+    print(f"[generator] Applied diff from prompt {prompt_path}")
+    return 0
+
+
 def run_generator(
     options: GeneratorOptions, *, context: RexContext | None = None
 ) -> int:
@@ -1076,6 +1282,8 @@ def run_generator(
         ensure_requirements_installed(context, requirements_template)
         if options.scrub_specs is None:
             options.scrub_specs = _should_scrub_specs(context, None)
+        if options.prompt_file is not None:
+            return _run_prompt_only(options, context)
         cards: list[FeatureCard]
         if options.card_path:
             if not options.card_path.exists():
@@ -1496,12 +1704,12 @@ def _normalize_unified_diff(diff_text: str) -> str:
     return normalized
 
 
-def _extract_diff(response_path: Path, slug: str) -> str:
+def _extract_diff(response_path: Path, slug: str | None) -> str:
     text = response_path.read_text(encoding="utf-8", errors="replace")
     pattern = re.compile(r"^diff --git .*$", re.MULTILINE)
     segments: list[str] = []
-    allowed_doc = f"documents/feature_cards/{slug}.md"
-    allowed_prefix = f"tests/feature_specs/{slug}/"
+    allowed_doc = f"documents/feature_cards/{slug}.md" if slug else None
+    allowed_prefix = f"tests/feature_specs/{slug}/" if slug else None
 
     matches = list(pattern.finditer(text))
     for idx, match in enumerate(matches):
@@ -1513,8 +1721,11 @@ def _extract_diff(response_path: Path, slug: str) -> str:
         if not header_match:
             continue
         a_path, b_path = header_match.groups()
-        if any(
-            candidate.startswith(allowed_prefix) or candidate == allowed_doc
+        if slug is None or any(
+            (
+                (allowed_prefix and candidate.startswith(allowed_prefix))
+                or (allowed_doc and candidate == allowed_doc)
+            )
             for candidate in (a_path, b_path)
         ):
             segments.append(block.rstrip("\n"))
@@ -1540,7 +1751,9 @@ def _enforce_patch_size(diff_text: str) -> bool:
     return True
 
 
-def _validate_card_diff(diff_text: str, slug: str) -> bool:
+def _validate_card_diff(diff_text: str, slug: str | None) -> bool:
+    if not slug:
+        return True
     card_target = f"documents/feature_cards/{slug}.md"
     if card_target not in diff_text:
         return True

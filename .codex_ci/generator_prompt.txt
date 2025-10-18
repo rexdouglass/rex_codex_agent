@@ -33,12 +33,14 @@ This repository ships the **Codex-first automation scaffold** that installs via 
   2. After every interaction, commit and push the current state of the repository and drop into that folder a concatenated snapshot of every important script/markdown/readme file, each prefixed with its absolute path.
   3. Snapshots **must** be generated via the built-in helper (`rex_codex.utils.create_audit_snapshot(RexContext.discover())` or an equivalent CLI hook); never hand-roll or trim the audit output.
   4. Treat audits as part of the conversational handshake-produce a fresh snapshot at the end of every operator interaction before yielding control.
-5. Before producing the final snapshot, run `scripts/selftest_loop.sh` (with the bundled Codex stub) so the repo proves it can regenerate the `hello_greet` / `hello_cli` specs end-to-end. The script appends its logs, status, and generated source listings to the latest audit file—commit that updated audit so external GPT5-Pro review sees the full trace.
+5. Before producing the final snapshot, run `scripts/selftest_loop.sh` so the repo proves it can regenerate the `hello_greet` / `hello_cli` specs end-to-end using the real Codex CLI (`npx @openai/codex`). The script appends its logs, status, and generated source listings to the latest audit file—commit that updated audit so external GPT5-Pro review sees the full trace.
      - Set `REX_DISABLE_AUTO_COMMIT=1` while developing locally if you only want a snapshot without touching git state.
      - Set `REX_DISABLE_AUTO_PUSH=1` when you need the audit committed but do not want the helper to push.
      - The agent automatically detects when it is running inside its own source tree and defaults to testing mode (auto commit/push disabled). Export `REX_AGENT_FORCE_BUILD=1` to override when you genuinely intend to publish from this repo.
-, run `scripts/selftest_loop.sh` (with the bundled Codex stub) so the repo proves it can regenerate the `hello_greet` / `hello_cli` specs end-to-end. The script appends its logs, status, and generated source listings to the latest audit file-commit that updated audit so external GPT5-Pro review sees the full trace.
-- **Self-development loop:** `bin/fake-codex`, `scripts/selftest_loop.sh`, and `scripts/smoke_e2e.sh` must stay executable and green. We dogfood the agent by reinstalling it into clean workspaces and running the generator -> discriminator pipeline offline.
+- **Self-development loop:** `scripts/selftest_loop.sh` and `scripts/smoke_e2e.sh` must stay executable and green. We dogfood the agent by reinstalling it into clean workspaces, running the generator -> discriminator pipeline with the real Codex CLI, and ensuring the loop stays healthy.
+- **Reward integrity:** Never substitute fake endpoints or local stubs for Codex in the toy project—the goal is to understand how the live model behaves. Any mitigation work must preserve the original prompts/responses in `.codex_ci/` so reviewers can examine raw interactions.
+- **Monitor readiness:** The loop now blocks until the monitor UI responds on `/api/health`. If the default port is busy we automatically bump to the next free port and announce it—set `MONITOR_PORT` if you need a fixed value.
+- **Codex timeouts:** Every Codex invocation enforces `CODEX_TIMEOUT_SECONDS` (default 300s). Heartbeats and timeout events stream into the monitor so long-running calls surface immediately; raise or lower the threshold via the env var when debugging.
 
 The Bash wrapper is now a shim; all orchestration lives in the Python package `rex_codex` so we can unit-test and extend behaviour without shell metaprogramming.
 
@@ -103,6 +105,14 @@ Monitor mode (`--ui monitor`, default) keeps the HUD in a single refreshed scree
 Keep the passive monitor (`monitor/server.js` on port 4321 by default) running during development; restart it promptly if the dashboard stops responding so discriminator/generator activity stays visible while we debug. Launch it with explicit absolute paths, e.g. `REPO_ROOT=$(pwd) LOG_DIR=$(pwd)/.codex_ci node monitor/server.js`, and sanity-check with `curl http://localhost:4321/api/summary` so we know the plan data is actually being served.
 Need the latest frame without attaching to TTY? Call the single-shot helpers-or stream them live with `--follow` (generator only)-handy for `watch -d` in CI: `./bin/rex-codex hud generator --slug <slug> [--follow]` and `./bin/rex-codex hud discriminator --slug <slug>`.
 - **Mandatory self-test:** Before landing major changes or handing off a session, run `scripts/selftest_loop.sh`. It rebuilds the toy `hello` project, regenerates both feature cards, drives the discriminator ladder, and appends the command log plus generated sources to the active audit file. Leave its output in place-external reviewers rely on that trace.
+
+### Prompting Strategy Tracking
+
+- For the toy project, every generator, critic, and discriminator call must use the real Codex CLI so we accumulate genuine behavioural data—no stubs, rewrites, or prompt short-circuits.
+- Capture each prompt/response bundle in `.codex_ci/` (e.g. `generator_prompt.txt`, `generator_response.log`, `generator_patch.diff`, `latest_discriminator.log`). If a file is missing or empty, rerun the stage rather than trusting inferred success.
+- When you tweak prompt wording, ordering, or command-line flags, document the change, the motivation, and observed outcomes in `AGENTS.local.md` (or the relevant Feature Card notes) so future operators know which strategies worked and which failed.
+- Summarise the effective prompt strategies and any failure cases in the end-of-session audit note; this makes reward-hacking attempts obvious and gives downstream reviewers concrete artefacts to reproduce.
+- Timeout events (`codex_timeout`) and one-shot prompts (`prompt_only_*`) are now logged automatically—treat them as datapoints when assessing whether a strategy is viable or needs revision.
 7. **Promote the Feature Card**
    - When the repo is green, edit the card to `status: accepted` (generator never changes statuses). Commit your changes.
 
@@ -110,11 +120,11 @@ Need the latest frame without attaching to TTY? Call the single-shot helpers-or 
 
 ### Self-development loop (maintainers run this constantly)
 
-- `bin/fake-codex` emulates Codex and emits deterministic, hermetic diffs under `tests/feature_specs/<slug>/`. Keep it executable and versioned with the agent.
+- Ensure `npx @openai/codex` is installed and reachable; the generator/discriminator loops run against the live Codex service.
 - `scripts/selftest_loop.sh` resets `.selftest_workspace/`, installs the current checkout, runs two Feature Cards (`hello_greet`, `hello_cli`) through generator -> discriminator, appends logs/status/spec listings/runtime code to the latest audit file, then removes the workspace (`SELFTEST_KEEP=1` preserves it for debugging).
 - `scripts/smoke_e2e.sh` spins up a temp repo, installs the current checkout via `packaging/install.sh`, scaffolds the `hello_greet` and `hello_cli` Feature Cards, runs `./rex-codex loop --feature-only`, then executes the global discriminator sweep. Export `KEEP=1` while debugging to retain the workspace.
 - Run the selftest loop before accepting PRs, bumping `VERSION`, or cutting releases; use the broader smoke harness to cross-check longer flows. Treat failures as blockers-they signal the agent can no longer bootstrap itself offline.
-- After both loops pass, repeat the Golden Path manually in a new repo (your target project-e.g. the practice Pong game) to confirm end-to-end behaviour beyond the stub.
+- After both loops pass, repeat the Golden Path manually in a new repo (your target project-e.g. the practice Pong game) to confirm end-to-end behaviour beyond the toy project.
 
 ---
 
@@ -164,8 +174,9 @@ Need the latest frame without attaching to TTY? Call the single-shot helpers-or 
 - `./rex-codex status` - inspect the active slug/card and last discriminator success metadata.
 - `./rex-codex burn --yes` - reset the working tree (keeps `.git`; add `--purge-agent` to drop `.rex_agent`).
 - `./rex-codex uninstall --force` - remove the agent (use `--keep-wrapper` to leave the shim).
-- `scripts/selftest_loop.sh` - fast offline selftest that resets `.selftest_workspace/`, exercises the `hello_greet` and `hello_cli` Feature Cards, and appends logs/status/spec listings to the latest audit file (`SELFTEST_KEEP=1` preserves the workspace).
-- `scripts/smoke_e2e.sh` - run the self-development loop offline; export `KEEP=1` to keep the temp repo when investigating failures.
+- `scripts/selftest_loop.sh` - fast two-card selftest that uses the live Codex CLI, resets `.selftest_workspace/`, exercises the `hello_greet` and `hello_cli` Feature Cards, and appends logs/status/spec listings to the latest audit file (`SELFTEST_KEEP=1` preserves the workspace).
+- `scripts/smoke_e2e.sh` - run the self-development loop end-to-end with the live Codex CLI; export `KEEP=1` to keep the temp repo when investigating failures.
+- `./rex-codex generator --prompt-file prompts/foo.txt --apply-target tests/feature_specs/hello_cli/test_cli.py` - run a headless, one-shot Codex prompt and ensure the returned diff touches the intended file.
 
 ## Documentation Duties
 
@@ -453,7 +464,18 @@ and more informative than you found it.
 --- BEGIN FEATURE CARD ---
 # Feature Cards
 
+status: proposed
+
 Feature Cards describe upcoming Python work before implementation. Cards live beside this README and are consumed by the **Codex generator** to produce deterministic pytest specs. Keep them concise and machine-friendly.
+
+## Links
+- tests/feature_specs/readme/test_feature_cards_template.py
+
+## Spec Trace
+- [AC#1] "deterministic checks a reviewer can run manually"
+  -> [AC#1] tests/feature_specs/readme/test_feature_cards_template.py::test_ac1_happy_path_sections_are_parsed
+  -> [AC#1] tests/feature_specs/readme/test_feature_cards_template.py::test_ac1_env_toggle_respects_root_env_override
+  -> [AC#1] tests/feature_specs/readme/test_feature_cards_template.py::test_ac1_error_missing_card_raises_file_not_found
 
 ## Required structure
 
@@ -469,10 +491,13 @@ owner: optional-handle
 - deterministic checks a reviewer can run manually
 
 ## Links
-<!-- generator may append references here -->
+- (pending)
 
 ## Spec Trace
-<!-- generator may append references here -->
+- [AC#1] "deterministic checks a reviewer can run manually"
+  -> [AC#1] tests/feature_specs/readme/test_feature_cards_template.py::test_ac1_happy_path_sections_are_parsed
+  -> [AC#1] tests/feature_specs/readme/test_feature_cards_template.py::test_ac1_env_toggle_respects_root_env_override
+  -> [AC#1] tests/feature_specs/readme/test_feature_cards_template.py::test_ac1_error_missing_card_raises_file_not_found
 ```
 
 ### Guidelines
@@ -497,6 +522,10 @@ owner: optional-handle
    - Enforce patch-size limits (default 6 files / 300 lines).
 3. **Implement runtime code** under `src/...` (Python only) until the discriminator ladder is green.
 4. **Promote the card** to `status: accepted` once the discriminator passes; commit the change alongside your runtime code.
+
+Environment toggles for local iteration:
+- `REX_DISABLE_AUTO_COMMIT=1` while developing locally if you only want a snapshot without touching git state.
+- `REX_DISABLE_AUTO_PUSH=1` when you need an audit committed without pushing upstream.
 
 > This project focuses exclusively on **Python projects running on Linux** with OpenAI Codex as the LLM backend. Cards should not describe non-Python or cross-platform work unless you can satisfy it within those bounds.
 

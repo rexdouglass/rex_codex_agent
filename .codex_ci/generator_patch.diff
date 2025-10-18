@@ -1,79 +1,46 @@
-diff --git a/tests/feature_specs/readme/conftest.py b/tests/feature_specs/readme/conftest.py
+diff --git a/tests/feature_specs/readme/test_feature_cards_template.py b/tests/feature_specs/readme/test_feature_cards_template.py
 new file mode 100644
+index 0000000..a4e9891
 --- /dev/null
-+++ b/tests/feature_specs/readme/conftest.py
-@@ -0,0 +1,63 @@
-+from __future__ import annotations
++++ b/tests/feature_specs/readme/test_feature_cards_template.py
+@@ -0,0 +1,38 @@
++"""Deterministic specs for the Feature Card README template."""
 +
-+import importlib.util
-+import os
-+import runpy
-+import sys
 +from pathlib import Path
 +
 +import pytest
 +
++from rex_codex.scope_project import cards as cards_module
 +
-+def _project_root() -> Path:
-+    env_root = os.environ.get("ROOT")
-+    if env_root:
-+        candidate = Path(env_root).resolve()
-+        if (candidate / "src").exists():
-+            return candidate
-+    here = Path(__file__).resolve()
-+    for parent in (here,) + tuple(here.parents):
-+        if (parent / "src").exists():
-+            return parent
-+    return Path.cwd().resolve()
++REPO_ROOT = Path(__file__).resolve().parents[3]
++README_PATH = REPO_ROOT / "documents" / "feature_cards" / "README.md"
 +
 +
-+def _import_from_src(pkg: str):
-+    root = _project_root()
-+    module_file = root / "src" / pkg / "__init__.py"
-+    if not module_file.exists():
-+        raise FileNotFoundError(f"{module_file} not found")
-+    spec = importlib.util.spec_from_file_location(pkg, str(module_file))
-+    module = importlib.util.module_from_spec(spec)
-+    assert spec and spec.loader  # type: ignore[truthy-bool]
-+    spec.loader.exec_module(module)  # type: ignore[attr-defined]
-+    return module
++def test_ac1_happy_path_sections_are_parsed() -> None:
++    """AC#1 Ensure the template exposes deterministic summary and acceptance bullets."""
++
++    parsed = cards_module.read_card_sections(README_PATH)
++
++    assert parsed["title"] == "Feature Cards"
++    assert parsed["summary"] == "- short bullets describing the behaviour"
++    assert parsed["acceptance"] == [
++        "deterministic checks a reviewer can run manually"
++    ]
 +
 +
-+@pytest.fixture(scope="session")
-+def hello():
-+    return _import_from_src("hello")
++def test_ac1_env_toggle_respects_root_env_override() -> None:
++    """AC#1 Document the environment toggles required for offline audits."""
++
++    contents = README_PATH.read_text(encoding="utf-8")
++
++    assert "REX_DISABLE_AUTO_COMMIT=1" in contents
++    assert "REX_DISABLE_AUTO_PUSH=1" in contents
 +
 +
-+@pytest.fixture
-+def run_app():
-+    root = _project_root()
++def test_ac1_error_missing_card_raises_file_not_found(tmp_path: Path) -> None:
++    """AC#1 Surface a FileNotFoundError when a Feature Card is missing."""
 +
-+    def _run(*args: str) -> None:
-+        argv = ["hello", *args]
-+        original_argv = sys.argv[:]
-+        original_path = list(sys.path)
-+        source_path = root / "src"
-+        if str(source_path) not in sys.path:
-+            sys.path.insert(0, str(source_path))
-+        sys.argv = argv
-+        try:
-+            runpy.run_module("hello", run_name="__main__")
-+        except SystemExit as exc:  # mimic CLI invocation
-+            if exc.code not in (0, None):
-+                raise
-+        finally:
-+            sys.argv = original_argv
-+            sys.path[:] = original_path
++    missing_path = tmp_path / "feature_card.md"
 +
-+    return _run
-
-diff --git a/tests/feature_specs/readme/test_feature.py b/tests/feature_specs/readme/test_feature.py
-new file mode 100644
---- /dev/null
-+++ b/tests/feature_specs/readme/test_feature.py
-@@ -0,0 +1,5 @@
-+from __future__ import annotations
-+
-+
-+def test_feature_imports(hello):
-+    assert hasattr(hello, "main")
++    with pytest.raises(FileNotFoundError):
++        cards_module.read_card_sections(missing_path)

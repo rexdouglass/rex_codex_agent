@@ -6,7 +6,8 @@ This repository follows a staged automation ladder that keeps default runs fast,
 - Runtime code lives under `src/` or `app/` (project-specific) and never imports from `tests/`.
 - Tests live in `tests/` (including `tests/enforcement/` and `tests/feature_specs/`).
 - Public modules expose stable contracts; tests verify behaviour but must not be imported by runtime.
-- `bin/fake-codex`, `scripts/selftest_loop.sh`, and `scripts/smoke_e2e.sh` stay executable; self-development loops must pass before changes merge or releases cut.
+- `scripts/selftest_loop.sh` and `scripts/smoke_e2e.sh` stay executable; ensure `npx @openai/codex` is available and keep the self-development loops green before changes merge or releases cut.
+- The monitor UI must respond on `/api/health` before generator/discriminator runs; the launcher auto-increments `MONITOR_PORT` when 4321 is busy so the HUD always comes up.
 
 ## Specs, Docs, and Types
 - Public callables require a docstring with an executable spec (doctest-style example or pytest-style spec case).
@@ -40,6 +41,7 @@ Stages 04-05 (DB/UI) are optional packs you can enable per project by extending 
 - LLMs only run after mechanical fixes (ruff/black/isort) fail to go green.
 - Prompts must include relevant sections of this file.
 - LLM diff output should be minimal, improving the stage that failed without weakening tests.
+- Codex invocations are capped by `CODEX_TIMEOUT_SECONDS` (default 300s); raise/lower the env var when debugging but never disable guardrails without documenting why.
 
 ## Feature Cards Workflow
 1. Create cards in `documents/feature_cards/<slug>.md` with a dedicated line `status: proposed`.
@@ -62,12 +64,13 @@ Stages 04-05 (DB/UI) are optional packs you can enable per project by extending 
 - `./rex-codex status` - inspect the active slug/card and last discriminator success metadata.
 - `./rex-codex burn --yes` - reset the working tree (keeps `.git` and, by default, `.rex_agent`).
 - `./rex-codex uninstall --force` - remove the agent (pair with `--keep-wrapper` to leave the shim).
-- `scripts/selftest_loop.sh` - run the fast offline self-development loop; export `SELFTEST_KEEP=1` to keep `.selftest_workspace/` for debugging.
-- `scripts/smoke_e2e.sh` - run the offline self-development loop; export `KEEP=1` to keep the temp repo for debugging.
+- `scripts/selftest_loop.sh` - run the fast two-card self-development loop against the live Codex CLI; export `SELFTEST_KEEP=1` to keep `.selftest_workspace/` for debugging.
+- `scripts/smoke_e2e.sh` - run the end-to-end self-development loop with the live Codex CLI; export `KEEP=1` to keep the temp repo for debugging.
+- `./rex-codex generator --prompt-file prompts/foo.txt --apply-target tests/feature_specs/<slug>/test_foo.py` - send a single prompt to Codex and ensure the diff touches the expected file.
 
 ## Self-development Loop
-- `bin/fake-codex` emulates Codex and emits hermetic diffs limited to `tests/feature_specs/<slug>/`. Keep it executable so offline smoke runs work everywhere.
-- `scripts/selftest_loop.sh` resets `.selftest_workspace/`, runs the `hello_greet` and `hello_cli` Feature Cards with the Codex stub, appends logs/status/spec listings/runtime code to the latest audit file, and removes the workspace (`SELFTEST_KEEP=1` retains it for debugging).
+- Ensure `npx @openai/codex` is installed and reachable; the self-development loops exercise the live Codex service.
+- `scripts/selftest_loop.sh` resets `.selftest_workspace/`, runs the `hello_greet` and `hello_cli` Feature Cards with the live CLI, appends logs/status/spec listings/runtime code to the latest audit file, and removes the workspace (`SELFTEST_KEEP=1` retains it for debugging).
   - Set `REX_DISABLE_AUTO_COMMIT=1` during local experiments if you need the snapshot only and want to skip committing.
   - Set `REX_DISABLE_AUTO_PUSH=1` to keep the commit but suppress the automatic push.
   - The agent auto-detects its own source tree and defaults to testing mode (no auto commit/push). Export `REX_AGENT_FORCE_BUILD=1` to override when deliberately publishing from the agent repo itself.

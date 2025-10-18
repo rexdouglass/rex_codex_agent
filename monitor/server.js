@@ -23,6 +23,7 @@ const COMPONENT_PLAN_DIR = path.join(REPO_ROOT, '.codex_ci');
 
 const PORT_ENV = process.env.MONITOR_PORT || process.env.PORT || 4321;
 const OPEN_BROWSER = (process.env.OPEN_BROWSER || 'false').toLowerCase() === 'true';
+const PORT_RETRY_LIMIT = Number(process.env.MONITOR_PORT_RETRIES || '15');
 
 ensureDirSync(LOG_DIR);
 ensureDirSync(COMPONENT_PLAN_DIR);
@@ -811,16 +812,36 @@ app.get('*', (_req, res) => {
   startTailing(EVENTS_FILE);
 
   const server = http.createServer(app);
-  const chosenPort = isNaN(Number(PORT_ENV)) ? 4321 : Number(PORT_ENV);
-  server.listen(chosenPort, () => {
-    const address = server.address();
-    const port = typeof address === 'object' && address ? address.port : chosenPort;
-    writePortFile(port);
-    const url = `http://localhost:${port}`;
-    console.log(`[monitor] UI listening at ${url}`);
-    console.log(`[monitor] Tailing: ${EVENTS_FILE}`);
-    if (OPEN_BROWSER) openInBrowser(url);
-  });
+  const basePort = Number.isNaN(Number(PORT_ENV)) ? 4321 : Number(PORT_ENV);
+  const maxAttempts = Number.isNaN(PORT_RETRY_LIMIT) ? 15 : Math.max(1, PORT_RETRY_LIMIT);
+
+  function attemptListen(attempt) {
+    const desiredPort = basePort + attempt;
+    const handleError = (err) => {
+      server.removeListener('error', handleError);
+      if (err && err.code === 'EADDRINUSE' && attempt + 1 < maxAttempts) {
+        console.warn(`[monitor] Port ${desiredPort} in use; trying ${desiredPort + 1}`);
+        setImmediate(() => attemptListen(attempt + 1));
+        return;
+      }
+      console.error('[monitor] Failed to start UI server:', err?.message || err);
+      process.exit(1);
+    };
+
+    server.once('error', handleError);
+    server.listen(desiredPort, () => {
+      server.removeListener('error', handleError);
+      const address = server.address();
+      const port = typeof address === 'object' && address ? address.port : desiredPort;
+      writePortFile(port);
+      const url = `http://localhost:${port}`;
+      console.log(`[monitor] UI listening at ${url}`);
+      console.log(`[monitor] Tailing: ${EVENTS_FILE}`);
+      if (OPEN_BROWSER) openInBrowser(url);
+    });
+  }
+
+  attemptListen(0);
 })();
 
 function openInBrowser(url) {

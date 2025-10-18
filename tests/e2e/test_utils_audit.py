@@ -26,7 +26,7 @@ def _mark_as_agent_repo(path: Path) -> None:
     (scripts / "selftest_loop.sh").write_text("#!/bin/bash\n", encoding="utf-8")
     bin_dir = path / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
-    (bin_dir / "fake-codex").write_text("#!/bin/bash\n", encoding="utf-8")
+    (bin_dir / "rex-codex").write_text("#!/bin/bash\n", encoding="utf-8")
 
 
 def test_create_audit_snapshot_respects_disable_auto_commit(

@@ -1,7 +1,7 @@
 {
   "feature": {
-    "active_card": null,
-    "active_slug": null,
+    "active_card": "documents/feature_cards/README.md",
+    "active_slug": "readme",
     "updated_at": null
   },
   "llm": {

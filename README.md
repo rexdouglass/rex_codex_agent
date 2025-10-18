@@ -8,7 +8,8 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
 - Run a disciplined **discriminator ladder** (smoke/unit → coverage ≥80% → optional security/package checks → style/type).
 - Optionally nibble at runtime code with **tight guardrails** (small, allowlisted patches only).
 - Capture logs, JUnit, and state in-repo so every pass is auditable.
-- Dogfood itself with deterministic **self-development loops** (`scripts/selftest_loop.sh`, `scripts/smoke_e2e.sh`, and `bin/fake-codex`) so every change proves the generator → discriminator pipeline still works in a fresh repo.
+- Auto-start the monitor UI, fall back to the next free port when 4321 is busy, and stream progress/heartbeat events so you always know what stage is running.
+- Dogfood itself with deterministic **self-development loops** (`scripts/selftest_loop.sh` and `scripts/smoke_e2e.sh`) so every change proves the generator → discriminator pipeline still works in a fresh repo using the live Codex CLI.
 
 > 🛠️ The agent intentionally targets **Linux shells (Bash 4+)**, **Python tooling**, and **OpenAI Codex** via `npx @openai/codex`. Windows support is via WSL; other ecosystems are out-of-scope.
 
@@ -40,7 +41,7 @@ the global shim and sandbox continue evolving.
 - `python3` on PATH (the agent bootstraps a `.venv` with pytest/ruff/black/isort/flake8/mypy/pytest-cov).
 - `node` 18+ if you want LLM-assisted generator/discriminator flows (the discriminator runs offline by default via `DISABLE_LLM=1`).
 - Outbound network is optional: self-update now defaults **off** (`REX_AGENT_NO_UPDATE=1`). Flip to `0` to pull newer agent versions.
-- For dogfooding, keep `bin/fake-codex` executable and run `scripts/selftest_loop.sh` (fast two-card loop) plus `scripts/smoke_e2e.sh` regularly—these harnesses prove the agent can install itself into a clean repo and go green without network access.
+- For dogfooding, ensure `npx @openai/codex` is installed and run `scripts/selftest_loop.sh` (fast two-card loop) plus `scripts/smoke_e2e.sh` regularly—these harnesses prove the agent can install itself into a clean repo and go green against the live service.
 
 ---
 
@@ -57,6 +58,7 @@ the global shim and sandbox continue evolving.
 - The UI stays read-only: it streams Server-Sent Events (SSE) to render task summaries, recent errors, and the live log feed.
 - Set `LOG_DIR`, `EVENTS_FILE`, or `MONITOR_PORT` env vars to customise paths/ports; the default log file is `.agent/logs/events.jsonl`.
 - The launcher exports `REPO_ROOT` so the server can surface `.codex_ci/component_plan_<slug>.json`; override if you run the monitor separately.
+- The Python launcher blocks until `/api/health` responds and will automatically probe higher ports if the default is occupied—check `.agent/logs/monitor.port` for the current assignment.
 - `./rex-codex init` now runs `npm install` inside `monitor/` when dependencies are missing, so the UI is ready post-install. Use `REX_DISABLE_MONITOR_UI=1` to skip launching.
 - `./rex-codex loop`, `generator`, and `discriminator` automatically launch the monitor and open your browser; the landing view now includes a Feature Planner tab that breaks cards into components → subcomponents → test proposals. The legacy terminal HUD stays disabled unless you explicitly re-enable it (set `GENERATOR_UI_POPOUT=1` if you need the old popout).
 
@@ -135,7 +137,7 @@ the global shim and sandbox continue evolving.
 - `./rex-codex generator --tail 120` – replay Codex output and show the latest diff/log on failure (add `--quiet` to silence).
 - `./rex-codex loop --tail 120` – run generator + discriminator with live diff previews and automatic log tails.
 - `./rex-codex logs --generator --lines 200` – dump the most recent generator response/patch when you need manual inspection.
-- `scripts/selftest_loop.sh` – fast offline selftest with two feature cards; export `SELFTEST_KEEP=1` to inspect `.selftest_workspace/`.
+- `scripts/selftest_loop.sh` – fast two-card selftest that calls the live Codex CLI; export `SELFTEST_KEEP=1` to inspect `.selftest_workspace/`.
 - `scripts/smoke_e2e.sh` – run the self-development loop end-to-end; set `KEEP=1` to preserve the temp repo for debugging.
 - `GENERATOR_PROGRESS_SECONDS=5 ./rex-codex loop` – tighten the Codex heartbeat interval (default 15s) so long passes show more frequent progress updates.
 
@@ -156,7 +158,7 @@ the global shim and sandbox continue evolving.
 |---------|---------|-----------------|
 | `./rex-codex install` | Reinstall or refresh the agent in-place (auto-runs `init`/`doctor`). | `--force`, `--channel`, `--skip-init`, `--skip-doctor` |
 | `./rex-codex init` | Seed `.venv`, guardrails, Feature Card scaffolding, and `rex-agent.json`. | — |
-| `./rex-codex generator` | Generate deterministic pytest specs from the next `status: proposed` card. | `--single-pass`, `--max-passes`, `--focus`, `--status`, `--each`, `--tail`, `--quiet`, `--reconcile` |
+| `./rex-codex generator` | Generate deterministic pytest specs from the next `status: proposed` card (or run a one-shot prompt). | `--single-pass`, `--max-passes`, `--focus`, `--status`, `--each`, `--tail`, `--quiet`, `--reconcile`, `--prompt-file`, `--apply-target`, `CODEX_TIMEOUT_SECONDS` |
 | `./rex-codex discriminator` | Run the staged ladder (feature shard via `--feature-only`, full sweep by default). | `--feature-only`, `--global`, `--single-pass`, `--enable-llm`, `--disable-llm`, `DISCRIMINATOR_MAX_PASSES`, `COVERAGE_MIN`, `PIP_AUDIT`, `BANDIT`, `PACKAGE_CHECK`, `MYPY_TARGETS`, `MYPY_INCLUDE_TESTS`, `--tail`, `--quiet`, `--stage-timeout` |
 | `./rex-codex loop` | Generator → feature shard → global sweep in one shot. | `--generator-only`, `--discriminator-only`, `--feature-only`, `--global-only`, `--each`, `--explain`, `--no-self-update`, `--enable-llm`, `--disable-llm`, `--tail`, `--quiet`, `--stage-timeout`, `--continue-on-fail` |
 | `./rex-codex card` | Manage Feature Cards (`new`, `list`, `validate`, `rename`, `split`, `archive`, `prune-specs`). | `--status`, `--acceptance` (for `new`) |
@@ -240,11 +242,11 @@ Guardrails:
 
 ## Self-development Loop
 
-- `bin/fake-codex` emulates `npx @openai/codex` and emits hermetic diffs limited to `tests/feature_specs/<slug>/`. Keep it executable so offline runs remain available.
+- Ensure `npx @openai/codex` is installed and reachable; the generator/discriminator flows run against the live Codex service.
 - `scripts/selftest_loop.sh` resets `.selftest_workspace/`, installs the current checkout, exercises two feature cards (`hello_greet`, `hello_cli`) covering the default greeting and CLI flags, appends the command log/status/spec listing/runtime code to the latest audit file, then removes the workspace (set `SELFTEST_KEEP=1` to inspect).
 - `scripts/smoke_e2e.sh` creates a throwaway repo, installs the current checkout via `packaging/install.sh`, scaffolds the `hello_greet` and `hello_cli` Feature Cards, and runs `./rex-codex loop --feature-only` followed by the global discriminator sweep (`KEEP=1` preserves the temp repo).
 - Run the selftest loop before landing changes, bumping `VERSION`, or publishing docs; treat failures as release blockers. Follow up with the broader smoke harness as needed to validate longer paths.
-- Once both pass, repeat the documented Golden Path in a fresh repo (e.g. your practice Pong game) to validate real-world usage with or without the Codex stub.
+- Once both pass, repeat the documented Golden Path in a fresh repo (e.g. your practice Pong game) to validate real-world usage against the live CLI.
 - Every selftest run appends its command log, generated sources, and discriminator outcomes to the latest `for_external_GPT5_pro_audit/audit_*.md` file. Leave that audit update in your commit so downstream reviewers (human or GPT5-Pro) can replay the evidence.
 
 ---
@@ -261,6 +263,7 @@ Guardrails:
 - **Mypy scope**: type checking defaults to runtime targets (`MYPY_TARGETS` or `COVERAGE_TARGETS`); set `MYPY_INCLUDE_TESTS=1` to include spec shards when needed.
 - **Concurrency-safe**: commands take out `.codex_ci/*.lock` using Python advisory (`fcntl`) locks.
 - **Observability**: logs, JUnit XML, and recent state written to disk for CI ingestion and human review.
+- **Codex safeguards**: generator heartbeats stream elapsed time and `CODEX_TIMEOUT_SECONDS` (default 300s) kills runaway Codex calls, emitting `codex_timeout` events so operators can course-correct quickly.
 
 ---
 

@@ -106,6 +106,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Report Spec Trace coverage without writing diffs",
     )
     gen_parser.add_argument(
+        "--prompt-file",
+        dest="prompt_file",
+        default=None,
+        help="Run a one-shot Codex prompt from the given file (skips Feature Card flow)",
+    )
+    gen_parser.add_argument(
+        "--apply-target",
+        dest="prompt_target",
+        default=None,
+        help="Assert that the one-shot diff touches the specified path (use with --prompt-file)",
+    )
+    gen_parser.add_argument(
+        "--prompt-label",
+        dest="prompt_label",
+        default=None,
+        help="Custom label for prompt-only runs (defaults to prompt filename stem)",
+    )
+    gen_parser.add_argument(
         "--tail",
         type=int,
         default=0,
@@ -485,6 +503,13 @@ def main(argv: list[str] | None = None) -> int:
             options.popout_linger = args.popout_linger
         if args.scrub_specs is not None:
             options.scrub_specs = args.scrub_specs
+        if args.prompt_file:
+            options.prompt_file = Path(args.prompt_file)
+            options.continuous = False
+        if args.prompt_target:
+            options.prompt_target = Path(args.prompt_target)
+        if args.prompt_label:
+            options.prompt_label = args.prompt_label
         exit_code = run_generator(options, context=context)
         if exit_code != 0 and args.tail:
             show_latest_logs(context, lines=args.tail, generator=True)
