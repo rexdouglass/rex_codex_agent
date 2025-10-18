@@ -1,5 +1,5 @@
-<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.036" timestamp="2025-10-18T11:25:42.779834-07:00" hostname="skynet3"><testcase classname="tests.feature_specs.hello_cli.test_cli" name="test_default_greeting" time="0.001"><failure message="ImportError: No module named hello">run_app = &lt;function run_app.&lt;locals&gt;._run at 0x7ef9ac922340&gt;
-capsys = &lt;_pytest.capture.CaptureFixture object at 0x7ef9ad1c6cf0&gt;
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.032" timestamp="2025-10-18T11:25:45.323477-07:00" hostname="skynet3"><testcase classname="tests.feature_specs.hello_cli.test_cli" name="test_default_greeting" time="0.001"><failure message="ImportError: No module named hello">run_app = &lt;function run_app.&lt;locals&gt;._run at 0x742c54f4e020&gt;
+capsys = &lt;_pytest.capture.CaptureFixture object at 0x742c558e2cf0&gt;
 
     def test_default_greeting(run_app, capsys):
         """AC#1 Run with default arguments and print `Hello World`."""
