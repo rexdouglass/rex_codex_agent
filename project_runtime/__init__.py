@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
-from .bootstrap import RuntimeBootstrapper, load_lockfile, write_lockfile  # noqa: F401
+from .bootstrap import (RuntimeBootstrapper, load_lockfile,  # noqa: F401
+                        write_lockfile)
 
 __all__ = ["RuntimeBootstrapper", "load_lockfile", "write_lockfile"]

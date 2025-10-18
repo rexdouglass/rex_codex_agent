@@ -7,13 +7,8 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Iterable
 
-from .cards import (
-    FeatureCard,
-    card_content_hash,
-    card_path_for,
-    discover_cards,
-    load_rex_agent,
-)
+from .cards import (FeatureCard, card_content_hash, card_path_for,
+                    discover_cards, load_rex_agent)
 from .utils import RexContext
 
 

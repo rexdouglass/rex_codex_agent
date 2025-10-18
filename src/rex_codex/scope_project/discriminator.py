@@ -21,29 +21,19 @@ from types import SimpleNamespace
 from typing import Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from .cards import discover_cards, find_orphan_spec_slugs, load_rex_agent
-from .config import (
-    AGENT_SRC,
-    DEFAULT_COVERAGE_MIN,
-    DEFAULT_DISCRIMINATOR_MAX_FILES,
-    DEFAULT_DISCRIMINATOR_MAX_LINES,
-    DEFAULT_PROTECTED_PATHS,
-    DEFAULT_RUNTIME_ALLOWLIST,
-)
+from .config import (AGENT_SRC, DEFAULT_COVERAGE_MIN,
+                     DEFAULT_DISCRIMINATOR_MAX_FILES,
+                     DEFAULT_DISCRIMINATOR_MAX_LINES, DEFAULT_PROTECTED_PATHS,
+                     DEFAULT_RUNTIME_ALLOWLIST)
 from .events import emit_event
 from .generator import _split_command
 from .monitoring import ensure_monitor_server
 from .self_update import self_update
-from .utils import (
-    RexContext,
-    activate_venv,
-    dump_json,
-    ensure_dir,
-    ensure_python,
-    ensure_requirements_installed,
-    load_json,
-    lock_file,
-    run,
-)
+from .utils import (RexContext, activate_venv, dump_json, ensure_dir,
+                    ensure_python, ensure_requirements_installed, load_json,
+                    lock_file, run)
+
+_FAILED_TEST_RE = re.compile(r"FAILED\s+([\w./:-]+)")
 
 
 @dataclass
@@ -316,12 +306,14 @@ def _run_locked(options: DiscriminatorOptions, context: RexContext) -> int:
             cwd=context.root,
             check=False,
         )
+        committed_files = _list_commit_files(context, "HEAD")
         emit_event(
             "discriminator",
             "llm_patch_decision",
             accepted=True,
             reason="committed",
             commit_message=commit_message,
+            files=committed_files,
             **llm_event_context,
         )
         _record_success(mode, slug, context, env)
@@ -452,6 +444,13 @@ def _run_stage_plan(
             }
             summary.append(record)
             failure_reason = _summarize_failure_reason(tail) if not ok else ""
+            failed_tests: List[str] = []
+            failed_files: List[str] = []
+            if not ok and "pytest" in stage.command:
+                failed_tests = _parse_failed_tests(tail)
+                failed_files = sorted(
+                    {test.split("::", 1)[0] for test in failed_tests if "::" in test}
+                )
             emit_event(
                 "discriminator",
                 "stage_end",
@@ -468,6 +467,9 @@ def _run_stage_plan(
                 elapsed=elapsed,
                 tail=tail,
                 failure_reason=failure_reason,
+                failed_tests=failed_tests,
+                failed_files=failed_files,
+                passed=bool(ok),
             )
             if stage.identifier.startswith("04.") or "Coverage" in group.title:
                 percent = _parse_coverage_percent(tail)
@@ -1189,6 +1191,35 @@ def _enforce_patch_size(context: RexContext) -> bool:
     return True
 
 
+def _list_changed_files(context: RexContext, *, staged: bool = False) -> List[str]:
+    cmd = ["git", "diff", "--name-only"]
+    if staged:
+        cmd.append("--cached")
+    completed = run(cmd, cwd=context.root, capture_output=True, check=False)
+    return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+
+
+def _list_commit_files(context: RexContext, ref: str = "HEAD") -> List[str]:
+    completed = run(
+        ["git", "show", "--pretty=", "--name-only", ref],
+        cwd=context.root,
+        capture_output=True,
+        check=False,
+    )
+    return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+
+
+def _parse_failed_tests(tail: str | None) -> List[str]:
+    if not tail:
+        return []
+    seen: set[str] = set()
+    for line in tail.splitlines():
+        match = _FAILED_TEST_RE.search(line)
+        if match:
+            seen.add(match.group(1))
+    return sorted(seen)
+
+
 def _apply_mechanical_fixes(
     mode: str,
     slug: Optional[str],
@@ -1266,6 +1297,7 @@ def _apply_mechanical_fixes(
     run(["black", *targets], cwd=context.root, env=env, check=False)
     run(["isort", *targets], cwd=context.root, env=env, check=False)
     changed = not _git_diff_is_empty(context)
+    diff_files = _list_changed_files(context)
     emit_event(
         "discriminator",
         "mechanical_fixes",
@@ -1278,6 +1310,7 @@ def _apply_mechanical_fixes(
         tools=tools,
         targets=targets,
         reason=None if changed else (reason or "no_changes"),
+        files=diff_files,
     )
     if not changed:
         return False

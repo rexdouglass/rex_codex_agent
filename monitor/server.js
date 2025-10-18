@@ -45,7 +45,8 @@ const summary = {
   recentEventsTimestamps: [], // for events/min calc (last 10 minutes)
   tasks: {}, // { [taskName]: { lastStatus, progress, count, lastAt } }
   lastErrors: [], // up to 20
-  componentPlans: {} // { [slug]: plan }
+  componentPlans: {}, // { [slug]: plan }
+  codingStrategies: {} // { [slug]: { tests: { [testId]: entry } } }
 };
 
 // ====== Utilities ======
@@ -129,6 +130,9 @@ function updateSummary(e) {
   if (e.meta && e.meta.plan && e.meta.slug) {
     summary.componentPlans[e.meta.slug] = e.meta.plan;
   }
+  if (e.meta) {
+    ingestCodingMeta(e.meta, e.ts);
+  }
 }
 
 function addEvent(e, broadcast = true) {
@@ -173,14 +177,425 @@ function ingestComponentPlan(e) {
   const { plan, slug, plan_path: planPath } = e.meta;
   if (plan && slug) {
     summary.componentPlans[slug] = plan;
+    ensureCodingBucket(slug);
+    bootstrapPlanStrategies(slug, plan);
   }
   if (planPath && slug) {
     try {
       const diskPlan = JSON.parse(fs.readFileSync(planPath, 'utf8'));
       summary.componentPlans[slug] = diskPlan;
+      ensureCodingBucket(slug);
+      bootstrapPlanStrategies(slug, diskPlan);
     } catch {
       // ignore read/parse failure
     }
+  }
+}
+
+function ensureCodingBucket(slug) {
+  if (!slug) return null;
+  const existing = summary.codingStrategies[slug];
+  if (existing && existing.tests) {
+    return existing;
+  }
+  const bucket = existing || {};
+  if (!bucket.tests) bucket.tests = {};
+  summary.codingStrategies[slug] = bucket;
+  return bucket;
+}
+
+function bootstrapPlanStrategies(slug, plan) {
+  if (!slug || !plan) return;
+  const bucket = ensureCodingBucket(slug);
+  if (!bucket) return;
+  const tests = bucket.tests || (bucket.tests = {});
+  const entries = extractStrategiesFromPlan(plan) || [];
+  entries.forEach((entry) => {
+    if (!entry || !entry.id) return;
+    const existing = tests[entry.id] || { strategy: [], files: [] };
+    if (!existing.strategy?.length && entry.strategy?.length) {
+      existing.strategy = entry.strategy;
+    }
+    if (!existing.files?.length && entry.files?.length) {
+      existing.files = entry.files;
+    }
+    if (!existing.files?.length) {
+      existing.files = guessDefaultTargets(slug);
+    }
+    existing.status = existing.status || entry.status || 'proposed';
+    existing.normalized = normalizeKey(entry.id);
+    tests[entry.id] = existing;
+  });
+}
+
+function findTestId(record) {
+  if (!record || typeof record !== 'object') return null;
+  const keys = ['test_id', 'id', 'test', 'test_case', 'name', 'slug'];
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
+}
+
+function normalizeStrategySteps(value) {
+  const result = [];
+  const seen = new Set();
+  const push = (text) => {
+    if (!text) return;
+    const trimmed = String(text).trim();
+    if (!trimmed) return;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(trimmed);
+  };
+  const walk = (input) => {
+    if (!input) return;
+    if (Array.isArray(input)) {
+      input.forEach(walk);
+      return;
+    }
+    if (typeof input === 'string') {
+      input
+        .split(/\r?\n+/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .forEach(push);
+      return;
+    }
+    if (typeof input === 'object') {
+      if (Array.isArray(input.steps)) {
+        walk(input.steps);
+        return;
+      }
+      const candidates = ['summary', 'plan', 'text', 'description', 'notes'];
+      for (const key of candidates) {
+        if (key in input) {
+          walk(input[key]);
+        }
+      }
+    }
+  };
+  walk(value);
+  return result;
+}
+
+function normalizeKey(value) {
+  if (!value) return '';
+  return String(value).toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function normalizeFileList(value) {
+  const result = [];
+  const seen = new Set();
+  const push = (text) => {
+    if (!text) return;
+    const trimmed = String(text).trim();
+    if (!trimmed) return;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(trimmed);
+  };
+  const walk = (input) => {
+    if (!input) return;
+    if (Array.isArray(input)) {
+      input.forEach(walk);
+      return;
+    }
+    if (typeof input === 'string') {
+      input
+        .split(/[\s,]+/)
+        .map((token) => token.trim())
+        .filter(Boolean)
+        .forEach(push);
+      return;
+    }
+    if (typeof input === 'object') {
+      const candidates = ['files', 'file_paths', 'paths', 'targets', 'touched_files'];
+      for (const key of candidates) {
+        if (key in input) {
+          walk(input[key]);
+        }
+      }
+    }
+  };
+  walk(value);
+  return result;
+}
+
+function guessDefaultTargets(slug) {
+  if (!slug) return [];
+  const safe = String(slug).replace(/[^a-z0-9_]+/gi, '_');
+  const candidates = [
+    path.join('src', `${safe}.py`),
+    path.join('src', safe, '__init__.py'),
+    path.join('src', safe),
+    path.join('project_runtime', safe),
+    path.join('tests', 'feature_specs', slug),
+  ];
+  const results = [];
+  candidates.forEach((rel) => {
+    const abs = path.join(REPO_ROOT, rel);
+    if (fs.existsSync(abs)) {
+      results.push(rel);
+    }
+  });
+  if (!results.length) {
+    results.push(path.join('src', `${safe}.py`));
+  }
+  return results;
+}
+
+function extractStrategyEntry(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = findTestId(raw);
+  if (!id) return null;
+  const strategy =
+    normalizeStrategySteps(raw.strategy) ||
+    normalizeStrategySteps(raw.strategies) ||
+    normalizeStrategySteps(raw.steps) ||
+    normalizeStrategySteps(raw.plan);
+  if (!strategy.length && typeof raw.measurement === 'string' && raw.measurement.trim()) {
+    const fallback = normalizeStrategySteps(raw.measurement) || [];
+    if (fallback.length) {
+      strategy.push(...fallback);
+    } else {
+      strategy.push(raw.measurement.trim());
+    }
+  }
+  const files = normalizeFileList(raw);
+  const status = typeof raw.status === 'string' ? raw.status : undefined;
+  const notes =
+    typeof raw.notes === 'string'
+      ? raw.notes
+      : typeof raw.reason === 'string'
+        ? raw.reason
+        : undefined;
+  const source = typeof raw.source === 'string' ? raw.source : undefined;
+  return { id, strategy, files, status, notes, source };
+}
+
+function extractStrategiesFromPlan(plan) {
+  const entries = [];
+  if (!plan || typeof plan !== 'object') return entries;
+  const components = Array.isArray(plan.components) ? plan.components : [];
+  const visit = (node) => {
+    if (!node || typeof node !== 'object') return;
+    const tests = Array.isArray(node.tests) ? node.tests : [];
+    tests.forEach((test) => {
+      const entry = extractStrategyEntry(test);
+      if (entry) entries.push(entry);
+    });
+    const subs = Array.isArray(node.subcomponents) ? node.subcomponents : [];
+    subs.forEach(visit);
+  };
+  components.forEach(visit);
+  return entries;
+}
+
+function extractStrategiesFromMeta(meta) {
+  const entries = [];
+  if (!meta || typeof meta !== 'object') return entries;
+  const direct = extractStrategyEntry(meta);
+  if (direct) entries.push(direct);
+  const candidateKeys = ['strategy', 'strategies', 'entries', 'updates', 'tests'];
+  candidateKeys.forEach((key) => {
+    const value = meta[key];
+    if (!value) return;
+    if (Array.isArray(value)) {
+      value.forEach((item) => {
+        const entry = extractStrategyEntry(item);
+        if (entry) entries.push(entry);
+      });
+    } else if (typeof value === 'object') {
+      const entry = extractStrategyEntry(value);
+      if (entry) entries.push(entry);
+    }
+  });
+  if (meta.plan) {
+    let plan = meta.plan;
+    if (typeof plan === 'string') {
+      try {
+        plan = JSON.parse(plan);
+      } catch {
+        plan = null;
+      }
+    }
+    if (plan) {
+      entries.push(...extractStrategiesFromPlan(plan));
+    }
+  }
+  if (meta.plan_path) {
+    try {
+      const planPath = path.isAbsolute(meta.plan_path)
+        ? meta.plan_path
+        : path.join(REPO_ROOT, meta.plan_path);
+      if (fs.existsSync(planPath)) {
+        const diskPlan = JSON.parse(fs.readFileSync(planPath, 'utf8'));
+        entries.push(...extractStrategiesFromPlan(diskPlan));
+      }
+    } catch {
+      // ignore
+    }
+  }
+  return entries;
+}
+
+function storeStrategyEntries(slug, entries, ts) {
+  const bucket = ensureCodingBucket(slug);
+  if (!bucket) return;
+  const tests = bucket.tests || (bucket.tests = {});
+  entries.forEach((entry) => {
+    if (!entry || !entry.id) return;
+    const existing = tests[entry.id] || { strategy: [], files: [] };
+    if (entry.strategy && entry.strategy.length) {
+      existing.strategy = entry.strategy;
+    }
+    if (entry.files && entry.files.length) {
+      const merged = new Set(existing.files || []);
+      entry.files.forEach((file) => merged.add(file));
+      existing.files = Array.from(merged);
+    }
+    if (entry.status) existing.status = entry.status;
+    if (entry.notes) existing.notes = entry.notes;
+    if (entry.source) existing.source = entry.source;
+    existing.lastUpdated = ts;
+    existing.normalized = normalizeKey(entry.id);
+    tests[entry.id] = existing;
+  });
+}
+
+function appendStep(entry, text) {
+  if (!text) return;
+  const trimmed = String(text).trim();
+  if (!trimmed) return;
+  entry.strategy = entry.strategy || [];
+  const key = normalizeKey(trimmed);
+  const existingKeys = new Set(entry.strategy.map((step) => normalizeKey(step)));
+  if (!existingKeys.has(key)) {
+    entry.strategy.push(trimmed);
+  }
+}
+
+function mergeFiles(entry, files) {
+  if (!files || !files.length) return;
+  entry.files = entry.files || [];
+  const merged = new Set(entry.files);
+  files.forEach((file) => {
+    if (file) merged.add(String(file));
+  });
+  entry.files = Array.from(merged);
+}
+
+function findMatchingTestKey(tests, candidate) {
+  if (!candidate) return null;
+  if (candidate in tests) return candidate;
+  const normalizedCandidate = normalizeKey(candidate);
+  for (const key of Object.keys(tests)) {
+    const entry = tests[key] || {};
+    const normalized = entry.normalized || normalizeKey(key);
+    if (normalized && normalized === normalizedCandidate) {
+      return key;
+    }
+  }
+  return null;
+}
+
+function applyStrategyUpdate(slug, testIds, ts, updater) {
+  const bucket = ensureCodingBucket(slug);
+  if (!bucket) return;
+  const tests = bucket.tests || (bucket.tests = {});
+  const targetIds = testIds && testIds.length ? testIds : Object.keys(tests);
+  if (!targetIds.length) return;
+  targetIds.forEach((candidate) => {
+    const matchKey = findMatchingTestKey(tests, candidate);
+    const key = matchKey || candidate;
+    const entry = tests[key] || { strategy: [], files: [] };
+    entry.normalized = entry.normalized || normalizeKey(key);
+    updater(entry, key);
+    entry.lastUpdated = ts;
+    tests[key] = entry;
+  });
+}
+
+function ingestCodingMeta(meta, ts) {
+  if (!meta || typeof meta !== 'object') return;
+  if (meta.phase !== 'discriminator') return;
+  const slug = meta.slug;
+  if (!slug) return;
+
+  const genericEntries = extractStrategiesFromMeta(meta);
+  if (genericEntries.length > 0) {
+    storeStrategyEntries(slug, genericEntries, ts);
+  }
+
+  const type = meta.type;
+  if (!type) return;
+
+  if (type === 'mechanical_fixes' && meta.changed) {
+    const tools = Array.isArray(meta.tools) ? meta.tools.join(', ') : 'style tools';
+    const targets = Array.isArray(meta.targets) ? meta.targets : [];
+    applyStrategyUpdate(slug, null, ts, (entry) => {
+      appendStep(entry, `Applied mechanical fixes (${tools})`);
+      mergeFiles(entry, targets);
+      entry.status = entry.status || 'in_progress';
+    });
+    return;
+  }
+
+  if (type === 'llm_patch_decision' && meta.accepted) {
+    const files = Array.isArray(meta.files) ? meta.files : [];
+    applyStrategyUpdate(slug, null, ts, (entry) => {
+      appendStep(entry, `Committed discriminator patch (${meta.reason || 'update'})`);
+      mergeFiles(entry, files);
+      if (entry.status === 'failed') {
+        entry.status = 'in_progress';
+      }
+    });
+    return;
+  }
+
+  if (type === 'stage_end') {
+    const command = meta.command || '';
+    const isPytestStage = typeof command === 'string' && command.includes('pytest');
+    if (!isPytestStage) return;
+    if (meta.ok === false) {
+      const failed = Array.isArray(meta.failed_tests) ? meta.failed_tests : [];
+      const reason = meta.failure_reason || `Stage ${meta.identifier || ''} failed`;
+      if (failed.length) {
+        failed.forEach((testId) => {
+          applyStrategyUpdate(slug, [testId], ts, (entry) => {
+            appendStep(entry, reason);
+            const failedFiles = Array.isArray(meta.failed_files) ? meta.failed_files : [];
+            mergeFiles(entry, failedFiles);
+            entry.status = 'failed';
+          });
+        });
+      } else {
+        applyStrategyUpdate(slug, null, ts, (entry) => {
+          appendStep(entry, reason);
+          entry.status = entry.status === 'pass' ? entry.status : 'failed';
+        });
+      }
+    } else if (meta.ok) {
+      applyStrategyUpdate(slug, null, ts, (entry) => {
+        entry.status = 'pass';
+      });
+    }
+    return;
+  }
+
+  if (type === 'run_completed') {
+    if (meta.ok) {
+      applyStrategyUpdate(slug, null, ts, (entry) => {
+        entry.status = 'pass';
+      });
+    }
+    return;
   }
 }
 
@@ -198,6 +613,7 @@ function loadComponentPlansFromDisk() {
     try {
       const plan = JSON.parse(fs.readFileSync(filePath, 'utf8'));
       summary.componentPlans[slug] = plan;
+      ensureCodingBucket(slug);
     } catch {
       // ignore file errors
     }
@@ -284,6 +700,15 @@ function startTailing(file) {
 }
 
 function getSummaryDTO() {
+  try {
+    if (summary.componentPlans) {
+      for (const [slug, plan] of Object.entries(summary.componentPlans)) {
+        bootstrapPlanStrategies(slug, plan);
+      }
+    }
+  } catch {
+    // ignore bootstrap errors while composing summary
+  }
   return {
     startedAt: summary.startedAt,
     lastEventAt: summary.lastEventAt,
@@ -291,7 +716,8 @@ function getSummaryDTO() {
     tasks: summary.tasks,
     lastErrors: summary.lastErrors,
     eventsPerMinute: eventsPerMinute(),
-    componentPlans: JSON.parse(JSON.stringify(summary.componentPlans))
+    componentPlans: JSON.parse(JSON.stringify(summary.componentPlans)),
+    codingStrategies: JSON.parse(JSON.stringify(summary.codingStrategies))
   };
 }
 

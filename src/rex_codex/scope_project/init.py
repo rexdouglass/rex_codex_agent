@@ -8,15 +8,8 @@ from pathlib import Path
 from .. import __version__
 from .config import AGENT_SRC
 from .self_update import self_update
-from .utils import (
-    RexContext,
-    dump_json,
-    ensure_dir,
-    ensure_python,
-    ensure_requirements_installed,
-    run,
-    which,
-)
+from .utils import (RexContext, dump_json, ensure_dir, ensure_python,
+                    ensure_requirements_installed, run, which)
 
 
 def _copy_if_missing(src: Path, dest: Path) -> None:

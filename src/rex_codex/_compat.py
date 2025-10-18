@@ -22,7 +22,11 @@ def reexport(module_path: str, global_ns: Dict[str, object]) -> ModuleType:
         names = [name for name in dir(module) if not name.startswith("__")]
     else:
         names = list(exported)
-        extras = [name for name in dir(module) if name.startswith("_") and not name.startswith("__")]
+        extras = [
+            name
+            for name in dir(module)
+            if name.startswith("_") and not name.startswith("__")
+        ]
         for extra in extras:
             if extra not in names:
                 names.append(extra)

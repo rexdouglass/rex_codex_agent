@@ -369,28 +369,41 @@ a:hover { text-decoration: underline; }
   color: rgba(92, 99, 116, 0.55);
   font-style: italic;
 }
-.plan-table .risks {
-  color: var(--muted);
+.plan-table .strategy {
+  color: #2a3244;
   line-height: 1.5;
-  min-width: 140px;
+  min-width: 220px;
 }
-.plan-table .risks.risk-alert {
-  color: #b45309;
-  font-weight: 600;
+.plan-table .strategy .muted {
+  font-style: italic;
 }
-.plan-table .risks.risk-alert .risk-line {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
+.plan-table .strategy-step {
+  position: relative;
+  padding-left: 16px;
+  margin-bottom: 4px;
 }
-.plan-table .risks.risk-alert .risk-line::before {
-  content: "⚠";
-  font-size: 13px;
+.plan-table .strategy-step::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: #4a56c9;
+  font-size: 12px;
   line-height: 1.2;
-  color: #d97706;
 }
-.plan-table .risks.risk-none {
-  color: transparent;
+.plan-table .strategy-meta {
+  font-size: 11.5px;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.plan-table .targets {
+  min-width: 160px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: flex-start;
+}
+.plan-table .targets code {
+  margin: 2px 4px 2px 0;
 }
 .status-pill {
   display: inline-flex;

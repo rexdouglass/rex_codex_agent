@@ -10,16 +10,8 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import (
-    Dict,
-    Iterator,
-    List,
-    Mapping,
-    MutableMapping,
-    Optional,
-    Sequence,
-    Set,
-)
+from typing import (Dict, Iterator, List, Mapping, MutableMapping, Optional,
+                    Sequence, Set)
 
 
 class RexError(RuntimeError):

@@ -9,21 +9,16 @@ from dataclasses import dataclass, field, replace
 from types import SimpleNamespace
 from typing import List, Optional
 
-from .cards import card_content_hash, card_path_for, discover_cards, load_rex_agent
+from .cards import (card_content_hash, card_path_for, discover_cards,
+                    load_rex_agent)
 from .discriminator import DiscriminatorOptions, run_discriminator
 from .doctor import run_doctor
 from .generator import GeneratorOptions, run_generator
 from .logs import show_latest_logs
 from .monitoring import ensure_monitor_server
 from .self_update import self_update
-from .utils import (
-    RexContext,
-    activate_venv,
-    create_audit_snapshot,
-    dump_json,
-    lock_file,
-    run,
-)
+from .utils import (RexContext, activate_venv, create_audit_snapshot,
+                    dump_json, lock_file, run)
 
 GENERATOR_EXIT_MESSAGES = {
     0: "Specs updated",

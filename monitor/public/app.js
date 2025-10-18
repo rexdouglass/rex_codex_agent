@@ -27,13 +27,14 @@ const state = {
   filters: new Set(['info', 'warn', 'error']),
   query: '',
   componentPlans: {},
+  codingStrategies: {},
   selectedPlan: null
 };
 
 const PASS_STATUSES = new Set(['pass', 'passed', 'complete', 'completed', 'success', 'succeeded', 'done']);
 const FAIL_STATUSES = new Set(['fail', 'failed', 'error', 'broken']);
 
-updatePlanTopbar(null, []);
+updatePlanTopbar(null, [], {});
 
 els.filters.forEach(cb => {
   cb.addEventListener('change', () => {
@@ -70,6 +71,15 @@ function fmtTs(iso) {
   }
 }
 
+function formatDateTime(iso) {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleString();
+  } catch {
+    return String(iso);
+  }
+}
+
 function renderSummary(s) {
   els.epm.textContent = `${s.eventsPerMinute} evt/min`;
   els.totAll.textContent = s.totals.all || 0;
@@ -81,6 +91,7 @@ function renderSummary(s) {
 
   if (els.planCard) {
     state.componentPlans = s.componentPlans || {};
+    state.codingStrategies = s.codingStrategies || {};
     if (!state.selectedPlan || !(state.selectedPlan in state.componentPlans)) {
       const slugs = Object.keys(state.componentPlans);
       state.selectedPlan = slugs.length ? slugs[0] : null;
@@ -167,13 +178,14 @@ function renderPlanner() {
   const plan = state.componentPlans[state.selectedPlan];
   if (!plan) {
     els.planTree.innerHTML = '';
-    updatePlanTopbar(null, []);
+    updatePlanTopbar(null, [], {});
     return;
   }
 
+  const strategies = getStrategyMap(state.selectedPlan);
   const rows = collectPlanRows(plan);
-  updatePlanTopbar(plan, rows);
-  const table = buildPlanTable(rows);
+  updatePlanTopbar(plan, rows, strategies);
+  const table = buildPlanTable(rows, strategies);
   els.planTree.innerHTML = '';
   els.planTree.appendChild(table);
 }
@@ -234,6 +246,346 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+function extractTestId(test, fallback) {
+  if (!test || typeof test !== 'object') return fallback;
+  const candidates = [
+    test.id,
+    test.test_id,
+    test.testId,
+    test.test,
+    test.test_case,
+    test.name,
+    test.slug
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+  }
+  return fallback;
+}
+
+function getStrategyMap(slug) {
+  if (!slug) return {};
+  const bucket = state.codingStrategies[slug];
+  if (!bucket) return {};
+  if (bucket.tests && typeof bucket.tests === 'object') return bucket.tests;
+  return bucket;
+}
+
+function resolveStatus(testStatus, strategyStatus) {
+  const candidate = (strategyStatus || testStatus || '').toLowerCase();
+  return candidate || 'proposed';
+}
+
+function normalizeStrategyKey(value) {
+  if (!value) return '';
+  return String(value).toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function ensureStrategyBucket(slug) {
+  state.codingStrategies[slug] = state.codingStrategies[slug] || { tests: {} };
+  const bucket = state.codingStrategies[slug];
+  if (!bucket.tests) bucket.tests = {};
+  return bucket.tests;
+}
+
+function appendStepEntry(entry, text) {
+  if (!text) return;
+  const trimmed = String(text).trim();
+  if (!trimmed) return;
+  entry.strategy = entry.strategy || [];
+  const key = normalizeStrategyKey(trimmed);
+  const existingKeys = new Set(entry.strategy.map((step) => normalizeStrategyKey(step)));
+  if (!existingKeys.has(key)) {
+    entry.strategy.push(trimmed);
+  }
+}
+
+function mergeFilesEntry(entry, files) {
+  if (!files || !files.length) return;
+  entry.files = entry.files || [];
+  const merged = new Set(entry.files);
+  files.forEach((file) => {
+    if (file) merged.add(String(file));
+  });
+  entry.files = Array.from(merged);
+}
+
+function findMatchingTestKeyClient(tests, candidate) {
+  if (!candidate) return null;
+  if (candidate in tests) return candidate;
+  const normalizedCandidate = normalizeStrategyKey(candidate);
+  for (const key of Object.keys(tests)) {
+    const entry = tests[key] || {};
+    const normalized = entry.normalized || normalizeStrategyKey(key);
+    if (normalized && normalized === normalizedCandidate) {
+      return key;
+    }
+  }
+  return null;
+}
+
+function applyStrategyUpdateClient(slug, testIds, ts, updater) {
+  const tests = ensureStrategyBucket(slug);
+  const ids = testIds && testIds.length ? testIds : Object.keys(tests);
+  if (!ids.length) return;
+  ids.forEach((candidate) => {
+    const matchKey = findMatchingTestKeyClient(tests, candidate);
+    const key = matchKey || candidate;
+    const entry = tests[key] || { strategy: [], files: [] };
+    entry.normalized = entry.normalized || normalizeStrategyKey(key);
+    updater(entry, key);
+    entry.lastUpdated = ts;
+    tests[key] = entry;
+  });
+}
+
+function findStrategyEntry(strategies, testId) {
+  if (!strategies || !testId) return null;
+  if (strategies[testId]) return strategies[testId];
+  const targetKey = normalizeStrategyKey(testId);
+  for (const key of Object.keys(strategies)) {
+    const entry = strategies[key];
+    const normalized = entry && entry.normalized ? entry.normalized : normalizeStrategyKey(key);
+    if (normalized && normalized === targetKey) {
+      return entry;
+    }
+  }
+  return null;
+}
+
+function normalizeStrategySteps(value) {
+  const result = [];
+  const seen = new Set();
+  const push = (text) => {
+    if (!text) return;
+    const trimmed = String(text).trim();
+    if (!trimmed) return;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(trimmed);
+  };
+  const walk = (input) => {
+    if (!input) return;
+    if (Array.isArray(input)) {
+      input.forEach(walk);
+      return;
+    }
+    if (typeof input === 'string') {
+      input
+        .split(/\r?\n+/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .forEach(push);
+      return;
+    }
+    if (typeof input === 'object') {
+      if (Array.isArray(input.steps)) {
+        walk(input.steps);
+        return;
+      }
+      ['summary', 'plan', 'text', 'description', 'notes'].forEach((key) => {
+        if (key in input) walk(input[key]);
+      });
+    }
+  };
+  walk(value);
+  return result;
+}
+
+function normalizeFileList(value) {
+  const result = [];
+  const seen = new Set();
+  const push = (text) => {
+    if (!text) return;
+    const trimmed = String(text).trim();
+    if (!trimmed) return;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    result.push(trimmed);
+  };
+  const walk = (input) => {
+    if (!input) return;
+    if (Array.isArray(input)) {
+      input.forEach(walk);
+      return;
+    }
+    if (typeof input === 'string') {
+      input
+        .split(/[\s,]+/)
+        .map((token) => token.trim())
+        .filter(Boolean)
+        .forEach(push);
+      return;
+    }
+    if (typeof input === 'object') {
+      ['files', 'file_paths', 'paths', 'targets', 'touched_files'].forEach((key) => {
+        if (key in input) walk(input[key]);
+      });
+    }
+  };
+  walk(value);
+  return result;
+}
+
+function extractStrategyEntryFromRaw(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const testId = extractTestId(raw, '');
+  if (!testId) return null;
+  const strategy =
+    normalizeStrategySteps(raw.strategy) ||
+    normalizeStrategySteps(raw.strategies) ||
+    normalizeStrategySteps(raw.steps) ||
+    normalizeStrategySteps(raw.plan);
+  const files = normalizeFileList(raw);
+  const status = typeof raw.status === 'string' ? raw.status : undefined;
+  const notes =
+    typeof raw.notes === 'string'
+      ? raw.notes
+      : typeof raw.reason === 'string'
+        ? raw.reason
+        : undefined;
+  const source = typeof raw.source === 'string' ? raw.source : undefined;
+  return { id: testId, strategy, files, status, notes, source };
+}
+
+function extractCodingEntriesFromPlan(plan) {
+  const entries = [];
+  if (!plan || typeof plan !== 'object') return entries;
+  const components = Array.isArray(plan.components) ? plan.components : [];
+  const visit = (node) => {
+    if (!node || typeof node !== 'object') return;
+    const tests = Array.isArray(node.tests) ? node.tests : [];
+    tests.forEach((test) => {
+      const entry = extractStrategyEntryFromRaw(test);
+      if (entry) entries.push(entry);
+    });
+    const subs = Array.isArray(node.subcomponents) ? node.subcomponents : [];
+    subs.forEach(visit);
+  };
+  components.forEach(visit);
+  return entries;
+}
+
+function extractCodingEntries(meta) {
+  const entries = [];
+  if (!meta || typeof meta !== 'object') return entries;
+  const direct = extractStrategyEntryFromRaw(meta);
+  if (direct) entries.push(direct);
+  ['strategy', 'strategies', 'entries', 'updates', 'tests'].forEach((key) => {
+    const value = meta[key];
+    if (!value) return;
+    if (Array.isArray(value)) {
+      value.forEach((item) => {
+        const entry = extractStrategyEntryFromRaw(item);
+        if (entry) entries.push(entry);
+      });
+    } else if (typeof value === 'object') {
+      const entry = extractStrategyEntryFromRaw(value);
+      if (entry) entries.push(entry);
+    }
+  });
+  if (meta.plan) {
+    let plan = meta.plan;
+    if (typeof plan === 'string') {
+      try {
+        plan = JSON.parse(plan);
+      } catch {
+        plan = null;
+      }
+    }
+    if (plan) {
+      entries.push(...extractCodingEntriesFromPlan(plan));
+    }
+  }
+  return entries;
+}
+
+function mergeCodingMeta(meta, ts) {
+  if (!meta || meta.phase !== 'discriminator') return false;
+  const slug = meta.slug;
+  if (!slug) return false;
+  const tests = ensureStrategyBucket(slug);
+  let changed = false;
+  const entries = extractCodingEntries(meta);
+  entries.forEach((entry) => {
+    if (!entry || !entry.id) return;
+    const key = entry.id;
+    const existing = tests[key] || { strategy: [], files: [] };
+    if (entry.strategy && entry.strategy.length) {
+      existing.strategy = entry.strategy;
+    }
+    if (entry.files && entry.files.length) {
+      mergeFilesEntry(existing, entry.files);
+    }
+    if (entry.status) existing.status = entry.status;
+    if (entry.notes) existing.notes = entry.notes;
+    if (entry.source) existing.source = entry.source;
+    existing.lastUpdated = ts;
+    tests[key] = existing;
+    changed = true;
+  });
+
+  const type = meta.type;
+  if (!type) return changed;
+
+  if (type === 'mechanical_fixes' && meta.changed) {
+    const tools = Array.isArray(meta.tools) ? meta.tools.join(', ') : 'style tools';
+    const targets = Array.isArray(meta.files) ? meta.files : meta.targets;
+    applyStrategyUpdateClient(slug, null, ts, (entry) => {
+      appendStepEntry(entry, `Applied mechanical fixes (${tools})`);
+      mergeFilesEntry(entry, targets);
+      entry.status = entry.status || 'in_progress';
+    });
+    changed = true;
+  } else if (type === 'llm_patch_decision' && meta.accepted) {
+    const files = Array.isArray(meta.files) ? meta.files : [];
+    applyStrategyUpdateClient(slug, null, ts, (entry) => {
+      appendStepEntry(entry, `Committed discriminator patch (${meta.reason || 'update'})`);
+      mergeFilesEntry(entry, files);
+      if (entry.status === 'failed') entry.status = 'in_progress';
+    });
+    changed = true;
+  } else if (type === 'stage_end') {
+    const command = meta.command || '';
+    const isPytestStage = typeof command === 'string' && command.includes('pytest');
+    if (isPytestStage) {
+      if (meta.ok === false) {
+        const failed = Array.isArray(meta.failed_tests) ? meta.failed_tests : [];
+        const reason = meta.failure_reason || `Stage ${meta.identifier || ''} failed`;
+        if (failed.length) {
+          failed.forEach((testId) => {
+            applyStrategyUpdateClient(slug, [testId], ts, (entry) => {
+              appendStepEntry(entry, reason);
+              mergeFilesEntry(entry, meta.failed_files);
+              entry.status = 'failed';
+            });
+          });
+        } else {
+          applyStrategyUpdateClient(slug, null, ts, (entry) => {
+            appendStepEntry(entry, reason);
+            if (entry.status !== 'pass') entry.status = 'failed';
+          });
+        }
+        changed = true;
+      } else if (meta.ok) {
+        applyStrategyUpdateClient(slug, null, ts, (entry) => {
+          entry.status = 'pass';
+        });
+        changed = true;
+      }
+    }
+  } else if (type === 'run_completed' && meta.ok) {
+    applyStrategyUpdateClient(slug, null, ts, (entry) => {
+      entry.status = 'pass';
+    });
+    changed = true;
+  }
+
+  return changed;
+}
+
 function collectPlanRows(plan) {
   const rows = [];
   const components = Array.isArray(plan && plan.components) ? plan.components : [];
@@ -241,8 +593,7 @@ function collectPlanRows(plan) {
     const componentName = component && component.name ? component.name : `Component ${index + 1}`;
     const scope = {
       component: componentName,
-      componentTooltip: buildScopeTooltip(component),
-      componentRisks: dedupeStrings(component && Array.isArray(component.risks) ? component.risks : [])
+      componentTooltip: buildScopeTooltip(component)
     };
     rows.push(...collectRowsFromNode(component, scope));
   });
@@ -256,18 +607,13 @@ function collectRowsFromNode(node, scope) {
   }
   const tests = normalizeTests(node.tests, scope.subcomponent || scope.component);
   tests.forEach((test) => {
-    const risks = dedupeStrings([
-      ...(scope.componentRisks || []),
-      ...(scope.subcomponentRisks || []),
-      ...(test.risks || [])
-    ]);
     rows.push({
       component: scope.component,
       componentTooltip: scope.componentTooltip || '',
       subcomponent: scope.subcomponent || '',
       subcomponentTooltip: scope.subcomponentTooltip || '',
       test,
-      risks
+      testId: test.testId
     });
   });
   const subs = Array.isArray(node.subcomponents) ? node.subcomponents : [];
@@ -276,10 +622,8 @@ function collectRowsFromNode(node, scope) {
     const subScope = {
       component: scope.component,
       componentTooltip: scope.componentTooltip,
-      componentRisks: scope.componentRisks || [],
       subcomponent: subName,
-      subcomponentTooltip: buildScopeTooltip(sub),
-      subcomponentRisks: dedupeStrings(sub && Array.isArray(sub.risks) ? sub.risks : [])
+      subcomponentTooltip: buildScopeTooltip(sub)
     };
     rows.push(...collectRowsFromNode(sub, subScope));
   });
@@ -304,36 +648,32 @@ function normalizeTests(tests, sourceName) {
   const items = [];
   tests.forEach((test, index) => {
     if (!test) return;
-    const identifier =
-      (test.id ||
-        test.question ||
-        test.name ||
-        test.title ||
-        `test-${index}`) +
-      `::${sourceName || 'component'}`;
+    const baseId = extractTestId(test, `test-${index}`);
+    const identifier = `${baseId}::${sourceName || 'component'}`;
     const key = identifier.toLowerCase();
     if (seen.has(key)) return;
     seen.add(key);
     items.push({
+      testId: baseId,
       title: normaliseQuestion(test),
       measurement: extractMeasurement(test),
       context: extractContext(test),
       status: typeof test.status === 'string' ? test.status.toLowerCase() : 'proposed',
       tags: Array.isArray(test.tags) ? test.tags : [],
       source: sourceName || '',
-      risks: dedupeStrings(test && Array.isArray(test.risks) ? test.risks : []),
       raw: test
     });
   });
   return items;
 }
 
-function summariseRows(rows) {
+function summariseRows(rows, strategies) {
   let pass = 0;
   let fail = 0;
   let todo = 0;
   rows.forEach((row) => {
-    const status = (row.test.status || '').toLowerCase();
+    const entry = strategies && row.testId ? strategies[row.testId] : null;
+    const status = resolveStatus(row.test.status, entry && entry.status);
     if (PASS_STATUSES.has(status)) pass++;
     else if (FAIL_STATUSES.has(status)) fail++;
     else todo++;
@@ -341,7 +681,7 @@ function summariseRows(rows) {
   return { pass, fail, todo, total: rows.length };
 }
 
-function updatePlanTopbar(plan, rows) {
+function updatePlanTopbar(plan, rows, strategies) {
   if (!els.planFeature || !els.planStatus || !els.planProgressBar || !els.planProgressLabel || !els.planInfo) {
     return;
   }
@@ -370,7 +710,7 @@ function updatePlanTopbar(plan, rows) {
   statusEl.classList.add(statusClass);
   statusEl.textContent = statusLabel;
 
-  const summary = summariseRows(rows);
+  const summary = summariseRows(rows, strategies || {});
   const pass = summary.pass;
   const fail = summary.fail;
   const total = summary.total;
@@ -407,7 +747,7 @@ function updatePlanTopbar(plan, rows) {
   }
 }
 
-function buildPlanTable(rows) {
+function buildPlanTable(rows, strategies) {
   const table = document.createElement('table');
   table.className = 'plan-table plan-table-compact';
   table.innerHTML = `
@@ -417,8 +757,9 @@ function buildPlanTable(rows) {
         <th>Subcomponent</th>
         <th>Test Case</th>
         <th>Status</th>
-        <th>Implementation &amp; Notes</th>
-        <th>Risks</th>
+        <th>Measurement</th>
+        <th>Strategy (Discriminator)</th>
+        <th>Target Files</th>
       </tr>
     </thead>
   `;
@@ -427,7 +768,7 @@ function buildPlanTable(rows) {
   if (!rows.length) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
-    cell.colSpan = 6;
+    cell.colSpan = 7;
     cell.className = 'muted';
     cell.textContent = 'No planner data yet.';
     row.appendChild(cell);
@@ -505,34 +846,66 @@ function buildPlanTable(rows) {
       }
       row.appendChild(testCell);
 
+      const strategyEntry = findStrategyEntry(strategies, rowData.testId);
+      const statusValue = resolveStatus(rowData.test.status, strategyEntry && strategyEntry.status);
+
       const statusCell = document.createElement('td');
-      statusCell.appendChild(buildStatusPill(rowData.test.status));
+      statusCell.appendChild(buildStatusPill(statusValue));
       row.appendChild(statusCell);
 
-      const implCell = document.createElement('td');
-      implCell.className = 'impl';
+      const measureCell = document.createElement('td');
+      measureCell.className = 'impl';
       if (rowData.test.measurement) {
-        implCell.innerHTML = formatRichText(rowData.test.measurement);
+        measureCell.innerHTML = formatRichText(rowData.test.measurement);
       } else {
-        implCell.textContent = 'No measurement provided.';
+        measureCell.textContent = 'No measurement provided.';
       }
-      row.appendChild(implCell);
+      row.appendChild(measureCell);
 
-      const riskCell = document.createElement('td');
-      riskCell.className = 'risks';
-      if (rowData.risks.length) {
-        riskCell.classList.add('risk-alert');
-        rowData.risks.forEach((risk) => {
+      const strategyCell = document.createElement('td');
+      strategyCell.className = 'strategy';
+      if (strategyEntry && Array.isArray(strategyEntry.strategy) && strategyEntry.strategy.length) {
+        strategyEntry.strategy.slice(0, 5).forEach((step) => {
           const line = document.createElement('div');
-          line.className = 'risk-line';
-          line.textContent = risk;
-          riskCell.appendChild(line);
+          line.className = 'strategy-step';
+          line.textContent = step;
+          strategyCell.appendChild(line);
         });
       } else {
-        riskCell.classList.add('risk-none');
-        riskCell.setAttribute('aria-label', 'No documented risks');
+        const span = document.createElement('span');
+        span.className = 'muted';
+        span.textContent = 'No strategy captured yet.';
+        strategyCell.appendChild(span);
       }
-      row.appendChild(riskCell);
+      if (strategyEntry && strategyEntry.notes) {
+        const note = document.createElement('div');
+        note.className = 'notes';
+        note.textContent = strategyEntry.notes;
+        strategyCell.appendChild(note);
+      }
+      if (strategyEntry && strategyEntry.lastUpdated) {
+        const meta = document.createElement('div');
+        meta.className = 'notes strategy-meta';
+        meta.textContent = `Updated ${formatDateTime(strategyEntry.lastUpdated)}`;
+        strategyCell.appendChild(meta);
+      }
+      row.appendChild(strategyCell);
+
+      const targetsCell = document.createElement('td');
+      targetsCell.className = 'targets';
+      if (strategyEntry && Array.isArray(strategyEntry.files) && strategyEntry.files.length) {
+        strategyEntry.files.forEach((file) => {
+          const code = document.createElement('code');
+          code.textContent = file;
+          targetsCell.appendChild(code);
+        });
+      } else {
+        const span = document.createElement('span');
+        span.className = 'muted';
+        span.textContent = '—';
+        targetsCell.appendChild(span);
+      }
+      row.appendChild(targetsCell);
 
       tbody.appendChild(row);
     });
@@ -545,7 +918,7 @@ function buildPlanTable(rows) {
 function buildStatusPill(status) {
   const pill = document.createElement('span');
   const normalized = (status || '').toLowerCase();
-  let label = (status || 'proposed').toUpperCase();
+  let label = (status || 'proposed').replace(/[_-]+/g, ' ').toUpperCase();
   let klass = 'status-proposed';
   if (['pass', 'passed', 'completed', 'done', 'success'].includes(normalized)) {
     klass = 'status-pass';
@@ -569,19 +942,6 @@ function formatRichText(text) {
     })
     .join('')
     .replace(/\n/g, '<br>');
-}
-
-function dedupeStrings(values) {
-  if (!Array.isArray(values)) return [];
-  const seen = new Set();
-  const out = [];
-  values.forEach((value) => {
-    const val = typeof value === 'string' ? value.trim() : '';
-    if (!val || seen.has(val)) return;
-    seen.add(val);
-    out.push(val);
-  });
-  return out;
 }
 
 function renderLog() {
@@ -645,11 +1005,18 @@ function connectSSE() {
         taskState[e.task] = t;
         renderTasks();
       }
+      let plannerChanged = false;
       if (e.meta && e.meta.plan && e.meta.slug) {
         state.componentPlans[e.meta.slug] = e.meta.plan;
         if (!state.selectedPlan || !(state.selectedPlan in state.componentPlans)) {
           state.selectedPlan = e.meta.slug;
         }
+        plannerChanged = true;
+      }
+      if (e.meta && mergeCodingMeta(e.meta, e.ts)) {
+        plannerChanged = true;
+      }
+      if (plannerChanged) {
         renderPlanner();
       }
       renderLog();

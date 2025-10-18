@@ -7,28 +7,23 @@ from pathlib import Path
 
 from .. import __version__
 from ..scope_project.burn import burn_repo
-from ..scope_project.cards import (
-    archive_card,
-    create_card,
-    discover_cards,
-    lint_all_cards,
-    prune_spec_directories,
-    rename_card,
-    sanitise_slug,
-    spec_directory,
-    split_card,
-)
-from ..scope_project.discriminator import DiscriminatorOptions, run_discriminator
+from ..scope_project.cards import (archive_card, create_card, discover_cards,
+                                   lint_all_cards, prune_spec_directories,
+                                   rename_card, sanitise_slug, spec_directory,
+                                   split_card)
+from ..scope_project.discriminator import (DiscriminatorOptions,
+                                           run_discriminator)
 from ..scope_project.doctor import run_doctor
-from ..scope_project.generator import GeneratorOptions, parse_statuses, run_generator
+from ..scope_project.generator import (GeneratorOptions, parse_statuses,
+                                       run_generator)
 from ..scope_project.init import run_init
-from .install import run_install
 from ..scope_project.logs import show_latest_logs
 from ..scope_project.loop import LoopOptions, run_loop
-from .self_update import self_update
 from ..scope_project.status import render_status
-from .uninstall import uninstall_agent
 from ..scope_project.utils import RexContext, prompt
+from .install import run_install
+from .self_update import self_update
+from .uninstall import uninstall_agent
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -15,6 +15,8 @@ type AppProps = {
   supportsInput: boolean;
 };
 
+type Mode = "generator" | "discriminator";
+
 type ResolvedOptions = ReducerOptions & { eventsFile: string };
 
 function meter(label: string, a: number, b: number): string {
@@ -131,7 +133,11 @@ function EventLog({ state }: { state: State }) {
     <Box flexDirection="column">
       {recent.map((entry, idx: number) => (
         <Text key={idx}>
-          {chalk.dim(entry.ts.slice(11, 19))} {entry.type} {entry.summary}
+          {chalk.dim(entry.ts.slice(11, 19))}{" "}
+          {entry.phase === "discriminator"
+            ? chalk.magenta("[D]")
+            : chalk.cyan("[G]")}{" "}
+          {entry.type} {entry.summary}
         </Text>
       ))}
     </Box>
@@ -215,6 +221,105 @@ function ExplainPane({ state }: { state: State }) {
   );
 }
 
+function CodingPane({ state }: { state: State }) {
+  const rows = useMemo(() => {
+    const orderedIds = [...state.testOrder];
+    const known = new Set(orderedIds);
+    Object.keys(state.strategies).forEach((id) => {
+      if (!known.has(id)) {
+        orderedIds.push(id);
+        known.add(id);
+      }
+    });
+    return orderedIds.map((id) => ({
+      id,
+      test: state.tests[id],
+      strategy: state.strategies[id],
+    }));
+  }, [state.testOrder, state.tests, state.strategies]);
+
+  if (rows.length === 0) {
+    return <Text dimColor>No discriminator strategies recorded yet…</Text>;
+  }
+
+  const renderStatus = (strategyStatus?: string, testStatus?: string): string => {
+    const preferred = (strategyStatus || testStatus || "pending").toString();
+    const normalized = preferred.trim().toLowerCase();
+    const label = normalized.replace(/[_-]/g, " ").toUpperCase() || "PENDING";
+    if (["PASS", "PASSED", "DONE", "COMPLETE", "ACCEPTED", "OK", "GREEN"].includes(label)) {
+      return chalk.green(label);
+    }
+    if (
+      ["FAIL", "FAILED", "ERROR", "REJECTED", "BLOCKED", "BROKEN", "RED"].includes(
+        label,
+      )
+    ) {
+      return chalk.red(label);
+    }
+    if (
+      ["PENDING", "PLANNING", "IN PROGRESS", "RUNNING", "QUEUED", "DRAFT"].includes(
+        label,
+      )
+    ) {
+      return chalk.yellow(label);
+    }
+    return chalk.cyan(label);
+  };
+
+  const formatStrategy = (items: string[] | undefined): string => {
+    const lines = (items ?? []).filter(Boolean);
+    if (lines.length === 0) {
+      return chalk.dim("Awaiting strategy…");
+    }
+    const preview = lines.slice(0, 2).join(" · ");
+    const suffix = lines.length > 2 ? " …" : "";
+    return cliTruncate(preview + suffix, 74);
+  };
+
+  const formatFiles = (items: string[] | undefined): string => {
+    const files = (items ?? []).filter(Boolean);
+    if (files.length === 0) {
+      return chalk.dim("No files targeted yet");
+    }
+    return cliTruncate(files.join(", "), 74);
+  };
+
+  return (
+    <Box flexDirection="column">
+      {rows.map(({ id, test, strategy }) => {
+        const question = test?.question ?? id;
+        const measurement = test?.measurement ? chalk.dim(test.measurement) : null;
+        const scope =
+          test && (test.component || test.subcomponent)
+            ? chalk.dim(
+                [test.component, test.subcomponent].filter(Boolean).join(" ▸ "),
+              )
+            : null;
+        return (
+          <Box key={id} flexDirection="column" marginBottom={1}>
+            <Text>
+              {renderStatus(strategy?.status, test?.status)}{" "}
+              {cliTruncate(question, 70)}
+            </Text>
+            {scope ? <Text>{scope}</Text> : null}
+            {measurement ? <Text>{measurement}</Text> : null}
+            <Text>
+              {chalk.bold("Strategy: ")}
+              {formatStrategy(strategy?.strategy)}
+            </Text>
+            <Text dimColor>
+              Files: {formatFiles(strategy?.files)}
+            </Text>
+            {strategy?.notes ? (
+              <Text dimColor>{cliTruncate(strategy.notes, 74)}</Text>
+            ) : null}
+          </Box>
+        );
+      })}
+    </Box>
+  );
+}
+
 function parseEvents(chunk: string): RawEvent[] {
   const lines = chunk.split(/\r?\n/);
   const events: RawEvent[] = [];
@@ -262,10 +367,46 @@ function resolveOptions(): ResolvedOptions {
   return resolved;
 }
 
-function InputController({ onToggle }: { onToggle: () => void }) {
+function ModeToggle({ mode }: { mode: Mode }) {
+  const generatorActive = mode === "generator";
+  const discriminatorActive = mode === "discriminator";
+  const generatorLabel = generatorActive
+    ? chalk.bgGreen.black(" Generator ")
+    : chalk.dim(" Generator ");
+  const discriminatorLabel = discriminatorActive
+    ? chalk.bgGreen.black(" Discriminator ")
+    : chalk.dim(" Discriminator ");
+  return (
+    <Box marginBottom={1}>
+      <Text>
+        {chalk.bold("Phase: ")} {generatorLabel} {chalk.dim("⇄")}{" "}
+        {discriminatorLabel} {chalk.dim("(m to toggle, g/d direct)")}
+      </Text>
+    </Box>
+  );
+}
+
+function InputController({
+  mode,
+  onToggleView,
+  onToggleMode,
+  onSelectMode,
+}: {
+  mode: Mode;
+  onToggleView: () => void;
+  onToggleMode: () => void;
+  onSelectMode: (mode: Mode) => void;
+}) {
   useInput((input) => {
-    if (input.toLowerCase() === "t") {
-      onToggle();
+    const lowered = input.toLowerCase();
+    if (lowered === "t" && mode === "generator") {
+      onToggleView();
+    } else if (lowered === "m") {
+      onToggleMode();
+    } else if (lowered === "g") {
+      onSelectMode("generator");
+    } else if (lowered === "d") {
+      onSelectMode("discriminator");
     }
   });
   return null;
@@ -274,6 +415,7 @@ function InputController({ onToggle }: { onToggle: () => void }) {
 export function App({ supportsInput }: AppProps) {
   const [state, setState] = useState<State>(initialState);
   const [view, setView] = useState<"diff" | "tests" | "explain">("diff");
+  const [mode, setMode] = useState<Mode>("generator");
   const { diffFile, targetSlug, projectTitle, eventsFile } = useMemo(
     () => resolveOptions(),
     [],
@@ -336,13 +478,23 @@ export function App({ supportsInput }: AppProps) {
     <Box flexDirection="column">
       {supportsInput ? (
         <InputController
-          onToggle={() =>
+          mode={mode}
+          onToggleView={() =>
             setView((prev) =>
               prev === "diff" ? "tests" : prev === "tests" ? "explain" : "diff",
             )
           }
+          onToggleMode={() =>
+            setMode((prev) =>
+              prev === "generator" ? "discriminator" : "generator",
+            )
+          }
+          onSelectMode={(target) =>
+            setMode((prev) => (prev === target ? prev : target))
+          }
         />
       ) : null}
+      <ModeToggle mode={mode} />
       <Box
         borderStyle="round"
         borderColor="gray"
@@ -363,19 +515,29 @@ export function App({ supportsInput }: AppProps) {
         <EventLog state={state} />
       </Box>
       <Box borderStyle="round" borderColor="gray" paddingX={1} paddingY={1}>
-        {view === "diff" ? (
-          <DiffPane state={state} />
-        ) : view === "tests" ? (
-          <TestsPane state={state} />
+        {mode === "generator" ? (
+          view === "diff" ? (
+            <DiffPane state={state} />
+          ) : view === "tests" ? (
+            <TestsPane state={state} />
+          ) : (
+            <ExplainPane state={state} />
+          )
         ) : (
-          <ExplainPane state={state} />
+          <CodingPane state={state} />
         )}
       </Box>
       <Box marginTop={1}>
         <Text dimColor>
           {supportsInput
-            ? `Controls: a=approve  r=request-rewrite  t=toggle view (current: ${view})`
-            : `Controls (read-only terminal): view=${view} (press 't' when running in an interactive shell)`}
+            ? `Controls: a=approve  r=request-rewrite${
+                mode === "generator" ? "  t=cycle detail view" : ""
+              }  m=toggle phase  g=generator  d=discriminator  (phase=${mode}${
+                mode === "generator" ? `, view=${view}` : ""
+              })`
+            : `Controls (read-only terminal): phase=${mode}${
+                mode === "generator" ? ` · view=${view}` : ""
+              }`}
         </Text>
       </Box>
       <Box>

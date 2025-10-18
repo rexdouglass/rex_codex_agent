@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="32" time="15.867" timestamp="2025-10-18T10:56:08.419604-07:00" hostname="skynet3"><testcase classname="tests.e2e.test_cli_install" name="test_install_parser_accepts_force_and_channel" time="0.055" /><testcase classname="tests.unit.test_hud" name="test_snapshot_uses_last_feature_run" time="0.020" /><testcase classname="tests.unit.test_generator_ui" name="test_model_acceptance_mapping_and_rendering" time="0.009" /><testcase classname="tests.unit.test_generator_ui" name="test_fci_with_no_linked_tests" time="0.005" /><testcase classname="tests.unit.test_cards" name="test_sanitise_slug_strips_leading_invalid_characters" time="0.007" /><testcase classname="tests.unit.test_cards" name="test_sanitise_slug_collapses_weird_spacing" time="0.001" /><testcase classname="tests.e2e.test_utils_audit" name="test_create_audit_snapshot_respects_disable_auto_commit" time="0.400" /><testcase classname="tests.unit.test_cards" name="test_sanitise_slug_fallback_when_empty" time="0.002" /><testcase classname="tests.unit.test_generator_ui" name="test_fci_partial_with_failure" time="0.001" /><testcase classname="tests.unit.test_generator_ui" name="test_fci_all_passing" time="0.001" /><testcase classname="tests.unit.test_discriminator_parallel" name="test_parallel_style_gates_run_in_threads[None]" time="0.033" /><testcase classname="tests.unit.test_playbook" name="test_canonicalize_feature_card" time="0.024" /><testcase classname="tests.unit.test_generator_spec_trace" name="test_spec_trace_section_lines_include_indices" time="0.016" /><testcase classname="tests.unit.test_hud" name="test_snapshot_includes_coverage_line" time="0.011" /><testcase classname="tests.unit.test_events" name="test_emit_event_writes_jsonl" time="0.057" /><testcase classname="tests.unit.test_playbook" name="test_build_playbook_artifacts_writes_outputs" time="0.027" /><testcase classname="tests.e2e.test_cli_install" name="test_generator_parser_quiet_and_tail" time="0.034" /><testcase classname="tests.unit.test_init_requirements" name="test_init_copies_requirements" time="8.383"><failure message="subprocess.CalledProcessError: Command '['python3', '-m', 'rex_codex', 'init', '--no-self-update']' returned non-zero exit status 1.">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x70b40c32e520&gt;
+tmp_path = PosixPath('/tmp/pytest-of-skynet3/pytest-189/popen-gw10/test_init_copies_requirements0')
+
+    @pytest.mark.skipif(
+        os.environ.get("CI") == "true", reason="uses local working tree via PYTHONPATH"
+    )
+    def test_init_copies_requirements(monkeypatch, tmp_path: Path) -&gt; None:
+        repo_root = Path(__file__).resolve().parents[2]
+        env = os.environ.copy()
+        env["PYTHONPATH"] = f"{repo_root / 'src'}:{env.get('PYTHONPATH', '')}"
+        env["REX_SRC"] = str(repo_root)
+&gt;       subprocess.run(
+            ["python3", "-m", "rex_codex", "init", "--no-self-update"],
+            cwd=tmp_path,
+            check=True,
+            env=env,
+        )
+
+tests/unit/test_init_requirements.py:18: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+input = None, capture_output = False, timeout = None, check = True
+popenargs = (['python3', '-m', 'rex_codex', 'init', '--no-self-update'],)
+kwargs = {'cwd': PosixPath('/tmp/pytest-of-skynet3/pytest-189/popen-gw10/test_init_copies_requirements0'), 'env': {'BUNDLED_DEB...bugpy', 'CHROME_DESKTOP': 'code.desktop', 'CLAUDE_CODE_SSE_PORT': '18724', 'CLUTTER_DISABLE_MIPMAPPED_TEXT': '1', ...}}
+process = &lt;Popen: returncode: 1 args: ['python3', '-m', 'rex_codex', 'init', '--no-sel...&gt;
+stdout = None, stderr = None, retcode = 1
+
+    def run(*popenargs,
+            input=None, capture_output=False, timeout=None, check=False, **kwargs):
+        """Run command with arguments and return a CompletedProcess instance.
+    
+        The returned instance will have attributes args, returncode, stdout and
+        stderr. By default, stdout and stderr are not captured, and those attributes
+        will be None. Pass stdout=PIPE and/or stderr=PIPE in order to capture them,
+        or pass capture_output=True to capture both.
+    
+        If check is True and the exit code was non-zero, it raises a
+        CalledProcessError. The CalledProcessError object will have the return code
+        in the returncode attribute, and output &amp; stderr attributes if those streams
+        were captured.
+    
+        If timeout (seconds) is given and the process takes too long,
+         a TimeoutExpired exception will be raised.
+    
+        There is an optional argument "input", allowing you to
+        pass bytes or a string to the subprocess's stdin.  If you use this argument
+        you may not also use the Popen constructor's "stdin" argument, as
+        it will be used internally.
+    
+        By default, all communication is in bytes, and therefore any "input" should
+        be bytes, and the stdout and stderr will be bytes. If in text mode, any
+        "input" should be a string, and stdout and stderr will be strings decoded
+        according to locale encoding, or by "encoding" if set. Text mode is
+        triggered by setting any of text, encoding, errors or universal_newlines.
+    
+        The other arguments are the same as for the Popen constructor.
+        """
+        if input is not None:
+            if kwargs.get('stdin') is not None:
+                raise ValueError('stdin and input arguments may not both be used.')
+            kwargs['stdin'] = PIPE
+    
+        if capture_output:
+            if kwargs.get('stdout') is not None or kwargs.get('stderr') is not None:
+                raise ValueError('stdout and stderr arguments may not be used '
+                                 'with capture_output.')
+            kwargs['stdout'] = PIPE
+            kwargs['stderr'] = PIPE
+    
+        with Popen(*popenargs, **kwargs) as process:
+            try:
+                stdout, stderr = process.communicate(input, timeout=timeout)
+            except TimeoutExpired as exc:
+                process.kill()
+                if _mswindows:
+                    # Windows accumulates the output in a single blocking
+                    # read() call run on child threads, with the timeout
+                    # being done in a join() on those threads.  communicate()
+                    # _after_ kill() is required to collect that and add it
+                    # to the exception.
+                    exc.stdout, exc.stderr = process.communicate()
+                else:
+                    # POSIX _communicate already populated the output so
+                    # far into the TimeoutExpired exception.
+                    process.wait()
+                raise
+            except:  # Including KeyboardInterrupt, communicate handled that.
+                process.kill()
+                # We don't call process.wait() as .__exit__ does that for us.
+                raise
+            retcode = process.poll()
+            if check and retcode:
+&gt;               raise CalledProcessError(retcode, process.args,
+                                         output=stdout, stderr=stderr)
+E               subprocess.CalledProcessError: Command '['python3', '-m', 'rex_codex', 'init', '--no-self-update']' returned non-zero exit status 1.
+
+/home/linuxbrew/.linuxbrew/opt/python@3.13/lib/python3.13/subprocess.py:577: CalledProcessError</failure></testcase><testcase classname="tests.unit.test_install_pruning" name="test_packaging_install_prunes_dev_artifacts" time="9.876" /><testcase classname="tests.unit.test_generator_guard" name="test_guard_card_edits_allows_links_append" time="0.037" /><testcase classname="tests.unit.test_generator_guard" name="test_guard_card_edits_rejects_status_change" time="0.014" /><testcase classname="tests.unit.test_discriminator_parallel" name="test_parallel_style_gates_run_in_threads[06.2]" time="0.039" /><testcase classname="tests.unit.test_hud" name="test_render_hud_follow_invokes_live_monitor" time="0.007" /><testcase classname="tests.unit.test_events" name="test_emit_event_missing_parent_directory" time="0.032" /><testcase classname="tests.unit.test_hud" name="test_discriminator_snapshot_tracks_latest_run" time="0.007" /><testcase classname="tests.e2e.test_cli_install" name="test_loop_parser_quiet_and_tail" time="0.036" /><testcase classname="tests.unit.test_generator_guard" name="test_guard_card_edits_rejects_non_allowed_section" time="0.011" /><testcase classname="tests.e2e.test_cli_install" name="test_discriminator_parser_quiet_and_tail" time="0.027" /><testcase classname="tests.e2e.test_cli_install" name="test_logs_parser_filters" time="0.022" /><testcase classname="tests.e2e.test_cli_install" name="test_install_parser_skip_flags" time="0.019" /><testcase classname="tests.e2e.test_utils_audit" name="test_create_audit_snapshot_skips_push_when_env_set" time="0.068" /><testcase classname="tests.e2e.test_utils_audit" name="test_agent_repo_defaults_to_testing_mode" time="0.043" /></testsuite></testsuites>

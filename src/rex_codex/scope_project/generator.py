@@ -20,26 +20,17 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .cards import FeatureCard, discover_cards, update_active_card
 from .component_planner import ensure_component_plan
-from .config import AGENT_SRC, DEFAULT_GENERATOR_MAX_FILES, DEFAULT_GENERATOR_MAX_LINES
+from .config import (AGENT_SRC, DEFAULT_GENERATOR_MAX_FILES,
+                     DEFAULT_GENERATOR_MAX_LINES)
 from .events import emit_event, events_path
 from .generator_ui import GeneratorHUD
 from .hud import generator_snapshot_text
 from .monitoring import ensure_monitor_server
 from .playbook import build_playbook_artifacts
 from .self_update import self_update
-from .utils import (
-    RexContext,
-    activate_venv,
-    dump_json,
-    ensure_dir,
-    ensure_python,
-    ensure_requirements_installed,
-    load_json,
-    lock_file,
-    repo_root,
-    run,
-    which,
-)
+from .utils import (RexContext, activate_venv, dump_json, ensure_dir,
+                    ensure_python, ensure_requirements_installed, load_json,
+                    lock_file, repo_root, run, which)
 
 PROGRESS_INTERVAL_SECONDS = max(
     5, int(os.environ.get("GENERATOR_PROGRESS_SECONDS", "15"))

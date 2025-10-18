@@ -26,7 +26,9 @@ def smoke_script() -> Path:
     return script
 
 
-def run_selftest(*, keep_workspace: bool = False, extra_env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess:
+def run_selftest(
+    *, keep_workspace: bool = False, extra_env: Mapping[str, str] | None = None
+) -> subprocess.CompletedProcess:
     env: MutableMapping[str, str] = os.environ.copy()
     if keep_workspace:
         env["SELFTEST_KEEP"] = "1"
@@ -35,7 +37,9 @@ def run_selftest(*, keep_workspace: bool = False, extra_env: Mapping[str, str] |
     return subprocess.run(["bash", str(selftest_script())], env=env, check=False)
 
 
-def run_smoke(*, keep_workspace: bool = False, extra_env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess:
+def run_smoke(
+    *, keep_workspace: bool = False, extra_env: Mapping[str, str] | None = None
+) -> subprocess.CompletedProcess:
     env: MutableMapping[str, str] = os.environ.copy()
     if keep_workspace:
         env["KEEP"] = "1"

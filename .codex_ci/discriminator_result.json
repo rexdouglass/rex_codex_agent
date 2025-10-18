@@ -1,0 +1,13 @@
+{
+  "coverage_failed": true,
+  "coverage_targets": "src",
+  "coverage_threshold": "80",
+  "first_failure": {
+    "command": "pytest -q -ra -n auto --dist loadscope -m 'not django_db' --junitxml .codex_ci/discriminator_global_unit.xml",
+    "description": "Run unit tests (no DB markers)",
+    "identifier": "03.1"
+  },
+  "mode": "global",
+  "ok": false,
+  "slug": "hello_cli"
+}
