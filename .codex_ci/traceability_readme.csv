@@ -1,0 +1,3 @@
+test_id,feature_card,capability,scenario,observables,assumptions,test_type,components
+FC-README-CAP-1-SC-01,FC-README,CAP-1,SC-01,,A-001; A-002,e2e; integration,tests
+FC-README-CAP-1-SC-02,FC-README,CAP-1,SC-02,State unchanged,A-003,integration; property,tests

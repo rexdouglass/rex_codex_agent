@@ -1,8 +1,13 @@
 {
   "feature": {
-    "active_card": null,
-    "active_slug": null,
-    "updated_at": null
+    "active_card": "documents/feature_cards/README.md",
+    "active_slug": "readme",
+    "updated_at": "2025-10-18T18:47:05Z"
+  },
+  "generator": {
+    "pass_durations": [
+      2.01
+    ]
   },
   "llm": {
     "bin": "npx --yes @openai/codex",

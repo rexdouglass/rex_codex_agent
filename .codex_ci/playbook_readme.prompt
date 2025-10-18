@@ -1,0 +1,22 @@
+Feature Card ID: FC-README
+Title: Feature Cards
+Priority: UNKNOWN | Risk: unknown | Owner: unknown
+Summary: - short bullets describing the behaviour
+
+Acceptance Criteria → Capabilities:
+- CAP-1 (AC-1): deterministic checks a reviewer can run manually
+  Test types: integration, unit
+    • SC-01 [happy_path]: Validate deterministic checks a reviewer can run manually
+      Assumptions: A-001, A-002
+    • SC-02 [idempotency]: Repeated execution of deterministic checks a reviewer can run manually is idempotent
+      Assumptions: A-003
+
+Assumption Ledger:
+- A-001 (medium): CAP-1: clarify trigger condition [default=Document behaviour with product/QA follow-up.]
+- A-002 (medium): CAP-1: clarify observable outcome [default=Document behaviour with product/QA follow-up.]
+- A-003 (medium): CAP-1: repeated trigger should be idempotent [default=Repeated invocation preserves state.]
+
+Repository Signals:
+- Languages: javascript, python, typescript
+- Test frameworks: pytest
+- Known events: .codex_ci, local, logs, runtime, utf-8

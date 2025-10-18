@@ -8,41 +8,61 @@ Do NOT provide code; only guidance.
 --- GENERATOR PASS ---
 1
 
-Feature slug: hello_cli
+Feature slug: readme
 
 --- FEATURE CARD ---
-# Hello CLI
+# Feature Cards
 
-status: proposed
+Feature Cards describe upcoming Python work before implementation. Cards live beside this README and are consumed by the **Codex generator** to produce deterministic pytest specs. Keep them concise and machine-friendly.
+
+## Required structure
+
+```markdown
+status: proposed   # required, on its own line (values: proposed|accepted|retired)
+title: Concise summary
+owner: optional-handle
 
 ## Summary
-
-Expose CLI flags so the greeting can be customised without editing the code.
+- short bullets describing the behaviour
 
 ## Acceptance Criteria
-
-- Accept `--message` to override the greeting text.
-- Return a zero exit status when the CLI succeeds.
-- Support `--quiet` to suppress output entirely.
+- deterministic checks a reviewer can run manually
 
 ## Links
-
-- (pending)
+<!-- generator may append references here -->
 
 ## Spec Trace
+<!-- generator may append references here -->
+```
 
-- [AC#1] "Accept `--message` to override the greeting text."
-  -> [AC#1] tests/feature_specs/hello_cli/test_cli.py::test_default_greeting
-- [AC#2] "Return a zero exit status when the CLI succeeds."
-  -> [AC#2] tests/feature_specs/hello_cli/test_cli.py::test_message_override
-  -> [AC#2] tests/feature_specs/hello_cli/test_cli.py::test_repeat_behavior
-- [AC#3] "Support `--quiet` to suppress output entirely."
-  -> [AC#3] tests/feature_specs/hello_cli/test_cli.py::test_quiet_mode_suppresses_output
+### Guidelines
+- Always start with `status: proposed`. The generator will ignore cards without this exact line.
+- Use bullets for Summary/Acceptance Criteria-Codex reads them into prompts verbatim.
+- Leave `## Links` / `## Spec Trace` blank; the generator appends context there.
+- Prefer deterministic acceptance criteria (no external network calls, no "eventually" language).
+- Populate optional metadata (`id`, `epic`, `risk_level`, `priority`, `owner`, `dependencies`) when known-the generator canonicalises these fields and mirrors them into the assumption ledger.
+- Capture explicit assumptions under an `## Assumptions` heading or inline using `A-###:` prefixes; unresolved ambiguity is turned into assumption ledger entries automatically.
 
+## Day-one flow (per feature)
+
+1. **Draft the card** following the template above (or run `./rex-codex card new` for an interactive scaffold).
+2. **Generate specs**
+   ```bash
+   ./rex-codex generator documents/feature_cards/<slug>.md
+   ```
+   The generator will:
+   - Create/update only `tests/feature_specs/<slug>/...` (pytest files).
+   - Append references under `## Links` / `## Spec Trace`.
+   - Reject non-deterministic tests (network, `time.sleep`, `uuid.uuid4`, `secrets`, unseeded randomness, etc.).
+   - Enforce patch-size limits (default 6 files / 300 lines).
+3. **Implement runtime code** under `src/...` (Python only) until the discriminator ladder is green.
+4. **Promote the card** to `status: accepted` once the discriminator passes; commit the change alongside your runtime code.
+
+> This project focuses exclusively on **Python projects running on Linux** with OpenAI Codex as the LLM backend. Cards should not describe non-Python or cross-platform work unless you can satisfy it within those bounds.
 
 
 --- CURRENT TEST FILES ---
-### /media/skynet3/8tb_a1/rex_codex_agent/tests/feature_specs/hello_cli/conftest.py
+### /media/skynet3/8tb_a1/rex_codex_agent/tests/feature_specs/readme/conftest.py
 from __future__ import annotations
 
 import importlib.util
@@ -108,200 +128,132 @@ def run_app():
     return _run
 
 
-### /media/skynet3/8tb_a1/rex_codex_agent/tests/feature_specs/hello_cli/test_cli.py
+### /media/skynet3/8tb_a1/rex_codex_agent/tests/feature_specs/readme/test_feature.py
 from __future__ import annotations
 
-import pytest
 
-
-def test_default_greeting(run_app, capsys):
-    """AC#1 Run with default arguments and print `Hello World`."""
-
-    run_app()
-    captured = capsys.readouterr()
-    assert captured.out == "Hello World\n"
-    assert captured.err == ""
-
-
-def test_message_override(run_app, capsys):
-    """AC#2 Accept `--message` to override the greeting text."""
-
-    run_app("--message", "Hi there")
-    captured = capsys.readouterr()
-    assert captured.out == "Hi there\n"
-    assert captured.err == ""
-
-
-@pytest.mark.parametrize("repeat", [2, 3])
-def test_repeat_behavior(run_app, capsys, repeat):
-    """AC#2 Accept `--repeat` to control repetition."""
-
-    run_app("--repeat", str(repeat))
-    captured = capsys.readouterr()
-    expected = "Hello World\n" * repeat
-    assert captured.out == expected
-    assert captured.err == ""
-
-
-def test_quiet_mode_suppresses_output(run_app, capsys):
-    """AC#3 Support `--quiet` to suppress output entirely."""
-
-    run_app("--message", "Muted", "--quiet")
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert captured.err == ""
+def test_feature_imports(hello):
+    assert hasattr(hello, "main")
 
 --- END TEST FILES ---
---- PYTEST OUTPUT (tests/feature_specs/hello_cli) ---
-F
-=================================== FAILURES ===================================
-____________________________ test_default_greeting _____________________________
-
-run_app = <function run_app.<locals>._run at 0x7d65dc07de40>
-capsys = <_pytest.capture.CaptureFixture object at 0x7d65dc209220>
-
-    def test_default_greeting(run_app, capsys):
-        """AC#1 Run with default arguments and print `Hello World`."""
-    
->       run_app()
-
-tests/feature_specs/hello_cli/test_cli.py:9: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-tests/feature_specs/hello_cli/conftest.py:55: in _run
-    runpy.run_module("hello", run_name="__main__")
-<frozen runpy>:222: in run_module
-    ???
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-
-mod_name = 'hello', error = <class 'ImportError'>
-
->   ???
-E   ImportError: No module named hello
-
-<frozen runpy>:142: ImportError
-=========================== short test summary info ============================
-FAILED tests/feature_specs/hello_cli/test_cli.py::test_default_greeting - Imp...
-!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
-
-
 --- MOST RECENT DISCRIMINATOR LOG (tail) ---
-./tests/unit/test_discriminator_parallel.py:11:80: E501 line too long (85 > 79 characters)
-./tests/unit/test_discriminator_parallel.py:16:80: E501 line too long (82 > 79 characters)
-./tests/unit/test_discriminator_parallel.py:41:80: E501 line too long (85 > 79 characters)
-./tests/unit/test_discriminator_parallel.py:67:80: E501 line too long (82 > 79 characters)
-./tests/unit/test_discriminator_parallel.py:71:80: E501 line too long (86 > 79 characters)
-./tests/unit/test_discriminator_parallel.py:75:80: E501 line too long (83 > 79 characters)
-./tests/unit/test_events.py:15:80: E501 line too long (86 > 79 characters)
-./tests/unit/test_events.py:17:80: E501 line too long (82 > 79 characters)
-./tests/unit/test_generator_guard.py:79:80: E501 line too long (82 > 79 characters)
-./tests/unit/test_generator_spec_trace.py:63:80: E501 line too long (87 > 79 characters)
-./tests/unit/test_generator_ui.py:32:80: E501 line too long (88 > 79 characters)
-./tests/unit/test_generator_ui.py:35:80: E501 line too long (80 > 79 characters)
-./tests/unit/test_generator_ui.py:40:80: E501 line too long (88 > 79 characters)
-./tests/unit/test_generator_ui.py:60:80: E501 line too long (84 > 79 characters)
-./tests/unit/test_generator_ui.py:63:80: E501 line too long (81 > 79 characters)
-./tests/unit/test_generator_ui.py:65:80: E501 line too long (87 > 79 characters)
-./tests/unit/test_generator_ui.py:115:80: E501 line too long (88 > 79 characters)
-./tests/unit/test_generator_ui.py:149:80: E501 line too long (88 > 79 characters)
-./tests/unit/test_generator_ui.py:156:80: E501 line too long (89 > 79 characters)
-./tests/unit/test_hud.py:59:80: E501 line too long (83 > 79 characters)
-./tests/unit/test_hud.py:64:80: E501 line too long (85 > 79 characters)
-./tests/unit/test_init_requirements.py:11:80: E501 line too long (83 > 79 characters)
-./tests/unit/test_install_pruning.py:20:80: E501 line too long (87 > 79 characters)
-./tests/unit/test_install_pruning.py:33:80: E501 line too long (86 > 79 characters)
-./tests/unit/test_playbook.py:5:80: E501 line too long (82 > 79 characters)
-./tests/unit/test_playbook.py:41:80: E501 line too long (81 > 79 characters)
-./tests/unit/test_playbook.py:73:80: E501 line too long (88 > 79 characters)
-./tests/unit/test_playbook.py:89:80: E501 line too long (89 > 79 characters)
-./tests/unit/test_playbook.py:93:80: E501 line too long (83 > 79 characters)
-./tests/unit/test_playbook.py:95:80: E501 line too long (83 > 79 characters)
-./tests/unit/test_playbook.py:101:80: E501 line too long (88 > 79 characters)
-./tests/unit/test_playbook.py:110:80: E501 line too long (87 > 79 characters)
-./tests/unit/test_playbook.py:125:80: E501 line too long (98 > 79 characters)
-would reformat /media/skynet3/8tb_a1/rex_codex_agent/project_runtime/__init__.py
-would reformat /media/skynet3/8tb_a1/rex_codex_agent/src/rex_codex/scope_project/init.py
-would reformat /media/skynet3/8tb_a1/rex_codex_agent/src/rex_codex/scope_project/status.py
-would reformat /media/skynet3/8tb_a1/rex_codex_agent/src/rex_codex/scope_project/utils.py
-would reformat /media/skynet3/8tb_a1/rex_codex_agent/src/rex_codex/scope_project/cards.py
-would reformat /media/skynet3/8tb_a1/rex_codex_agent/src/rex_codex/scope_global/cli.py
-would reformat /media/skynet3/8tb_a1/rex_codex_agent/src/rex_codex/scope_project/loop.py
-would reformat /media/skynet3/8tb_a1/rex_codex_agent/src/rex_codex/scope_project/discriminator.py
-would reformat /media/skynet3/8tb_a1/rex_codex_agent/src/rex_codex/scope_project/generator.py
-
-Oh no! 💥 💔 💥
-9 files would be reformatted, 67 files would be left unchanged.
-src/rex_codex/_compat.py:37: error: Invalid index type "object" for "dict[str, Module]"; expected type "str"  [index]
-src/rex_codex/__main__.py:5: error: Module "rex_codex.cli" has no attribute "app"  [attr-defined]
-src/rex_codex/scope_project/utils.py:105: error: No overload variant of "run" matches argument types "list[str]", "dict[str, object]"  [call-overload]
-src/rex_codex/scope_project/utils.py:105: note: Error code "call-overload" not covered by "type: ignore" comment
-src/rex_codex/scope_project/utils.py:105: note: Possible overload variants:
-src/rex_codex/scope_project/utils.py:105: note:     def run(args: str | bytes | PathLike[str] | PathLike[bytes] | Sequence[str | bytes | PathLike[str] | PathLike[bytes]], bufsize: int = ..., executable: str | bytes | PathLike[str] | PathLike[bytes] | None = ..., stdin: int | IO[Any] | None = ..., stdout: int | IO[Any] | None = ..., stderr: int | IO[Any] | None = ..., preexec_fn: Callable[[], Any] | None = ..., close_fds: bool = ..., shell: bool = ..., cwd: str | bytes | PathLike[str] | PathLike[bytes] | None = ..., env: Mapping[bytes, str | bytes | PathLike[str] | PathLike[bytes]] | Mapping[str, str | bytes | PathLike[str] | PathLike[bytes]] | None = ..., universal_newlines: bool | None = ..., startupinfo: Any = ..., creationflags: int = ..., restore_signals: bool = ..., start_new_session: bool = ..., pass_fds: Collection[int] = ..., *, capture_output: bool = ..., check: bool = ..., encoding: str | None = ..., errors: str | None = ..., input: str | None = ..., text: Literal[True], timeout: float | None = ..., user: str | int | None = ..., group: str | int | None = ..., extra_groups: Iterable[str | int] | None = ..., umask: int = ..., pipesize: int = ..., process_group: int | None = ...) -> CompletedProcess[str]
-src/rex_codex/scope_project/utils.py:105: note:     def run(args: str | bytes | PathLike[str] | PathLike[bytes] | Sequence[str | bytes | PathLike[str] | PathLike[bytes]], bufsize: int = ..., executable: str | bytes | PathLike[str] | PathLike[bytes] | None = ..., stdin: int | IO[Any] | None = ..., stdout: int | IO[Any] | None = ..., stderr: int | IO[Any] | None = ..., preexec_fn: Callable[[], Any] | None = ..., close_fds: bool = ..., shell: bool = ..., cwd: str | bytes | PathLike[str] | PathLike[bytes] | None = ..., env: Mapping[bytes, str | bytes | PathLike[str] | PathLike[bytes]] | Mapping[str, str | bytes | PathLike[str] | PathLike[bytes]] | None = ..., universal_newlines: bool | None = ..., startupinfo: Any = ..., creationflags: int = ..., restore_signals: bool = ..., start_new_session: bool = ..., pass_fds: Collection[int] = ..., *, capture_output: bool = ..., check: bool = ..., encoding: str, errors: str | None = ..., input: str | None = ..., text: bool | None = ..., timeout: float | None = ..., user: str | int | None = ..., group: str | int | None = ..., extra_groups: Iterable[str | int] | None = ..., umask: int = ..., pipesize: int = ..., process_group: int | None = ...) -> CompletedProcess[str]
-src/rex_codex/scope_project/utils.py:105: note:     def run(args: str | bytes | PathLike[str] | PathLike[bytes] | Sequence[str | bytes | PathLike[str] | PathLike[bytes]], bufsize: int = ..., executable: str | bytes | PathLike[str] | PathLike[bytes] | None = ..., stdin: int | IO[Any] | None = ..., stdout: int | IO[Any] | None = ..., stderr: int | IO[Any] | None = ..., preexec_fn: Callable[[], Any] | None = ..., close_fds: bool = ..., shell: bool = ..., cwd: str | bytes | PathLike[str] | PathLike[bytes] | None = ..., env: Mapping[bytes, str | bytes | PathLike[str] | PathLike[bytes]] | Mapping[str, str | bytes | PathLike[str] | PathLike[bytes]] | None = ..., universal_newlines: bool | None = ..., startupinfo: Any = ..., creationflags: int = ..., restore_signals: bool = ..., start_new_session: bool = ..., pass_fds: Collection[int] = ..., *, capture_output: bool = ..., check: bool = ..., encoding: str | None = ..., errors: str, input: str | None = ..., text: bool | None = ..., timeout: float | None = ..., user: str | int | None = ..., group: str | int | None = ..., extra_groups: Iterable[str | int] | None = ..., umask: int = ..., pipesize: int = ..., process_group: int | None = ...) -> CompletedProcess[str]
-src/rex_codex/scope_project/utils.py:105: note:     def run(args: str | bytes | PathLike[str] | PathLike[bytes] | Sequence[str | bytes | PathLike[str] | PathLike[bytes]], bufsize: int = ..., executable: str | bytes | PathLike[str] | PathLike[bytes] | None = ..., stdin: int | IO[Any] | None = ..., stdout: int | IO[Any] | None = ..., stderr: int | IO[Any] | None = ..., preexec_fn: Callable[[], Any] | None = ..., close_fds: bool = ..., shell: bool = ..., cwd: str | bytes | PathLike[str] | PathLike[bytes] | None = ..., env: Mapping[bytes, str | bytes | PathLike[str] | PathLike[bytes]] | Mapping[str, str | bytes | PathLike[str] | PathLike[bytes]] | None = ..., *, universal_newlines: Literal[True], startupinfo: Any = ..., creationflags: int = ..., restore_signals: bool = ..., start_new_session: bool = ..., pass_fds: Collection[int] = ..., capture_output: bool = ..., check: bool = ..., encoding: str | None = ..., errors: str | None = ..., input: str | None = ..., text: bool | None = ..., timeout: float | None = ..., user: str | int | None = ..., group: str | int | None = ..., extra_groups: Iterable[str | int] | None = ..., umask: int = ..., pipesize: int = ..., process_group: int | None = ...) -> CompletedProcess[str]
-src/rex_codex/scope_project/utils.py:105: note:     def run(args: str | bytes | PathLike[str] | PathLike[bytes] | Sequence[str | bytes | PathLike[str] | PathLike[bytes]], bufsize: int = ..., executable: str | bytes | PathLike[str] | PathLike[bytes] | None = ..., stdin: int | IO[Any] | None = ..., stdout: int | IO[Any] | None = ..., stderr: int | IO[Any] | None = ..., preexec_fn: Callable[[], Any] | None = ..., close_fds: bool = ..., shell: bool = ..., cwd: str | bytes | PathLike[str] | PathLike[bytes] | None = ..., env: Mapping[bytes, str | bytes | PathLike[str] | PathLike[bytes]] | Mapping[str, str | bytes | PathLike[str] | PathLike[bytes]] | None = ..., universal_newlines: Literal[False] | None = ..., startupinfo: Any = ..., creationflags: int = ..., restore_signals: bool = ..., start_new_session: bool = ..., pass_fds: Collection[int] = ..., *, capture_output: bool = ..., check: bool = ..., encoding: None = ..., errors: None = ..., input: Buffer | None = ..., text: Literal[False] | None = ..., timeout: float | None = ..., user: str | int | None = ..., group: str | int | None = ..., extra_groups: Iterable[str | int] | None = ..., umask: int = ..., pipesize: int = ..., process_group: int | None = ...) -> CompletedProcess[bytes]
-src/rex_codex/scope_project/utils.py:105: note:     def run(args: str | bytes | PathLike[str] | PathLike[bytes] | Sequence[str | bytes | PathLike[str] | PathLike[bytes]], bufsize: int = ..., executable: str | bytes | PathLike[str] | PathLike[bytes] | None = ..., stdin: int | IO[Any] | None = ..., stdout: int | IO[Any] | None = ..., stderr: int | IO[Any] | None = ..., preexec_fn: Callable[[], Any] | None = ..., close_fds: bool = ..., shell: bool = ..., cwd: str | bytes | PathLike[str] | PathLike[bytes] | None = ..., env: Mapping[bytes, str | bytes | PathLike[str] | PathLike[bytes]] | Mapping[str, str | bytes | PathLike[str] | PathLike[bytes]] | None = ..., universal_newlines: bool | None = ..., startupinfo: Any = ..., creationflags: int = ..., restore_signals: bool = ..., start_new_session: bool = ..., pass_fds: Collection[int] = ..., *, capture_output: bool = ..., check: bool = ..., encoding: str | None = ..., errors: str | None = ..., input: Buffer | str | None = ..., text: bool | None = ..., timeout: float | None = ..., user: str | int | None = ..., group: str | int | None = ..., extra_groups: Iterable[str | int] | None = ..., umask: int = ..., pipesize: int = ..., process_group: int | None = ...) -> CompletedProcess[Any]
-src/rex_codex/scope_project/events.py:152: error: "Mapping[str, Any]" has no attribute "setdefault"  [attr-defined]
-src/rex_codex/scope_project/events.py:163: error: Incompatible types in assignment (expression has type "float", target has type "str")  [assignment]
-src/rex_codex/scope_project/events.py:165: error: Incompatible types in assignment (expression has type "Mapping[str, Any]", target has type "str")  [assignment]
-src/rex_codex/scope_project/cards.py:334: error: "object" has no attribute "__iter__"; maybe "__dir__" or "__str__"? (not iterable)  [attr-defined]
-src/rex_codex/scope_project/cards.py:337: error: Argument "title" to "create_card" has incompatible type "object"; expected "str"  [arg-type]
-src/rex_codex/scope_project/cards.py:337: error: Argument "summary" to "create_card" has incompatible type "object"; expected "str"  [arg-type]
-src/rex_codex/scope_project/cards.py:340: error: Argument "title" to "create_card" has incompatible type "object"; expected "str"  [arg-type]
-src/rex_codex/scope_project/cards.py:340: error: Argument "summary" to "create_card" has incompatible type "object"; expected "str"  [arg-type]
-src/rex_codex/scope_project/generator_ui.py:456: error: Item "None" of "TextIOBase | Any | None" has no attribute "write"  [union-attr]
-src/rex_codex/scope_project/generator_ui.py:457: error: Item "None" of "TextIOBase | Any | None" has no attribute "flush"  [union-attr]
-src/rex_codex/scope_project/generator_ui.py:502: error: Value of type variable "_T_io" of "redirect_stdout" cannot be "_HUDCapture"  [type-var]
-src/rex_codex/scope_project/generator_ui.py:503: error: Value of type variable "_T_io" of "redirect_stderr" cannot be "_HUDCapture"  [type-var]
-src/rex_codex/scope_global/self_update.py:40: error: List item 5 has incompatible type "str | None"; expected "str"  [list-item]
-src/rex_codex/scope_project/hud.py:136: error: Argument "terminal" to "GeneratorHUD" has incompatible type "TextIO"; expected "TextIOBase | None"  [arg-type]
-src/rex_codex/scope_project/hud.py:139: error: Name "done_since" already defined on line 93  [no-redef]
-src/rex_codex/scope_project/init.py:77: error: Incompatible types in assignment (expression has type "Path", variable has type "str")  [assignment]
-src/rex_codex/scope_project/generator.py:145: error: "object" has no attribute "__iter__"; maybe "__dir__" or "__str__"? (not iterable)  [attr-defined]
-src/rex_codex/scope_project/generator.py:163: error: Need type annotation for "totals"  [var-annotated]
-src/rex_codex/scope_project/generator.py:194: error: Unsupported operand types for + ("object" and "int")  [operator]
-src/rex_codex/scope_project/generator.py:199: error: "object" has no attribute "append"  [attr-defined]
-src/rex_codex/scope_project/generator.py:201: error: Unsupported operand types for + ("object" and "int")  [operator]
-src/rex_codex/scope_project/generator.py:206: error: "object" has no attribute "append"  [attr-defined]
-src/rex_codex/scope_project/generator.py:211: error: No overload variant of "set" matches argument type "object"  [call-overload]
-src/rex_codex/scope_project/generator.py:211: note: Possible overload variants:
-src/rex_codex/scope_project/generator.py:211: note:     def [_T] set(self) -> set[_T]
-src/rex_codex/scope_project/generator.py:211: note:     def [_T] set(self, Iterable[_T], /) -> set[_T]
-src/rex_codex/scope_project/generator.py:212: error: No overload variant of "set" matches argument type "object"  [call-overload]
-src/rex_codex/scope_project/generator.py:212: note: Possible overload variants:
-src/rex_codex/scope_project/generator.py:212: note:     def [_T] set(self) -> set[_T]
-src/rex_codex/scope_project/generator.py:212: note:     def [_T] set(self, Iterable[_T], /) -> set[_T]
-src/rex_codex/scope_project/generator.py:301: error: Argument 1 to "join" of "str" has incompatible type "object"; expected "Iterable[str]"  [arg-type]
-src/rex_codex/scope_project/generator.py:331: error: Argument 1 to "int" has incompatible type "int | float | complex"; expected "str | Buffer | SupportsInt | SupportsIndex | SupportsTrunc"  [arg-type]
-src/rex_codex/scope_project/generator.py:337: error: Argument 1 to "get_docstring" has incompatible type "AST"; expected "AsyncFunctionDef | FunctionDef | ClassDef | Module"  [arg-type]
-src/rex_codex/scope_project/generator.py:343: error: "AST" has no attribute "decorator_list"  [attr-defined]
-src/rex_codex/scope_project/generator.py:435: error: Need type annotation for "text"  [var-annotated]
-src/rex_codex/scope_project/generator.py:435: error: Argument 1 to "enumerate" has incompatible type "object"; expected "Iterable[Never]"  [arg-type]
-src/rex_codex/scope_project/discriminator.py:213: error: Argument 5 to "emit_event" has incompatible type "**dict[str, int | str | None]"; expected "str | None"  [arg-type]
-src/rex_codex/scope_project/discriminator.py:224: error: Argument 5 to "emit_event" has incompatible type "**dict[str, int | str | None]"; expected "str | None"  [arg-type]
-src/rex_codex/scope_project/discriminator.py:241: error: Argument 6 to "emit_event" has incompatible type "**dict[str, int | str | None]"; expected "str | None"  [arg-type]
-src/rex_codex/scope_project/discriminator.py:253: error: Argument 5 to "emit_event" has incompatible type "**dict[str, int | str | None]"; expected "str | None"  [arg-type]
-src/rex_codex/scope_project/discriminator.py:265: error: Argument 5 to "emit_event" has incompatible type "**dict[str, int | str | None]"; expected "str | None"  [arg-type]
-src/rex_codex/scope_project/discriminator.py:283: error: Argument 7 to "emit_event" has incompatible type "**dict[str, int | str | None]"; expected "str | None"  [arg-type]
-src/rex_codex/scope_project/discriminator.py:297: error: Argument 5 to "emit_event" has incompatible type "**dict[str, int | str | None]"; expected "str | None"  [arg-type]
-src/rex_codex/scope_project/discriminator.py:317: error: Argument 7 to "emit_event" has incompatible type "**dict[str, int | str | None]"; expected "str | None"  [arg-type]
-src/rex_codex/scope_project/discriminator.py:937: error: Argument 1 to "setdefault" of "OrderedDict" has incompatible type "object"; expected "str"  [arg-type]
-src/rex_codex/scope_project/discriminator.py:949: error: Argument 1 to "float" has incompatible type "object"; expected "str | Buffer | SupportsFloat | SupportsIndex"  [arg-type]
-src/rex_codex/scope_project/loop.py:200: error: Argument "extra_sections" to "create_audit_snapshot" has incompatible type "list[tuple[str, list[str]]] | None"; expected "list[tuple[str, Sequence[str]]] | None"  [arg-type]
-src/rex_codex/scope_project/loop.py:354: error: Dict entry 0 has incompatible type "str": "str"; expected "str": "int | None"  [dict-item]
-src/rex_codex/scope_project/loop.py:364: error: Dict entry 0 has incompatible type "str": "str"; expected "str": "int | None"  [dict-item]
-src/rex_codex/scope_project/loop.py:390: error: Dict entry 0 has incompatible type "str": "str"; expected "str": "int | None"  [dict-item]
-src/rex_codex/scope_project/loop.py:404: error: Dict entry 0 has incompatible type "str": "str"; expected "str": "int | None"  [dict-item]
-src/rex_codex/scope_project/loop.py:480: error: Incompatible types in assignment (expression has type "int | None", variable has type "int")  [assignment]
-src/rex_codex/scope_global/cli.py:489: error: Incompatible types in assignment (expression has type "DiscriminatorOptions", variable has type "GeneratorOptions")  [assignment]
-src/rex_codex/scope_global/cli.py:491: error: "GeneratorOptions" has no attribute "mode"  [attr-defined]
-src/rex_codex/scope_global/cli.py:493: error: "GeneratorOptions" has no attribute "mode"  [attr-defined]
-src/rex_codex/scope_global/cli.py:499: error: "GeneratorOptions" has no attribute "slug"  [attr-defined]
-src/rex_codex/scope_global/cli.py:501: error: "GeneratorOptions" has no attribute "disable_llm"  [attr-defined]
-src/rex_codex/scope_global/cli.py:503: error: "GeneratorOptions" has no attribute "disable_llm"  [attr-defined]
-src/rex_codex/scope_global/cli.py:508: error: "GeneratorOptions" has no attribute "stage_timeout"  [attr-defined]
-src/rex_codex/scope_global/cli.py:509: error: Argument 1 to "run_discriminator" has incompatible type "GeneratorOptions"; expected "DiscriminatorOptions"  [arg-type]
-src/rex_codex/scope_global/cli.py:584: error: Incompatible types in assignment (expression has type "list[str] | None", variable has type "list[str]")  [assignment]
-src/rex_codex/scope_global/cli.py:653: error: Skipping analyzing "rex_codex.scope_global.hud": module is installed, but missing library stubs or py.typed marker  [import-untyped]
-src/rex_codex/scope_global/cli.py:653: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
-Found 59 errors in 13 files (checked 52 source files)
+                    **llm_event_context,
+                      ^~~~~~~~~~~~~~~~~
+src/rex_codex/scope_project/discriminator.py:295: error: Argument 7 to
+"emit_event" has incompatible type "**dict[str, int | str | None]"; expected
+"str | None"  [arg-type]
+                    **llm_event_context,
+                      ^~~~~~~~~~~~~~~~~
+src/rex_codex/scope_project/discriminator.py:309: error: Argument 5 to
+"emit_event" has incompatible type "**dict[str, int | str | None]"; expected
+"str | None"  [arg-type]
+                    **llm_event_context,
+                      ^~~~~~~~~~~~~~~~~
+src/rex_codex/scope_project/discriminator.py:329: error: Argument 7 to
+"emit_event" has incompatible type "**dict[str, int | str | None]"; expected
+"str | None"  [arg-type]
+                **llm_event_context,
+                  ^~~~~~~~~~~~~~~~~
+src/rex_codex/scope_project/discriminator.py:341: error: Returning Any from
+function declared to return "str | None"  [no-any-return]
+            return slug
+            ^~~~~~~~~~~
+src/rex_codex/scope_project/discriminator.py:948: error: Unused "type: ignore"
+comment  [unused-ignore]
+            key = record["group"]  # type: ignore[index]
+            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+src/rex_codex/scope_project/discriminator.py:949: error: Argument 1 to
+"setdefault" of "OrderedDict" has incompatible type "object"; expected "str" 
+[arg-type]
+            grouped.setdefault(key, []).append(record)
+                               ^~~
+src/rex_codex/scope_project/discriminator.py:961: error: Argument 1 to "float"
+has incompatible type "object"; expected
+"str | Buffer | SupportsFloat | SupportsIndex"  [arg-type]
+                elapsed = float(record["elapsed"])
+                                ^~~~~~~~~~~~~~~~~
+src/rex_codex/scope_project/loop.py:58: error: Returning Any from function
+declared to return "str | None"  [no-any-return]
+        return hashes.get(slug)
+        ^~~~~~~~~~~~~~~~~~~~~~~
+src/rex_codex/scope_project/loop.py:89: error: Returning Any from function
+declared to return "dict[str, object]"  [no-any-return]
+            return json.loads(path.read_text(encoding="utf-8"))
+            ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+src/rex_codex/scope_project/loop.py:204: error: Argument "extra_sections" to
+"create_audit_snapshot" has incompatible type
+"list[tuple[str, list[str]]] | None"; expected
+"list[tuple[str, Sequence[str]]] | None"  [arg-type]
+            create_audit_snapshot(context, extra_sections=extra)
+                                                          ^~~~~
+src/rex_codex/scope_project/loop.py:358: error: Dict entry 0 has incompatible
+type "str": "str"; expected "str": "int | None"  [dict-item]
+                                    "slug": card.slug,
+                                    ^~~~~~~~~~~~~~~~~
+src/rex_codex/scope_project/loop.py:368: error: Dict entry 0 has incompatible
+type "str": "str"; expected "str": "int | None"  [dict-item]
+                        {"slug": card.slug, "generator": result, "discrimi...
+                         ^~~~~~~~~~~~~~~~~
+src/rex_codex/scope_project/loop.py:394: error: Dict entry 0 has incompatible
+type "str": "str"; expected "str": "int | None"  [dict-item]
+                                    "slug": card.slug,
+                                    ^~~~~~~~~~~~~~~~~
+src/rex_codex/scope_project/loop.py:408: error: Dict entry 0 has incompatible
+type "str": "str"; expected "str": "int | None"  [dict-item]
+                    "slug": card.slug,
+                    ^~~~~~~~~~~~~~~~~
+src/rex_codex/scope_project/loop.py:484: error: Incompatible types in
+assignment (expression has type "int | None", variable has type "int") 
+[assignment]
+            exit_code = generator_code if generator_code not in (None, 0, ...
+                        ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~...
+src/rex_codex/scope_project/loop.py:531: error: Returning Any from function
+declared to return "str | None"  [no-any-return]
+            return slug
+            ^~~~~~~~~~~
+src/rex_codex/scope_global/cli.py:494: error: Incompatible types in assignment
+(expression has type "DiscriminatorOptions", variable has type
+"GeneratorOptions")  [assignment]
+            options = DiscriminatorOptions()
+                      ^~~~~~~~~~~~~~~~~~~~~~
+src/rex_codex/scope_global/cli.py:496: error: "GeneratorOptions" has no
+attribute "mode"  [attr-defined]
+                options.mode = "feature"
+                ^~~~~~~~~~~~
+src/rex_codex/scope_global/cli.py:498: error: "GeneratorOptions" has no
+attribute "mode"  [attr-defined]
+                options.mode = "global"
+                ^~~~~~~~~~~~
+src/rex_codex/scope_global/cli.py:504: error: "GeneratorOptions" has no
+attribute "slug"  [attr-defined]
+                options.slug = args.feature_slug
+                ^~~~~~~~~~~~
+src/rex_codex/scope_global/cli.py:506: error: "GeneratorOptions" has no
+attribute "disable_llm"  [attr-defined]
+                options.disable_llm = False
+                ^~~~~~~~~~~~~~~~~~~
+src/rex_codex/scope_global/cli.py:508: error: "GeneratorOptions" has no
+attribute "disable_llm"  [attr-defined]
+                options.disable_llm = True
+                ^~~~~~~~~~~~~~~~~~~
+src/rex_codex/scope_global/cli.py:513: error: "GeneratorOptions" has no
+attribute "stage_timeout"  [attr-defined]
+                options.stage_timeout = args.stage_timeout
+                ^~~~~~~~~~~~~~~~~~~~~
+src/rex_codex/scope_global/cli.py:514: error: Argument 1 to "run_discriminator"
+has incompatible type "GeneratorOptions"; expected "DiscriminatorOptions" 
+[arg-type]
+            exit_code = run_discriminator(options, context=context)
+                                          ^~~~~~~
+src/rex_codex/scope_global/cli.py:589: error: Incompatible types in assignment
+(expression has type "list[str] | None", variable has type "list[str]") 
+[assignment]
+                statuses = parse_statuses(args.statuses) if args.statuses ...
+                           ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~...
+src/rex_codex/scope_global/cli.py:658: error: Skipping analyzing
+"rex_codex.scope_global.hud": module is installed, but missing library stubs or
+py.typed marker  [import-untyped]
+            from .hud import render_hud
+    ^
+src/rex_codex/scope_global/cli.py:658: note: See https://mypy.readthedocs.io/en/stable/running_mypy.html#missing-imports
+Found 86 errors in 17 files (checked 54 source files)
