@@ -6,11 +6,13 @@ import json
 import os
 import shlex
 import subprocess
-from collections.abc import Iterator, Mapping, MutableMapping, Sequence
+import tempfile
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 
 class RexError(RuntimeError):
@@ -59,15 +61,58 @@ def ensure_dir(path: Path) -> Path:
     return path
 
 
+def _atomic_write(path: Path, text: str) -> None:
+    """Persist ``text`` to ``path`` atomically with fsync to reduce corruption."""
+
+    ensure_dir(path.parent)
+    temp_path: Path | None = None
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=path.parent,
+        delete=False,
+        prefix=f".{path.name}.",
+    ) as handle:
+        handle.write(text)
+        handle.flush()
+        os.fsync(handle.fileno())
+        temp_path = Path(handle.name)
+    if temp_path is None:
+        raise RuntimeError(f"Failed to write temporary file for {path}")
+    try:
+        os.replace(temp_path, path)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
+    _fsync_directory(path.parent)
+
+
+def _fsync_directory(directory: Path) -> None:
+    try:
+        dir_fd = os.open(directory, os.O_DIRECTORY)
+    except (AttributeError, FileNotFoundError, NotADirectoryError, OSError):
+        return
+    try:
+        os.fsync(dir_fd)
+    finally:
+        os.close(dir_fd)
+
+
 def load_json(path: Path) -> dict:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def dump_json(path: Path, data: Mapping) -> None:
-    text = json.dumps(data, indent=2, sort_keys=True)
-    path.write_text(f"{text}\n", encoding="utf-8")
+def dump_json(
+    path: Path,
+    data: object,
+    *,
+    sort_keys: bool = True,
+    ensure_ascii: bool = True,
+) -> None:
+    text = json.dumps(data, indent=2, sort_keys=sort_keys, ensure_ascii=ensure_ascii)
+    _atomic_write(path, f"{text}\n")
 
 
 def which(executable: str) -> str | None:
@@ -88,20 +133,19 @@ def run(
     check: bool = True,
     capture_output: bool = False,
     text: bool = True,
-) -> subprocess.CompletedProcess:
+) -> subprocess.CompletedProcess[str]:
     """Thin wrapper around subprocess.run with sensible defaults."""
-    merged_env: MutableMapping[str, str]
     if env is None:
-        merged_env = os.environ.copy()
+        merged_env: dict[str, str] = dict(os.environ)
     else:
         merged_env = {**os.environ, **env}
-    kwargs: dict[str, object] = {"cwd": cwd, "env": merged_env, "check": check}
+    kwargs: dict[str, Any] = {"cwd": cwd, "env": merged_env, "check": check}
     if capture_output:
         kwargs["stdout"] = subprocess.PIPE
         kwargs["stderr"] = subprocess.PIPE
     if text:
         kwargs["text"] = True
-    return subprocess.run(list(cmd), **kwargs)  # type: ignore[arg-type]
+    return subprocess.run(list(cmd), **kwargs)
 
 
 @dataclass(frozen=True)
@@ -362,7 +406,6 @@ def _render_directory_listing(root: Path) -> str:
         return ignored
 
     def walk(path: Path, depth: int) -> None:
-        nonlocal truncated
         if truncated:
             return
         try:

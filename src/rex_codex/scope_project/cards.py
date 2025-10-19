@@ -17,6 +17,7 @@ CARD_DIR = Path("documents/feature_cards")
 CARD_FILENAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 STATUS_RE = re.compile(r"^[ \t]*status:[ \t]*([A-Za-z0-9_.-]+)", re.IGNORECASE)
 SPEC_ROOT = Path("tests/feature_specs")
+REQUIRED_HEADERS = ("## Summary", "## Acceptance Criteria", "## Links", "## Spec Trace")
 
 
 def card_path_for(context: RexContext, slug: str) -> Path:
@@ -40,9 +41,14 @@ def read_card_sections(path: Path) -> dict[str, object]:
             current_section = stripped.lower()
             continue
         if current_section == "## summary":
-            summary_lines.append(line.rstrip())
+            if stripped:
+                if not stripped.startswith("- "):
+                    raise ValueError("Summary bullets must start with '- '.")
+                summary_lines.append(line.rstrip())
         elif current_section == "## acceptance criteria":
-            if stripped.startswith("- "):
+            if stripped:
+                if not stripped.startswith("- "):
+                    raise ValueError("Acceptance Criteria bullets must start with '- '.")
                 acceptance.append(stripped[2:].strip())
     summary = "\n".join([line for line in summary_lines if line.strip()]).strip()
     return {"title": title, "summary": summary, "acceptance": acceptance}
@@ -95,6 +101,53 @@ class FeatureCard:
             return self.path.relative_to(root)
         except ValueError:
             return self.path
+
+
+@dataclass(frozen=True)
+class CardLintIssue:
+    path: Path
+    code: str
+    message: str
+    line: int = 1
+    column: int = 1
+    hint: str | None = None
+
+    def describe(self) -> str:
+        location = f"{self.path}:{self.line}:{self.column}"
+        detail = f"{location} {self.code}: {self.message}"
+        if self.hint:
+            return f"{detail} ({self.hint})"
+        return detail
+
+    def to_dict(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "path": str(self.path),
+            "code": self.code,
+            "message": self.message,
+            "line": self.line,
+            "column": self.column,
+        }
+        if self.hint:
+            payload["hint"] = self.hint
+        return payload
+
+
+@dataclass(frozen=True)
+class CardFixReport:
+    slug: str
+    path: Path
+    changed: bool
+    before: list[CardLintIssue]
+    after: list[CardLintIssue]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "slug": self.slug,
+            "path": str(self.path),
+            "changed": self.changed,
+            "issues_before": [issue.to_dict() for issue in self.before],
+            "issues_after": [issue.to_dict() for issue in self.after],
+        }
 
 
 def card_directory(context: RexContext | None = None) -> Path:
@@ -235,32 +288,245 @@ def create_card(
 
 
 def lint_card(path: Path) -> list[str]:
-    errors: list[str] = []
+    return [issue.describe() for issue in collect_card_issues(path)]
+
+
+def collect_card_issues(path: Path) -> list[CardLintIssue]:
+    issues: list[CardLintIssue] = []
     if not path.exists():
-        return [f"{path}: missing file"]
-    text = path.read_text(encoding="utf-8").splitlines()
-    status_lines = [ln for ln in text if ln.lower().startswith("status:")]
-    if not status_lines:
-        errors.append(f"{path}: missing `status:` line")
-    elif len(status_lines) > 1:
-        errors.append(f"{path}: more than one `status:` line detected")
-    headers = [ln.strip() for ln in text if ln.strip().startswith("## ")]
-    expected = {"## Summary", "## Acceptance Criteria", "## Links", "## Spec Trace"}
-    missing = expected.difference(headers)
-    for header in sorted(missing):
-        errors.append(f"{path}: missing header {header!r}")
-    return errors
+        issues.append(
+            CardLintIssue(
+                path=path,
+                code="CARD001",
+                message="Feature Card file is missing",
+                hint="Run `./rex-codex card new` to create it.",
+            )
+        )
+        return issues
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as exc:
+        issues.append(
+            CardLintIssue(
+                path=path,
+                code="CARD002",
+                message=f"Unable to read Feature Card: {exc}",
+            )
+        )
+        return issues
+
+    status_entries: list[tuple[int, str]] = [
+        (idx, line) for idx, line in enumerate(lines, start=1) if STATUS_RE.match(line)
+    ]
+    if not status_entries:
+        issues.append(
+            CardLintIssue(
+                path=path,
+                code="CARD100",
+                message="missing `status:` line",
+                hint="Add a leading line like `status: proposed`.",
+            )
+        )
+    else:
+        first_index, first_line = status_entries[0]
+        match = STATUS_RE.match(first_line)
+        value = match.group(1).strip() if match else ""
+        if not value:
+            issues.append(
+                CardLintIssue(
+                    path=path,
+                    code="CARD101",
+                    message="`status:` line is missing a value",
+                    line=first_index,
+                    hint="Set a status such as `proposed`, `accepted`, or `archived`.",
+                )
+            )
+        first_non_empty = next(
+            (idx for idx, line in enumerate(lines, start=1) if line.strip()), None
+        )
+        if first_non_empty is not None and first_index != first_non_empty:
+            issues.append(
+                CardLintIssue(
+                    path=path,
+                    code="CARD102",
+                    message="`status:` should be the first non-empty line",
+                    line=first_index,
+                    hint="Move the status line to the top of the file.",
+                )
+            )
+        if len(status_entries) > 1:
+            for dup_index, _ in status_entries[1:]:
+                issues.append(
+                    CardLintIssue(
+                        path=path,
+                        code="CARD103",
+                        message="Duplicate `status:` line",
+                        line=dup_index,
+                        hint="Remove additional status lines.",
+                    )
+                )
+
+    headers = {
+        line.strip(): idx
+        for idx, line in enumerate(lines, start=1)
+        if line.strip().startswith("## ")
+    }
+    for header in REQUIRED_HEADERS:
+        if header not in headers:
+            issues.append(
+                CardLintIssue(
+                    path=path,
+                    code="CARD110",
+                    message=f"Missing header {header!r}",
+                    hint=f"Add a `{header}` section to the card.",
+                )
+            )
+
+    current_section: str | None = None
+    for idx, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            current_section = stripped.lower()
+            continue
+        if current_section == "## acceptance criteria":
+            if stripped and not stripped.startswith("- "):
+                issues.append(
+                    CardLintIssue(
+                        path=path,
+                        code="CARD120",
+                        message="Acceptance criteria bullets must start with `- `",
+                        line=idx,
+                        hint="Prefix the line with `- `.",
+                    )
+                )
+
+    return issues
 
 
 def lint_all_cards(context: RexContext | None = None) -> list[str]:
+    issues = collect_all_card_issues(context)
+    if not issues:
+        return []
+    return [issue.describe() for issue in issues]
+
+
+def collect_all_card_issues(
+    context: RexContext | None = None,
+    *,
+    slugs: Iterable[str] | None = None,
+) -> list[CardLintIssue]:
     context = context or RexContext.discover()
     directory = card_directory(context)
-    errors: list[str] = []
     if not directory.exists():
-        return ["No Feature Cards found; run `rex-codex card new` first."]
+        missing_path = directory / "(missing)"
+        return [
+            CardLintIssue(
+                path=missing_path,
+                code="CARD000",
+                message="No Feature Cards found; run `rex-codex card new` first.",
+            )
+        ]
+
+    issues: list[CardLintIssue] = []
+    if slugs:
+        for slug in slugs:
+            issues.extend(collect_card_issues(card_path_for(context, slug)))
+        return issues
+
     for card in discover_cards(context=context):
-        errors.extend(lint_card(card.path))
-    return errors
+        issues.extend(collect_card_issues(card.path))
+    return issues
+
+
+def fix_card(path: Path) -> bool:
+    if not path.exists():
+        return False
+    try:
+        original_text = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    lines = original_text.splitlines()
+    changed = False
+
+    status_indices = [idx for idx, line in enumerate(lines) if STATUS_RE.match(line)]
+    if not status_indices:
+        lines.insert(0, "status: proposed")
+        lines.insert(1, "")
+        changed = True
+    else:
+        first_idx = status_indices[0]
+        match = STATUS_RE.match(lines[first_idx])
+        value = match.group(1).strip().lower() if match and match.group(1) else "proposed"
+        normalized_line = f"status: {value}"
+        if lines[first_idx].strip() != normalized_line:
+            lines[first_idx] = normalized_line
+            changed = True
+        # Remove duplicates
+        for dup_idx in reversed(status_indices[1:]):
+            del lines[dup_idx]
+            changed = True
+        # Move to top if needed
+        if first_idx != 0:
+            status_line = lines.pop(first_idx if first_idx < len(lines) else len(lines) - 1)
+            lines.insert(0, status_line)
+            changed = True
+        if len(lines) < 2 or lines[1].strip():
+            lines.insert(1, "")
+            changed = True
+
+    existing_headers = {line.strip() for line in lines if line.strip().startswith("## ")}
+    for header in REQUIRED_HEADERS:
+        if header not in existing_headers:
+            if lines and lines[-1].strip():
+                lines.append("")
+            lines.append(header)
+            lines.append("")
+            changed = True
+
+    current_section: str | None = None
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            current_section = stripped.lower()
+            continue
+        if current_section == "## acceptance criteria" and stripped:
+            if not stripped.startswith("- "):
+                lines[idx] = f"- {stripped}"
+                changed = True
+
+    normalised = "\n".join(lines).rstrip() + "\n"
+    if normalised != original_text:
+        path.write_text(normalised, encoding="utf-8")
+        return True
+    return changed
+
+
+def fix_cards(
+    context: RexContext,
+    *,
+    slugs: Iterable[str] | None = None,
+) -> list[CardFixReport]:
+    reports: list[CardFixReport] = []
+    if slugs:
+        targets = [(slug, card_path_for(context, slug)) for slug in slugs]
+    else:
+        targets = [(card.slug, card.path) for card in discover_cards(context=context)]
+    for slug, path in targets:
+        before = collect_card_issues(path)
+        changed = False
+        if path.exists():
+            changed = fix_card(path)
+        after = collect_card_issues(path)
+        reports.append(
+            CardFixReport(
+                slug=slug,
+                path=path,
+                changed=changed,
+                before=before,
+                after=after,
+            )
+        )
+    return reports
 
 
 def rename_card(context: RexContext, old_slug: str, new_slug: str) -> FeatureCard:

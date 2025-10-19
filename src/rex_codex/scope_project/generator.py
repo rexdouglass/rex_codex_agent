@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import difflib
+import json
 import os
 import re
 import shlex
@@ -25,6 +26,7 @@ from .config import AGENT_SRC, DEFAULT_GENERATOR_MAX_FILES, DEFAULT_GENERATOR_MA
 from .events import emit_event, events_path
 from .generator_ui import GeneratorHUD
 from .hud import generator_snapshot_text
+from .loop_state import register_loop_process, unregister_loop_process
 from .monitoring import ensure_monitor_server
 from .playbook import build_playbook_artifacts
 from .self_update import self_update
@@ -39,6 +41,7 @@ from .utils import (
     lock_file,
     repo_root,
     run,
+    shlex_join,
     which,
 )
 
@@ -562,6 +565,24 @@ def _print_spec_trace_result(result: _SpecTraceResult) -> None:
             print(f"      - {orphan.display} ({hint})")
 
 
+def _iteration_metrics(
+    result: _SpecTraceResult | None, card_trace_changed: bool
+) -> dict[str, Any]:
+    total = len(result.entries) if result else 0
+    missing = len(result.missing) if result else 0
+    covered = total - missing
+    orphans = len(result.orphans) if result else 0
+    coverage_ratio = covered / total if total else 0.0
+    return {
+        "fci_total": total,
+        "fci_covered": covered,
+        "missing": missing,
+        "orphans": orphans,
+        "coverage_ratio": round(coverage_ratio, 4),
+        "card_trace_changed": card_trace_changed,
+    }
+
+
 def _load_pass_durations(context: RexContext) -> list[float]:
     data = load_json(context.rex_agent_file)
     generator_state = data.get("generator", {})
@@ -825,6 +846,12 @@ def _spawn_generator_tui_popout(
     if launched is None:
         return None
     process, exe = launched
+    register_loop_process(
+        process.pid,
+        context=context,
+        label="generator-hud-tui",
+        command=shell_command[:1024],
+    )
     print(f"[generator] HUD popout launched via {exe} (tui).")
     return process
 
@@ -857,6 +884,12 @@ def _spawn_generator_popout(
     if launched is None:
         return None
     process, exe = launched
+    register_loop_process(
+        process.pid,
+        context=context,
+        label="generator-hud-popout",
+        command=shell_command[:1024],
+    )
     print(f"[generator] HUD popout launched via {exe}.")
     return process
 
@@ -879,6 +912,7 @@ def _run_codex_with_progress(
     cmd: Sequence[str],
     *,
     cwd: Path,
+    context: RexContext,
     verbose: bool,
     progress_label: str,
     slug: str | None = None,
@@ -905,95 +939,105 @@ def _run_codex_with_progress(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
+    command_display = (shlex_join(cmd) if cmd else "")[:1024]
+    register_loop_process(
+        process.pid,
+        context=context,
+        label="generator-codex",
+        command=command_display,
+    )
     stdout_buffer: list[str] = []
     stderr_buffer: list[str] = []
     palette = _ansi_palette()
     last_update = ""
-    while True:
-        try:
-            stdout, stderr = process.communicate(timeout=PROGRESS_INTERVAL_SECONDS)
-            if stdout:
-                if not isinstance(stdout, str):
-                    stdout = stdout.decode()
-                stdout_buffer.append(stdout)
+    try:
+        while True:
+            try:
+                stdout, stderr = process.communicate(timeout=PROGRESS_INTERVAL_SECONDS)
+                if stdout:
+                    if not isinstance(stdout, str):
+                        stdout = stdout.decode()
+                    stdout_buffer.append(stdout)
+                    if verbose:
+                        last_update = _emit_codex_updates(stdout, palette, last_update)
+                if stderr:
+                    if not isinstance(stderr, str):
+                        stderr = stderr.decode()
+                    stderr_buffer.append(stderr)
+                break
+            except subprocess.TimeoutExpired as exc:
+                # exc.output / exc.stderr contain partial data when text=True and pipes are used
+                if exc.output:
+                    chunk = (
+                        exc.output if isinstance(exc.output, str) else exc.output.decode()
+                    )
+                    stdout_buffer.append(chunk)
+                    if verbose:
+                        last_update = _emit_codex_updates(chunk, palette, last_update)
+                if exc.stderr:
+                    chunk_err = (
+                        exc.stderr if isinstance(exc.stderr, str) else exc.stderr.decode()
+                    )
+                    stderr_buffer.append(chunk_err)
+                elapsed = int(time.time() - start)
                 if verbose:
-                    last_update = _emit_codex_updates(stdout, palette, last_update)
-            if stderr:
-                if not isinstance(stderr, str):
-                    stderr = stderr.decode()
-                stderr_buffer.append(stderr)
-            break
-        except subprocess.TimeoutExpired as exc:
-            # exc.output / exc.stderr contain partial data when text=True and pipes are used
-            if exc.output:
-                chunk = (
-                    exc.output if isinstance(exc.output, str) else exc.output.decode()
-                )
-                stdout_buffer.append(chunk)
-                if verbose:
-                    last_update = _emit_codex_updates(chunk, palette, last_update)
-            if exc.stderr:
-                chunk_err = (
-                    exc.stderr if isinstance(exc.stderr, str) else exc.stderr.decode()
-                )
-                stderr_buffer.append(chunk_err)
-            elapsed = int(time.time() - start)
-            if verbose:
-                print(f"[generator] {progress_label}… {elapsed}s elapsed", flush=True)
-            emit_event(
-                "generator",
-                "codex_heartbeat",
-                slug=slug,
-                seconds=elapsed,
-                progress_label=progress_label,
-                limit_seconds=max_seconds or None,
-                progress=min(1.0, elapsed / max_seconds)
-                if max_seconds
-                else None,
-            )
-            if max_seconds and elapsed >= max_seconds:
-                print(
-                    f"[generator] Codex CLI exceeded {max_seconds}s; terminating process.",
-                    flush=True,
-                )
+                    print(f"[generator] {progress_label}… {elapsed}s elapsed", flush=True)
                 emit_event(
                     "generator",
-                    "codex_timeout",
+                    "codex_heartbeat",
                     slug=slug,
-                    elapsed_seconds=elapsed,
-                    limit_seconds=max_seconds,
-                )
-                process.kill()
-                try:
-                    stdout, stderr = process.communicate(timeout=5)
-                    if stdout:
-                        if not isinstance(stdout, str):
-                            stdout = stdout.decode()
-                        stdout_buffer.append(stdout)
-                    if stderr:
-                        if not isinstance(stderr, str):
-                            stderr = stderr.decode()
-                        stderr_buffer.append(stderr)
-                except subprocess.TimeoutExpired:
-                    pass
-                elapsed_total = int(time.time() - start)
-                stdout_combined = "".join(stdout_buffer)
-                stderr_combined = "".join(stderr_buffer)
-                emit_event(
-                    "generator",
-                    "codex_completed",
-                    slug=slug,
-                    returncode=124,
-                    elapsed_seconds=elapsed_total,
-                    timeout=True,
+                    seconds=elapsed,
+                    progress_label=progress_label,
                     limit_seconds=max_seconds or None,
+                    progress=min(1.0, elapsed / max_seconds)
+                    if max_seconds
+                    else None,
                 )
-                return _CodexResult(
-                    returncode=124,
-                    stdout=stdout_combined,
-                    stderr=stderr_combined,
-                    elapsed_seconds=elapsed_total,
-                )
+                if max_seconds and elapsed >= max_seconds:
+                    print(
+                        f"[generator] Codex CLI exceeded {max_seconds}s; terminating process.",
+                        flush=True,
+                    )
+                    emit_event(
+                        "generator",
+                        "codex_timeout",
+                        slug=slug,
+                        elapsed_seconds=elapsed,
+                        limit_seconds=max_seconds,
+                    )
+                    process.kill()
+                    try:
+                        stdout, stderr = process.communicate(timeout=5)
+                        if stdout:
+                            if not isinstance(stdout, str):
+                                stdout = stdout.decode()
+                            stdout_buffer.append(stdout)
+                        if stderr:
+                            if not isinstance(stderr, str):
+                                stderr = stderr.decode()
+                            stderr_buffer.append(stderr)
+                    except subprocess.TimeoutExpired:
+                        pass
+                    elapsed_total = int(time.time() - start)
+                    stdout_combined = "".join(stdout_buffer)
+                    stderr_combined = "".join(stderr_buffer)
+                    emit_event(
+                        "generator",
+                        "codex_completed",
+                        slug=slug,
+                        returncode=124,
+                        elapsed_seconds=elapsed_total,
+                        timeout=True,
+                        limit_seconds=max_seconds or None,
+                    )
+                    return _CodexResult(
+                        returncode=124,
+                        stdout=stdout_combined,
+                        stderr=stderr_combined,
+                        elapsed_seconds=elapsed_total,
+                    )
+    finally:
+        unregister_loop_process(process.pid, context=context)
     elapsed_total = int(time.time() - start)
     stdout_combined = "".join(stdout_buffer)
     stderr_combined = "".join(stderr_buffer)
@@ -1037,6 +1081,7 @@ def _run_card_with_ui(
             events_file.unlink()
         except FileNotFoundError:
             pass
+        emit_event("generator", "hud_reset", slug=card.slug)
 
     # Build deterministic playbook artefacts before planning/generation.
     try:
@@ -1169,6 +1214,7 @@ def _run_prompt_only(options: GeneratorOptions, context: RexContext) -> int:
     completed = _run_codex_with_progress(
         cmd,
         cwd=context.root,
+        context=context,
         verbose=options.verbose,
         progress_label=f"Codex CLI (prompt: {label})",
         slug=label,
@@ -1335,6 +1381,8 @@ def _process_card(
     specs_dir = context.root / "tests" / "feature_specs" / slug
     metadata = _extract_card_metadata(card.path)
     existing_specs = _list_existing_specs(specs_dir)
+    convergence_history: list[dict[str, Any]] = []
+    total_elapsed = 0.0
 
     update_active_card(context, card=card)
     _render_generator_dashboard(
@@ -1380,7 +1428,7 @@ def _process_card(
             focus=focus,
             status=status,
         )
-        exit_code, _ = _run_once(
+        exit_code, iteration_metrics = _run_once(
             card=card,
             slug=slug,
             status=status,
@@ -1391,6 +1439,13 @@ def _process_card(
             context=context,
         )
         elapsed = time.perf_counter() - iteration_start
+        total_elapsed += elapsed
+        metrics_payload: dict[str, Any] | None = None
+        if iteration_metrics is not None:
+            metrics_payload = dict(iteration_metrics)
+            metrics_payload["elapsed_seconds"] = round(elapsed, 2)
+            metrics_payload["iteration"] = iteration
+            convergence_history.append(metrics_payload)
         if exit_code == 0:
             _record_pass_duration(context, elapsed)
         emit_event(
@@ -1401,6 +1456,7 @@ def _process_card(
             total_passes=passes,
             exit_code=exit_code,
             elapsed_seconds=round(elapsed, 2),
+            metrics=metrics_payload,
         )
         if exit_code != 0:
             emit_event(
@@ -1430,6 +1486,15 @@ def _process_card(
                 done=True,
                 guidance="DONE",
             )
+            _emit_convergence_summary(
+                slug=slug,
+                reason="critic_done",
+                history=convergence_history,
+                passes_used=iteration,
+                total_budget=passes,
+                total_elapsed=total_elapsed,
+                critic_guidance="DONE",
+            )
             emit_event(
                 "generator",
                 "feature_completed",
@@ -1447,6 +1512,15 @@ def _process_card(
                 done=False,
                 guidance="",
             )
+            _emit_convergence_summary(
+                slug=slug,
+                reason="critic_empty",
+                history=convergence_history,
+                passes_used=iteration,
+                total_budget=passes,
+                total_elapsed=total_elapsed,
+                critic_guidance="",
+            )
             return 5
         print("[generator] Critic requested coverage updates:")
         print(critic_focus)
@@ -1461,6 +1535,15 @@ def _process_card(
         focus = critic_focus
 
     print(f"[generator] Hit max passes ({passes}) without critic approval.")
+    _emit_convergence_summary(
+        slug=slug,
+        reason="max_passes",
+        history=convergence_history,
+        passes_used=passes,
+        total_budget=passes,
+        total_elapsed=total_elapsed,
+        critic_guidance=focus,
+    )
     emit_event(
         "generator",
         "feature_failed",
@@ -1482,7 +1565,7 @@ def _run_once(
     total_passes: int,
     options: GeneratorOptions,
     context: RexContext,
-) -> tuple[int, str | None]:
+) -> tuple[int, dict[str, Any] | None]:
     root = context.root
     specs_dir = root / "tests" / "feature_specs" / slug
     specs_dir.mkdir(parents=True, exist_ok=True)
@@ -1523,6 +1606,7 @@ def _run_once(
     completed = _run_codex_with_progress(
         cmd,
         cwd=root,
+        context=context,
         verbose=options.verbose,
         progress_label=f"Codex CLI running (pass {generation_pass}/{total_passes})",
         slug=slug,
@@ -1564,9 +1648,8 @@ def _run_once(
             "[generator] Codex attempted to modify a protected part of the Feature Card (e.g. the `status:` line)."
         )
         print(
-            "[generator] Rejected. Only append inside '## Links' or '## Spec Trace' as documented in AGENTS.md."
+            "[generator] Proceeding after sanitising the card diff to preserve allowed sections."
         )
-        return 3, None
 
     if options.verbose:
         print(f"[generator] Codex response saved to {context.relative(response_path)}")
@@ -1590,14 +1673,17 @@ def _run_once(
     if options.verbose:
         print("[generator] Diff applied successfully.")
 
+    guard_ok, card_sanitized = _guard_card_edits(
+        slug, root, baseline_card_text, restore_on_violation=True
+    )
+    if not guard_ok:
+        _revert_generated_files(slug, root)
+        return 7, None
+
     if card_path.exists():
         spec_trace_result, card_trace_changed = _update_spec_trace(
             card=card, slug=slug, context=context
         )
-
-    if not _guard_card_edits(slug, root, baseline_card_text):
-        _revert_generated_files(slug, root)
-        return 7, None
 
     if not _enforce_hermetic_tests(slug, root):
         _revert_generated_files(slug, root)
@@ -1605,6 +1691,7 @@ def _run_once(
 
     if card_trace_changed:
         run(["git", "add", str(card_path)], cwd=root, check=False)
+    metrics = _iteration_metrics(spec_trace_result, card_trace_changed)
     if spec_trace_result:
         _print_spec_trace_result(spec_trace_result)
         emit_event(
@@ -1614,12 +1701,15 @@ def _run_once(
             changed=card_trace_changed,
             coverage=_spec_trace_payload(spec_trace_result),
         )
+        metrics["spec_trace"] = _spec_trace_payload(spec_trace_result)
+    else:
+        metrics["spec_trace"] = {}
 
     if status == "proposed":
         _update_metadata(card, slug, context)
     print(f"[generator] Specs updated from {card.path}")
     emit_event("generator", "feature_specs_updated", slug=slug)
-    return 0, None
+    return 0, metrics
 
 
 def _build_prompt(
@@ -1637,13 +1727,28 @@ def _build_prompt(
             playbook_block = playbook_prompt_path.read_text(encoding="utf-8")
         except OSError:
             playbook_block = ""
+    plan_summary = _load_component_plan_summary(slug=slug, context=context)
     prompt = textwrap.dedent(
         f"""\
         You are a senior test architect.
-        Produce a *unified git diff* that adds deterministic pytest specs under tests/feature_specs/<feature>/.
+        Produce a *unified git diff* that adds deterministic pytest specs under tests/feature_specs/<feature>/ only.
+
+        Card edits are STRICTLY limited to appending new lines under exactly these sections:
+        - ## Links
+        - ## Spec Trace
+
+        Do NOT:
+        - change or add the status: line
+        - modify any other card header or section
+        - inject new sections anywhere else in the card
+        - rewrite, delete, or reorder any existing content outside those sections
+        - include any diff hunk that touches a line containing `status:`
+
         Only touch:
         - tests/feature_specs/<feature>/...
-        - documents/feature_cards/<same-card>.md  (to update state/links once tests are created)
+        - documents/feature_cards/<same-card>.md (append under the sections above only)
+
+        If you cannot append under those sections without touching protected content, return an empty diff (no card changes).
 
         Guardrails:
         - Follow AGENTS.md. Do NOT modify runtime.
@@ -1677,8 +1782,132 @@ def _build_prompt(
         if not playbook_block.endswith("\n"):
             prompt += "\n"
         prompt += "--- END CANONICAL PLAYBOOK SUMMARY ---\n"
+    if plan_summary:
+        prompt += "\n"
+        prompt += plan_summary
     prompt += existing
     return prompt
+
+
+def _load_component_plan_summary(*, slug: str, context: RexContext) -> str:
+    plan_path = context.codex_ci_dir / f"component_plan_{slug}.json"
+    if not plan_path.exists():
+        return ""
+    try:
+        payload = json.loads(plan_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+    components = payload.get("components")
+    if not isinstance(components, list) or not components:
+        return ""
+    lines: list[str] = ["--- BEGIN COMPONENT PLAN SUMMARY ---"]
+    for component in components:
+        if not isinstance(component, dict):
+            continue
+        comp_id = str(component.get("id", "")).strip()
+        comp_name = str(component.get("name", "")).strip()
+        summary = str(component.get("summary", "")).strip()
+        header = f"* Component {comp_name} [{comp_id}]"
+        if summary:
+            header += f": {summary}"
+        lines.append(header)
+        for subcomponent in component.get("subcomponents", []):
+            if not isinstance(subcomponent, dict):
+                continue
+            sub_id = str(subcomponent.get("id", "")).strip()
+            sub_name = str(subcomponent.get("name", "")).strip()
+            sub_summary = str(subcomponent.get("summary", "")).strip()
+            sub_header = f"  - Subcomponent {sub_name} [{sub_id}]"
+            if sub_summary:
+                sub_header += f": {sub_summary}"
+            lines.append(sub_header)
+            for test in subcomponent.get("tests", []):
+                if not isinstance(test, dict):
+                    continue
+                test_id = str(test.get("id", "")).strip()
+                question = str(test.get("question", "")).strip()
+                measurement = str(test.get("measurement", "")).strip()
+                assumptions = test.get("assumptions", [])
+                assumptions_display = ""
+                if isinstance(assumptions, list):
+                    filtered = [str(item).strip() for item in assumptions if str(item).strip()]
+                    if filtered:
+                        assumptions_display = ", ".join(filtered)
+                lines.append(f"      • Test {test_id}: {question}")
+                if measurement:
+                    measurement_snippet = _truncate_measurement(measurement)
+                    lines.append(f"        Measurement: {measurement_snippet}")
+                if assumptions_display:
+                    lines.append(f"        Assumptions: {assumptions_display}")
+    lines.append("--- END COMPONENT PLAN SUMMARY ---")
+    return "\n".join(lines)
+
+
+def _truncate_measurement(measurement: str, *, limit: int = 220) -> str:
+    snippet = " ".join(measurement.split())
+    if len(snippet) <= limit:
+        return snippet
+    return snippet[: limit - 1] + "…"
+
+
+def _emit_convergence_summary(
+    *,
+    slug: str,
+    reason: str,
+    history: list[dict[str, Any]],
+    passes_used: int,
+    total_budget: int,
+    total_elapsed: float,
+    critic_guidance: str | None,
+) -> None:
+    if not history:
+        return
+    final = history[-1]
+    covered = int(final.get("fci_covered", 0))
+    total = int(final.get("fci_total", 0))
+    missing = int(final.get("missing", max(total - covered, 0)))
+    orphans = int(final.get("orphans", 0))
+    coverage_ratio = float(final.get("coverage_ratio", 0.0))
+    deltas = _coverage_deltas(history)
+    last_delta = deltas[-1] if deltas else 0.0
+    zero_delta_streak = sum(1 for delta in reversed(deltas) if abs(delta) < 1e-6)
+    summary = (
+        "converged: "
+        f"reason={reason}; passes={passes_used}/{total_budget}; "
+        f"coverage={covered}/{total} ({coverage_ratio:.2%}); "
+        f"delta_last={last_delta:+.2%}; zero_delta_streak={zero_delta_streak}; "
+        f"missing={missing}; orphans={orphans}; time_used={total_elapsed:.1f}s"
+    )
+    print(f"[generator] {summary}")
+    emit_event(
+        "generator",
+        "convergence_summary",
+        slug=slug,
+        reason=reason,
+        passes_used=passes_used,
+        total_passes=total_budget,
+        coverage_ratio=round(coverage_ratio, 4),
+        covered=covered,
+        total=total,
+        missing=missing,
+        orphans=orphans,
+        coverage_delta=round(last_delta, 4),
+        zero_delta_streak=zero_delta_streak,
+        total_elapsed_seconds=round(total_elapsed, 2),
+        critic_guidance=critic_guidance or "",
+        history=history,
+    )
+
+
+def _coverage_deltas(history: list[dict[str, Any]]) -> list[float]:
+    deltas: list[float] = []
+    previous: float | None = None
+    for entry in history:
+        coverage = float(entry.get("coverage_ratio", 0.0))
+        if previous is not None:
+            deltas.append(round(coverage - previous, 4))
+        previous = coverage
+    return deltas
 
 
 def _append_existing_tests(slug: str, context: RexContext) -> str:
@@ -1702,6 +1931,46 @@ def _normalize_unified_diff(diff_text: str) -> str:
     if normalized and not normalized.endswith("\n"):
         normalized += "\n"
     return normalized
+
+
+def _sanitize_card_diff(block: str) -> tuple[str | None, bool]:
+    """Remove forbidden hunks from a Feature Card diff.
+
+    Returns a tuple of (sanitized_block, removed_forbidden_hunks). When all hunks
+    are stripped, sanitized_block is None.
+    """
+
+    lines = block.splitlines()
+    if not lines:
+        return None, False
+    # Preserve header and file metadata up to the first hunk.
+    prefix: list[str] = []
+    index = 0
+    while index < len(lines) and not lines[index].startswith("@@"):
+        prefix.append(lines[index])
+        index += 1
+
+    sanitized = list(prefix)
+    removed_forbidden = False
+
+    while index < len(lines):
+        hunk_start = index
+        index += 1
+        while index < len(lines) and not lines[index].startswith("@@"):
+            index += 1
+        hunk = lines[hunk_start:index]
+        if any(
+            line.startswith(("+", "-"))
+            and re.search(r"\bstatus\s*:", line, flags=re.IGNORECASE)
+            for line in hunk
+        ):
+            removed_forbidden = True
+            continue
+        sanitized.extend(hunk)
+
+    if len(sanitized) == len(prefix):
+        return None, removed_forbidden
+    return "\n".join(sanitized), removed_forbidden
 
 
 def _extract_diff(response_path: Path, slug: str | None) -> str:
@@ -1728,6 +1997,17 @@ def _extract_diff(response_path: Path, slug: str | None) -> str:
             )
             for candidate in (a_path, b_path)
         ):
+            if allowed_doc and (
+                a_path == allowed_doc or b_path == allowed_doc
+            ):
+                sanitized_block, removed = _sanitize_card_diff(block.rstrip("\n"))
+                if removed:
+                    print(
+                        "[generator] Dropped forbidden Feature Card edits (status line)."
+                    )
+                if sanitized_block:
+                    segments.append(sanitized_block)
+                continue
             segments.append(block.rstrip("\n"))
     return _normalize_unified_diff("\n\n".join(segments))
 
@@ -1769,7 +2049,10 @@ def _validate_card_diff(diff_text: str, slug: str | None) -> bool:
     if next_diff != -1:
         section = section[:next_diff]
     if re.search(r"^[+-]\s*status\s*:", section, flags=re.IGNORECASE | re.MULTILINE):
-        return False
+        print(
+            "[generator] Diff includes forbidden Feature Card header edits; they will be discarded."
+        )
+        return True
     return True
 
 
@@ -1810,22 +2093,37 @@ def _apply_patch(patch_path: Path, root: Path) -> tuple[bool, str | None]:
     if apply_wc.returncode == 0:
         run(["git", "add", "tests", "documents/feature_cards"], cwd=root, check=False)
         return True, None
+    reverse_check = run(
+        ["git", "apply", "--reverse", "--check", str(patch_path)],
+        cwd=root,
+        check=False,
+        capture_output=True,
+    )
+    if reverse_check.returncode == 0:
+        print("[generator] Patch already present; treating as applied.")
+        return True, None
     combined_error = (apply_wc.stderr or "") + (apply_wc.stdout or "")
     if not combined_error:
         combined_error = (apply_index.stderr or "") + (apply_index.stdout or "")
     return False, combined_error or None
 
 
-def _guard_card_edits(slug: str, root: Path, baseline_text: str | None) -> bool:
+def _guard_card_edits(
+    slug: str,
+    root: Path,
+    baseline_text: str | None,
+    *,
+    restore_on_violation: bool = False,
+) -> tuple[bool, bool]:
     card_path = root / "documents" / "feature_cards" / f"{slug}.md"
     if not card_path.exists():
-        return True
+        return True, False
 
     try:
         after = card_path.read_text(encoding="utf-8")
     except OSError:
         print(f"[generator] Unable to read Feature Card {card_path}")
-        return False
+        return False, False
 
     if baseline_text is not None:
         before_text = baseline_text
@@ -1843,7 +2141,7 @@ def _guard_card_edits(slug: str, root: Path, baseline_text: str | None) -> bool:
     after_lines = after.splitlines()
 
     if before_lines == after_lines:
-        return True
+        return True, False
 
     allowed_headers = {"## Links", "## Spec Trace"}
 
@@ -1873,7 +2171,11 @@ def _guard_card_edits(slug: str, root: Path, baseline_text: str | None) -> bool:
             for line in removed + added
         ):
             print("[generator] Card edit touches status line; abort.")
-            return False
+            return _handle_card_violation(
+                card_path,
+                baseline_text,
+                restore_on_violation=restore_on_violation,
+            )
         header_before = header_key(nearest_header(before_lines, i1))
         header_after = header_key(nearest_header(after_lines, j1))
         allowed_here = header_before or header_after
@@ -1896,7 +2198,11 @@ def _guard_card_edits(slug: str, root: Path, baseline_text: str | None) -> bool:
                     print(
                         f"[generator] Card edits under section '{header}' are not permitted."
                     )
-                return False
+                return _handle_card_violation(
+                    card_path,
+                    baseline_text,
+                    restore_on_violation=restore_on_violation,
+                )
         elif tag in {"delete", "replace"}:
             if not allowed_here:
                 header = nearest_header(before_lines, i1)
@@ -1906,9 +2212,50 @@ def _guard_card_edits(slug: str, root: Path, baseline_text: str | None) -> bool:
                     print(
                         f"[generator] Card edits under section '{header}' are not permitted."
                     )
-                return False
+                return _handle_card_violation(
+                    card_path,
+                    baseline_text,
+                    restore_on_violation=restore_on_violation,
+                )
             # Modifications within allowed sections are permitted.
-    return True
+    return True, False
+
+
+def _handle_card_violation(
+    card_path: Path,
+    baseline_text: str | None,
+    *,
+    restore_on_violation: bool,
+) -> tuple[bool, bool]:
+    if not restore_on_violation:
+        return False, False
+    restored = False
+    if baseline_text is not None:
+        try:
+            card_path.write_text(baseline_text, encoding="utf-8")
+            restored = True
+        except OSError:
+            restored = False
+    if not restored:
+        try:
+            repo_root = card_path.parents[2]
+        except IndexError:
+            repo_root = card_path.parent
+        reset = run(
+            ["git", "checkout", "--", str(card_path)],
+            cwd=repo_root,
+            capture_output=True,
+            check=False,
+        )
+        if reset.returncode == 0:
+            restored = True
+    if restored:
+        print("[generator] Disallowed Feature Card edits were discarded and the baseline restored.")
+        return True, True
+    print(
+        "[generator] Unable to restore Feature Card after detecting disallowed edits."
+    )
+    return False, False
 
 
 def _revert_generated_files(slug: str, root: Path) -> None:

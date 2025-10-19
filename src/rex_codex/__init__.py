@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from importlib import import_module
 from pathlib import Path
+from typing import Any
 
 
 def _read_version() -> str:
@@ -24,7 +25,7 @@ __all__ = ["__version__", "scope_global", "scope_project", "scope_sandbox"]
 __version__ = _read_version()
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     if name in {"scope_global", "scope_project", "scope_sandbox"}:
         return import_module(f"{__name__}.{name}")
     raise AttributeError(name)

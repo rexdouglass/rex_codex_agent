@@ -45,6 +45,31 @@ the global shim and sandbox continue evolving.
 
 ---
 
+## Offline / Enterprise Installation
+
+Some teams need to bootstrap the agent inside restricted environments. The shim now supports an explicit offline flow:
+
+1. On a connected workstation fetch a tagged release tarball and its SHA256 checksum.
+   ```bash
+   VERSION=$(cat VERSION)
+   curl -fsSLO "https://github.com/rexdouglass/rex_codex_agent/archive/refs/tags/v${VERSION}.tar.gz"
+   curl -fsSLO "https://github.com/rexdouglass/rex_codex_agent/releases/download/v${VERSION}/rex_codex_agent_${VERSION}_SHA256SUMS.txt"
+   sha256sum --check "rex_codex_agent_${VERSION}_SHA256SUMS.txt"
+   ```
+2. Copy the verified tarball into the target network (USB, artifact repository, etc) and unpack it alongside the project repo.
+3. From inside the unpacked directory install the pinned tooling without hitting PyPI:
+   ```bash
+   python3 -m venv .venv
+   .venv/bin/pip install --no-index --find-links ./packaging/wheels -r requirements.txt
+   ```
+   (The `packaging/wheels/` directory is populated during releases; add your own wheel mirror if you maintain a fork.)
+4. Export `REX_DISABLE_AUTO_COMMIT=1` and `REX_DISABLE_AUTO_PUSH=1` to prevent the automation loop from touching git remotes, and run `./rex-codex init` followed by `./rex-codex doctor --output json` to confirm prerequisites.
+5. When you eventually rejoin the network, run `./rex-codex self-update --channel stable` to sync with the latest release, or keep mirroring the tarball + checksum workflow above.
+
+All release artifacts ship with SHA256 manifests so enterprise mirrors can enforce provenance. If you need to integrate a corporate SBOM or sign the artifacts with your own key, mirror the tarball and `requirements.txt` in your internal registry and update the checksum step accordingly.
+
+---
+
 ## Monitoring UI (optional)
 
 - Run the passive web UI from `monitor/` to tail `.agent/logs/events.jsonl` in your browser.
@@ -158,16 +183,18 @@ the global shim and sandbox continue evolving.
 |---------|---------|-----------------|
 | `./rex-codex install` | Reinstall or refresh the agent in-place (auto-runs `init`/`doctor`). | `--force`, `--channel`, `--skip-init`, `--skip-doctor` |
 | `./rex-codex init` | Seed `.venv`, guardrails, Feature Card scaffolding, and `rex-agent.json`. | — |
-| `./rex-codex generator` | Generate deterministic pytest specs from the next `status: proposed` card (or run a one-shot prompt). | `--single-pass`, `--max-passes`, `--focus`, `--status`, `--each`, `--tail`, `--quiet`, `--reconcile`, `--prompt-file`, `--apply-target`, `CODEX_TIMEOUT_SECONDS` |
-| `./rex-codex discriminator` | Run the staged ladder (feature shard via `--feature-only`, full sweep by default). | `--feature-only`, `--global`, `--single-pass`, `--enable-llm`, `--disable-llm`, `DISCRIMINATOR_MAX_PASSES`, `COVERAGE_MIN`, `PIP_AUDIT`, `BANDIT`, `PACKAGE_CHECK`, `MYPY_TARGETS`, `MYPY_INCLUDE_TESTS`, `--tail`, `--quiet`, `--stage-timeout` |
-| `./rex-codex loop` | Generator → feature shard → global sweep in one shot. | `--generator-only`, `--discriminator-only`, `--feature-only`, `--global-only`, `--each`, `--explain`, `--no-self-update`, `--enable-llm`, `--disable-llm`, `--tail`, `--quiet`, `--stage-timeout`, `--continue-on-fail` |
-| `./rex-codex card` | Manage Feature Cards (`new`, `list`, `validate`, `rename`, `split`, `archive`, `prune-specs`). | `--status`, `--acceptance` (for `new`) |
+| `./rex-codex generator` | Generate deterministic pytest specs from the next `status: proposed` card (or run a one-shot prompt). | `--single-pass`, `--max-passes`, `--focus`, `--status`, `--each`, `--tail`, `--quiet`, `--reconcile`, `--prompt-file`, `--apply-target`, `--output`, `CODEX_TIMEOUT_SECONDS` |
+| `./rex-codex discriminator` | Run the staged ladder (feature shard via `--feature-only`, full sweep by default). | `--feature-only`, `--global`, `--single-pass`, `--enable-llm`, `--disable-llm`, `DISCRIMINATOR_MAX_PASSES`, `COVERAGE_MIN`, `PIP_AUDIT`, `BANDIT`, `PACKAGE_CHECK`, `MYPY_TARGETS`, `MYPY_INCLUDE_TESTS`, `--tail`, `--quiet`, `--stage-timeout`, `--output` |
+| `./rex-codex loop` | Generator → feature shard → global sweep in one shot. | `--generator-only`, `--discriminator-only`, `--feature-only`, `--global-only`, `--each`, `--explain`, `--no-self-update`, `--enable-llm`, `--disable-llm`, `--tail`, `--quiet`, `--stage-timeout`, `--continue-on-fail`, `--output` |
+| `./rex-codex card` | Manage Feature Cards (`new`, `list`, `lint`, `fix`, `validate`, `rename`, `split`, `archive`, `prune-specs`). | `--status`, `--acceptance` (for `new`), `--slug`, `--output` (for `lint`/`fix`) |
 | `./rex-codex status` | Show the active slug/card and last discriminator success. | `--json` |
 | `./rex-codex logs` | Tail or follow the latest generator/discriminator logs from `.codex_ci/`. | `--generator`, `--discriminator`, `--lines`, `--follow` |
-| `./rex-codex doctor` | Print versions/paths for `python3`, `node`, and `docker`. | — |
+| `./rex-codex doctor` | Print environment diagnostics (versions/paths plus remediation hints). | `--output` |
 | `./rex-codex burn` | Wipe the repo (keeps `.git`; optional `--purge-agent`; supports `--dry-run`). | `--yes`, `--purge-agent`, `--dry-run` |
 | `./rex-codex uninstall` | Remove `.rex_agent/` and optionally the wrapper. | `--force`, `--keep-wrapper` |
 | `./rex-codex self-update` | Refresh the agent when `REX_AGENT_NO_UPDATE=0`. | `--channel`, `REX_AGENT_CHANNEL` |
+
+> Tip: add `--no-color` to any invocation to suppress ANSI styling (useful for CI logs or plain-text terminals).
 
 ### Exit codes at a glance
 

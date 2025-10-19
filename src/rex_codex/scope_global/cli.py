@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import argparse
+import json
+import os
+from dataclasses import asdict
 from pathlib import Path
 
 from .. import __version__
 from ..scope_project.burn import burn_repo
 from ..scope_project.cards import (
     archive_card,
+    collect_all_card_issues,
     create_card,
     discover_cards,
+    fix_cards,
     lint_all_cards,
     prune_spec_directories,
     rename_card,
@@ -18,17 +23,28 @@ from ..scope_project.cards import (
     spec_directory,
     split_card,
 )
-from ..scope_project.discriminator import DiscriminatorOptions, run_discriminator
-from ..scope_project.doctor import run_doctor
-from ..scope_project.generator import GeneratorOptions, parse_statuses, run_generator
-from ..scope_project.init import run_init
-from ..scope_project.logs import show_latest_logs
-from ..scope_project.loop import LoopOptions, run_loop
 from ..scope_project.status import render_status
 from ..scope_project.utils import RexContext, prompt
 from .install import run_install
 from .self_update import self_update
 from .uninstall import uninstall_agent
+
+
+def _normalise_for_json(value):
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, list):
+        return [_normalise_for_json(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _normalise_for_json(val) for key, val in value.items()}
+    if hasattr(value, "_asdict"):
+        return _normalise_for_json(value._asdict())
+    return value
+
+
+def _dataclass_summary(instance) -> dict[str, object]:
+    data = asdict(instance)
+    return {key: _normalise_for_json(val) for key, val in data.items()}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -37,6 +53,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--version", action="version", version=f"rex-codex {__version__}"
+    )
+    parser.add_argument(
+        "--no-color",
+        action="store_true",
+        help="Disable ANSI colour output",
     )
     sub = parser.add_subparsers(dest="command")
 
@@ -166,6 +187,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Seconds to keep the HUD popout open after completion (default 5s)",
     )
+    gen_parser.add_argument(
+        "--output",
+        choices=["text", "json"],
+        default="text",
+        help="Emit a JSON summary instead of human-readable output",
+    )
     gen_verbose = gen_parser.add_mutually_exclusive_group()
     gen_verbose.add_argument(
         "--verbose", action="store_true", help="Print Codex diffs (default)"
@@ -219,6 +246,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="Timeout (seconds) for each discriminator stage",
+    )
+    disc_parser.add_argument(
+        "--output",
+        choices=["text", "json"],
+        default="text",
+        help="Emit a JSON summary instead of human-readable output",
     )
 
     # loop
@@ -310,6 +343,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Process remaining Feature Cards even if one fails",
     )
+    loop_parser.add_argument(
+        "--output",
+        choices=["text", "json"],
+        default="text",
+        help="Emit a JSON summary instead of human-readable output",
+    )
 
     # card commands
     card_parser = sub.add_parser("card", help="Feature Card helpers")
@@ -333,6 +372,34 @@ def build_parser() -> argparse.ArgumentParser:
         dest="statuses",
         default=None,
         help="Comma separated statuses to filter",
+    )
+
+    card_lint = card_sub.add_parser("lint", help="Validate Feature Card formatting")
+    card_lint.add_argument(
+        "--slug",
+        action="append",
+        dest="slugs",
+        help="Limit linting to a specific slug (may repeat)",
+    )
+    card_lint.add_argument(
+        "--output",
+        choices=["text", "json"],
+        default="text",
+        help="Output format",
+    )
+
+    card_fix = card_sub.add_parser("fix", help="Auto-fix common Feature Card issues")
+    card_fix.add_argument(
+        "--slug",
+        action="append",
+        dest="slugs",
+        help="Limit fixing to a specific slug (may repeat)",
+    )
+    card_fix.add_argument(
+        "--output",
+        choices=["text", "json"],
+        default="text",
+        help="Output format",
     )
 
     card_sub.add_parser("validate", help="Validate Feature Card formatting")
@@ -426,7 +493,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # doctor
-    sub.add_parser("doctor", help="Print environment diagnostics")
+    doctor_parser = sub.add_parser("doctor", help="Print environment diagnostics")
+    doctor_parser.add_argument(
+        "--output",
+        choices=["text", "json"],
+        default="text",
+        help="Output format",
+    )
 
     # burn/uninstall
     burn_parser = sub.add_parser(
@@ -462,6 +535,23 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     context = RexContext.discover()
 
+    if getattr(args, "no_color", False):
+        os.environ["NO_COLOR"] = "1"
+
+    from ..scope_project.generator import (
+        GeneratorOptions,
+        parse_statuses,
+        run_generator,
+    )
+    from ..scope_project.discriminator import (
+        DiscriminatorOptions,
+        run_discriminator,
+    )
+    from ..scope_project.loop import LoopOptions, run_loop
+    from ..scope_project.logs import show_latest_logs
+    from ..scope_project.doctor import run_doctor
+    from ..scope_project.init import run_init
+
     if args.command == "install":
         run_install(
             force=args.force,
@@ -478,6 +568,7 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "generator":
         options = GeneratorOptions()
+        output_mode = getattr(args, "output", "text")
         if args.single_pass:
             options.continuous = False
         if args.max_passes is not None:
@@ -510,13 +601,24 @@ def main(argv: list[str] | None = None) -> int:
             options.prompt_target = Path(args.prompt_target)
         if args.prompt_label:
             options.prompt_label = args.prompt_label
+        if output_mode == "json":
+            options.verbose = False
+            options.ui_mode = "off"
         exit_code = run_generator(options, context=context)
-        if exit_code != 0 and args.tail:
+        if output_mode == "json":
+            summary = {
+                "command": "generator",
+                "exit_code": exit_code,
+                "options": _dataclass_summary(options),
+            }
+            print(json.dumps(summary, indent=2))
+        elif exit_code != 0 and args.tail:
             show_latest_logs(context, lines=args.tail, generator=True)
         return exit_code
 
     if args.command == "discriminator":
         options = DiscriminatorOptions()
+        output_mode = getattr(args, "output", "text")
         if args.feature_only:
             options.mode = "feature"
         elif args.global_only:
@@ -536,13 +638,23 @@ def main(argv: list[str] | None = None) -> int:
             options.verbose = True
         if args.stage_timeout is not None:
             options.stage_timeout = args.stage_timeout
+        if output_mode == "json":
+            options.verbose = False
         exit_code = run_discriminator(options, context=context)
-        if exit_code != 0 and args.tail:
+        if output_mode == "json":
+            summary = {
+                "command": "discriminator",
+                "exit_code": exit_code,
+                "options": _dataclass_summary(options),
+            }
+            print(json.dumps(summary, indent=2))
+        elif exit_code != 0 and args.tail:
             show_latest_logs(context, lines=args.tail, discriminator=True)
         return exit_code
 
     if args.command == "loop":
         loop_opts = LoopOptions()
+        output_mode = getattr(args, "output", "text")
         if args.skip_generator:
             loop_opts.run_generator = False
         if args.generator_only:
@@ -589,7 +701,32 @@ def main(argv: list[str] | None = None) -> int:
         if args.stage_timeout is not None:
             loop_opts.discriminator_options.stage_timeout = args.stage_timeout
         loop_opts.continue_on_fail = args.continue_on_fail
-        return run_loop(loop_opts, context=context)
+        if output_mode == "json":
+            loop_opts.verbose = False
+            loop_opts.generator_options.verbose = False
+            loop_opts.discriminator_options.verbose = False
+        exit_code = run_loop(loop_opts, context=context)
+        if output_mode == "json":
+            summary = {
+                "command": "loop",
+                "exit_code": exit_code,
+                "options": {
+                    "run_generator": loop_opts.run_generator,
+                    "run_discriminator": loop_opts.run_discriminator,
+                    "run_feature": loop_opts.run_feature,
+                    "run_global": loop_opts.run_global,
+                    "each_features": loop_opts.each_features,
+                    "continue_on_fail": loop_opts.continue_on_fail,
+                    "generator_options": _dataclass_summary(
+                        loop_opts.generator_options
+                    ),
+                    "discriminator_options": _dataclass_summary(
+                        loop_opts.discriminator_options
+                    ),
+                },
+            }
+            print(json.dumps(summary, indent=2))
+        return exit_code
 
     if args.command == "card":
         if args.card_command == "new":
@@ -619,6 +756,39 @@ def main(argv: list[str] | None = None) -> int:
             for card in cards:
                 print(f"{card.status:>9}  {card.slug}  {card.path}")
             return 0
+        if args.card_command == "lint":
+            issues = collect_all_card_issues(context, slugs=args.slugs)
+            if args.output == "json":
+                print(json.dumps([issue.to_dict() for issue in issues], indent=2))
+            else:
+                if not issues:
+                    print("[card lint] All Feature Cards look good.")
+                else:
+                    for issue in issues:
+                        print(issue.describe())
+            return 0 if not issues else 1
+        if args.card_command == "fix":
+            reports = fix_cards(context, slugs=args.slugs)
+            if args.output == "json":
+                print(json.dumps([report.to_dict() for report in reports], indent=2))
+            else:
+                if not reports:
+                    print("[card fix] No Feature Cards found.")
+                    return 0
+                for report in reports:
+                    if not report.before and not report.after:
+                        print(f"[card fix] {report.slug}: no issues detected.")
+                    elif report.after:
+                        print(
+                            f"[card fix] {report.slug}: {len(report.after)} issue(s) remain; run `./rex-codex card lint --slug {report.slug}`."
+                        )
+                    elif report.changed:
+                        print(
+                            f"[card fix] {report.slug}: fixed {len(report.before)} issue(s)."
+                        )
+                    else:
+                        print(f"[card fix] {report.slug}: no changes required.")
+            return 0 if all(not report.after for report in reports) else 1
         if args.card_command == "validate":
             errors = lint_all_cards(context)
             if not errors:
@@ -676,7 +846,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "doctor":
-        run_doctor()
+        run_doctor(output=getattr(args, "output", "text"))
         return 0
 
     if args.command == "hud":

@@ -16,7 +16,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from .cards import FeatureCard
-from .utils import RexContext, ensure_dir
+from .utils import RexContext, dump_json, ensure_dir
+
+PLAYBOOK_ARTIFACT_SCHEMA_VERSION = "playbook-artifacts.v2"
+ASSUMPTION_LEDGER_SCHEMA_VERSION = "assumption-ledger.v2"
 
 # ---------------------------------------------------------------------------
 # Canonical data model
@@ -353,6 +356,14 @@ class AssumptionLedger:
                 data = json.loads(ledger_path.read_text(encoding="utf-8"))
             except json.JSONDecodeError:
                 data = {}
+            version = data.get("schema_version")
+            if version not in (None, ASSUMPTION_LEDGER_SCHEMA_VERSION):
+                # Preserve best-effort compatibility by continuing to parse but flagging via metadata.
+                warning = (
+                    f"[migration-required] Unsupported ledger schema {version!r}; regenerated on save"
+                )
+                if warning not in ledger.escalation_hints:
+                    ledger.escalation_hints.append(warning)
             for item in data.get("assumptions", []):
                 assumption = Assumption(
                     id=item.get("id", ""),
@@ -413,6 +424,7 @@ class AssumptionLedger:
 
     def to_dict(self) -> dict[str, object]:
         return {
+            "schema_version": ASSUMPTION_LEDGER_SCHEMA_VERSION,
             "feature_id": self.feature_id,
             "assumptions": [assumption.to_dict() for assumption in self.assumptions],
             "escalation_hints": self.escalation_hints,
@@ -420,9 +432,7 @@ class AssumptionLedger:
 
     def save(self) -> None:
         payload = self.to_dict()
-        self.path.write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-        )
+        dump_json(self.path, payload, ensure_ascii=False, sort_keys=False)
 
 
 # ---------------------------------------------------------------------------
@@ -951,6 +961,7 @@ class PlaybookArtifacts:
 
     def to_dict(self) -> dict[str, object]:
         return {
+            "schema_version": PLAYBOOK_ARTIFACT_SCHEMA_VERSION,
             "feature_card": self.feature.to_dict(),
             "repository_inventory": self.inventory.to_dict(),
             "test_spec_graph": self.graph.to_dict(),
@@ -1080,9 +1091,11 @@ def build_playbook_artifacts(
 
     ledger.save()
 
-    playbook_json.write_text(
-        json.dumps(artifacts.to_dict(), indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
+    dump_json(
+        playbook_json,
+        artifacts.to_dict(),
+        ensure_ascii=False,
+        sort_keys=False,
     )
     playbook_prompt.write_text(artifacts.prompt_block + "\n", encoding="utf-8")
 

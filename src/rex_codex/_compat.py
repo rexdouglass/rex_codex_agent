@@ -33,5 +33,7 @@ def reexport(module_path: str, global_ns: dict[str, object]) -> ModuleType:
     for name in names:
         global_ns[name] = getattr(module, name)
     global_ns["__all__"] = names
-    sys.modules[global_ns["__name__"]] = module
+    module_name_obj = global_ns.get("__name__")
+    module_name = module_path if not isinstance(module_name_obj, str) else module_name_obj
+    sys.modules[module_name] = module
     return module

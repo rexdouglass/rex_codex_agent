@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import time
@@ -13,6 +14,17 @@ from .utils import ensure_dir, repo_root
 
 _EVENTS_PATH_CACHE: Path | None = None
 _MONITOR_EVENTS_PATH_CACHE: Path | None = None
+EVENT_SCHEMA_VERSION = "event.v2"
+_EVENT_COUNTER = itertools.count()
+
+
+def _event_identifier() -> str:
+    """Return a stable-ish unique event id without relying on randomness."""
+
+    millis = int(time.time() * 1000)
+    pid = os.getpid()
+    counter = next(_EVENT_COUNTER)
+    return f"{millis:x}-{pid:x}-{counter:x}"
 
 
 def _default_events_path() -> Path:
@@ -90,10 +102,13 @@ def emit_event(phase: str, type_: str, *, slug: str | None = None, **data: Any) 
     """
 
     record: Mapping[str, Any] = {
+        "schema_version": EVENT_SCHEMA_VERSION,
+        "event_id": _event_identifier(),
         "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "phase": phase,
         "type": type_,
         "slug": slug,
+        "source": "rex_codex",
         "data": data,
     }
     try:
@@ -134,6 +149,7 @@ def _to_monitor_event(record: Mapping[str, Any]) -> Mapping[str, Any] | None:
     ts = record.get("ts")
     if not isinstance(ts, str):
         return None
+    event_id = record.get("event_id")
     phase = str(record.get("phase", "")).strip()
     type_ = str(record.get("type", "")).strip()
     slug = record.get("slug")
@@ -153,15 +169,25 @@ def _to_monitor_event(record: Mapping[str, Any]) -> Mapping[str, Any] | None:
     meta.setdefault("slug", slug)
     monitor_event = {
         "ts": ts,
+        "schema_version": EVENT_SCHEMA_VERSION,
         "level": level,
         "message": message,
     }
+    if isinstance(event_id, str) and event_id:
+        monitor_event["event_id"] = event_id
     if task:
         monitor_event["task"] = task
     if status:
         monitor_event["status"] = status
     if progress is not None:
         monitor_event["progress"] = progress
+    if "parent_id" in data and isinstance(data["parent_id"], str):
+        monitor_event.setdefault("meta", meta).setdefault("parent_id", data["parent_id"])
+    duration_ms = data.get("duration_ms")
+    if isinstance(duration_ms, (int, float)):
+        monitor_event.setdefault("meta", meta).setdefault(
+            "duration_ms", float(duration_ms)
+        )
     if meta:
         monitor_event["meta"] = meta
     return monitor_event

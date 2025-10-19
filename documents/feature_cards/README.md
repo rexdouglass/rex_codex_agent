@@ -12,6 +12,8 @@ Feature Cards describe upcoming Python work before implementation. Cards live be
   -> [AC#1] tests/feature_specs/readme/test_feature_cards_template.py::test_ac1_happy_path_sections_are_parsed
   -> [AC#1] tests/feature_specs/readme/test_feature_cards_template.py::test_ac1_env_toggle_respects_root_env_override
   -> [AC#1] tests/feature_specs/readme/test_feature_cards_template.py::test_ac1_error_missing_card_raises_file_not_found
+  -> [AC#1] tests/feature_specs/readme/test_feature_cards_template.py::test_ac1_error_missing_status_line_detected
+  -> [AC#1] tests/feature_specs/readme/test_feature_cards_template.py::test_ac1_error_sections_require_bullets
 
 ## Required structure
 
@@ -58,6 +60,8 @@ owner: optional-handle
    - Enforce patch-size limits (default 6 files / 300 lines).
 3. **Implement runtime code** under `src/...` (Python only) until the discriminator ladder is green.
 4. **Promote the card** to `status: accepted` once the discriminator passes; commit the change alongside your runtime code.
+
+Need to clean up formatting? `./rex-codex card lint --output json` surfaces machine-readable diagnostics, and `./rex-codex card fix` auto-inserts the required sections/status lines for common issues without touching acceptance content.
 
 Environment toggles for local iteration:
 - `REX_DISABLE_AUTO_COMMIT=1` while developing locally if you only want a snapshot without touching git state.
