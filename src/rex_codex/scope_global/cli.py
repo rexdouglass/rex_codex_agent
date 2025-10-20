@@ -125,11 +125,20 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Comma-separated statuses to include",
     )
-    gen_parser.add_argument(
+    gen_each = gen_parser.add_mutually_exclusive_group()
+    gen_each.add_argument(
         "--each",
+        dest="each",
         action="store_true",
-        help="Process each matching Feature Card sequentially",
+        help="Process every matching Feature Card sequentially",
     )
+    gen_each.add_argument(
+        "--single",
+        dest="each",
+        action="store_false",
+        help="Process only the first matching Feature Card",
+    )
+    gen_parser.set_defaults(each=None)
     gen_parser.add_argument(
         "--reconcile",
         action="store_true",
@@ -276,11 +285,20 @@ def build_parser() -> argparse.ArgumentParser:
     loop_parser.add_argument("--oracles-only", action="store_true")
     loop_parser.add_argument("--include-accepted", action="store_true")
     loop_parser.add_argument("--status", dest="statuses", default=None)
-    loop_parser.add_argument(
+    loop_each = loop_parser.add_mutually_exclusive_group()
+    loop_each.add_argument(
         "--each",
+        dest="each",
         action="store_true",
-        help="Process each matching Feature Card sequentially",
+        help="Process every matching Feature Card sequentially",
     )
+    loop_each.add_argument(
+        "--single",
+        dest="each",
+        action="store_false",
+        help="Process only the first matching Feature Card",
+    )
+    loop_parser.set_defaults(each=None)
     loop_parser.add_argument(
         "--no-self-update", action="store_true", help="Skip self-update before running"
     )
@@ -760,7 +778,8 @@ def main(argv: list[str] | None = None) -> int:
             options.statuses.append("accepted")
         if args.card:
             options.card_path = Path(args.card)
-        options.iterate_all = args.each
+        if args.each is not None:
+            options.iterate_all = args.each
         options.verbose = not args.quiet
         if args.verbose:
             options.verbose = True
@@ -869,7 +888,8 @@ def main(argv: list[str] | None = None) -> int:
             statuses = loop_opts.generator_options.statuses
             if "accepted" not in statuses:
                 statuses.append("accepted")
-        loop_opts.each_features = args.each
+        if args.each is not None:
+            loop_opts.each_features = args.each
         loop_opts.perform_self_update = not args.no_self_update
         loop_opts.explain = args.explain
         loop_opts.verbose = not args.quiet

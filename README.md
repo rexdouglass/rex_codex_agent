@@ -83,6 +83,7 @@ All release artifacts ship with SHA256 manifests so enterprise mirrors can enfor
 - The helper script `node monitor/agent/launch-monitor.js --background` starts the server detached and records the port in `.agent/logs/monitor.port`; use this from your agent boot sequence.
 - Logging helpers are provided for both Node (`monitor/agent/logger-node.js`) and Python (`monitor/agent/logger-python.py`) to emit JSONL events.
 - The UI now surfaces actionable fixes (rerun doctor/generator, scaffold missing runtime files) and displays Codex/doctor status in the header. Actions invoke `./rex-codex …` commands locally—watch the terminal for prompts or follow-up logs.
+- The planner dropdown lists every Feature Card—even before a plan exists—so you can see the full queue while the loop works through it.
 - Set `LOG_DIR`, `EVENTS_FILE`, or `MONITOR_PORT` env vars to customise paths/ports; the default log file is `.agent/logs/events.jsonl`.
 - The launcher exports `REPO_ROOT` so the server can surface `.codex_ci/component_plan_<slug>.json`; override if you run the monitor separately.
 - The Python launcher blocks until `/api/health` responds and will automatically probe higher ports if the default is occupied—check `.agent/logs/monitor.port` for the current assignment.
@@ -207,9 +208,9 @@ The wizard confirms the current/target version, suggests re-running the self-tes
 |---------|---------|-----------------|
 | `./rex-codex install` | Reinstall or refresh the agent in-place (auto-runs `init`/`doctor`). | `--force`, `--channel`, `--skip-init`, `--skip-doctor` |
 | `./rex-codex init` | Seed `.venv`, guardrails, Feature Card scaffolding, and `rex-agent.json`. | — |
-| `./rex-codex generator` | Generate deterministic pytest specs from the next `status: proposed` card (or run a one-shot prompt). | `--single-pass`, `--max-passes`, `--focus`, `--status`, `--each`, `--tail`, `--quiet`, `--reconcile`, `--prompt-file`, `--apply-target`, `--output`, `CODEX_TIMEOUT_SECONDS` |
+| `./rex-codex generator` | Generate deterministic pytest specs from every matching Feature Card (defaults to iterating all `status: proposed`). | `--single-pass`, `--max-passes`, `--focus`, `--status`, `--each`, `--single`, `--tail`, `--quiet`, `--reconcile`, `--prompt-file`, `--apply-target`, `--output`, `CODEX_TIMEOUT_SECONDS` |
 | `./rex-codex discriminator` | Run the staged ladder (feature shard via `--feature-only`, full sweep by default). | `--feature-only`, `--global`, `--single-pass`, `--enable-llm`, `--disable-llm`, `DISCRIMINATOR_MAX_PASSES`, `COVERAGE_MIN`, `PIP_AUDIT`, `BANDIT`, `PACKAGE_CHECK`, `MYPY_TARGETS`, `MYPY_INCLUDE_TESTS`, `--tail`, `--quiet`, `--stage-timeout`, `--output` |
-| `./rex-codex loop` | Generator → feature shard → global sweep in one shot. | `--generator-only`, `--discriminator-only`, `--feature-only`, `--global-only`, `--each`, `--explain`, `--no-self-update`, `--enable-llm`, `--disable-llm`, `--tail`, `--quiet`, `--stage-timeout`, `--continue-on-fail`, `--output` |
+| `./rex-codex loop` | Generator → feature shard → global sweep in one shot (walks the Feature Card queue by default). | `--generator-only`, `--discriminator-only`, `--feature-only`, `--global-only`, `--each`, `--single`, `--explain`, `--no-self-update`, `--enable-llm`, `--disable-llm`, `--tail`, `--quiet`, `--stage-timeout`, `--continue-on-fail`, `--output` |
 | `./rex-codex card` | Manage Feature Cards (`new`, `list`, `lint`, `fix`, `validate`, `rename`, `split`, `archive`, `prune-specs`). | `--status`, `--acceptance` (for `new`), `--slug`, `--output` (for `lint`/`fix`) |
 | `./rex-codex status` | Show the active slug/card and last discriminator success. | `--json` |
 | `./rex-codex logs` | Tail or follow the latest generator/discriminator logs from `.codex_ci/`. | `--generator`, `--discriminator`, `--lines`, `--follow` |

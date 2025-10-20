@@ -64,6 +64,7 @@ Treat each scope as a separately versioned surface: upgrade the global shim with
    - Keeps diffs under `tests/feature_specs/<slug>/...` (tests only) and appends links/trace in the card.
    - Prints a dashboard summarising the Feature Card (acceptance criteria, existing specs) and previews the diff with new/updated tests before applying patches so operators can follow along in one screen.
    - Enforces patch-size limits (default 6 files / 300 lines).
+   - Walks every card matching the status filter; pass `--single` if you only want the first match.
 - Warns when cards exist but their `status:` values don't match the requested set (e.g. typos like `propsed`) so operators can repair metadata quickly.
 - Runs an AST hermeticity scan that bans network, subprocess, clock, and entropy **calls** (`requests.get`, `subprocess.run`, `time.sleep`, `uuid.uuid4`, `os.urandom`, `secrets`, `numpy.random`...), plus unconditional skip/xfail.
 - Tag every spec with its acceptance target using either `"""AC#<n> ..."""` docstrings or `@pytest.mark.ac(<n>)`. The Spec Trace, HUD coverage bar, and audit snapshots rely on these markers to keep acceptance -> tests -> pass/fail traceable.

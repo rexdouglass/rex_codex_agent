@@ -62,7 +62,7 @@ Stages 04-05 (DB/UI) are optional packs you can enable per project by extending 
 - `./rex-codex card new` - scaffold Feature Cards; `card list` / `card validate` keep hygiene tidy.
 - `./rex-codex generator --tail 120` - iterate specs and print Codex diffs/logs on failure (add `--quiet` to silence).
 - `./rex-codex discriminator --feature-only --tail 120` (or `--global`) - run the shard/full ladder with automatic log tails (add `--quiet` for silence).
-- `./rex-codex loop --tail 120` - generator -> feature shard -> global sweep (use `--each`, `--status accepted`, `--skip-feature`, or `--skip-global` to tweak).
+- `./rex-codex loop --tail 120` - generator -> feature shard -> global sweep (use `--single`, `--status accepted`, `--skip-feature`, or `--skip-global` to tweak the queue).*** End Patch
 - `./rex-codex logs --generator --lines 200` - dump the latest generator response/patch without spelunking.
 - `.codex_ci/` holds the latest stage logs; use `./rex-codex logs --generator/--discriminator --lines 200` to surface them without poking in the filesystem.
 - `./rex-codex status` - inspect the active slug/card and last discriminator success metadata.

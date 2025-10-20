@@ -180,6 +180,11 @@ a:hover { text-decoration: underline; }
 .plan-card {
   grid-column: 1 / span 12;
 }
+.plan-empty {
+  font-size: 15px;
+  color: var(--muted);
+  padding: 12px 0;
+}
 .plan-status {
   display: inline-flex;
   align-items: center;

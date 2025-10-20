@@ -747,7 +747,7 @@ class GeneratorOptions:
     max_passes: int = int(os.environ.get("GENERATOR_MAX_PASSES", "5"))
     focus: str = ""
     card_path: Path | None = None
-    iterate_all: bool = False
+    iterate_all: bool = True
     statuses: list[str] = field(default_factory=lambda: ["proposed"])
     codex_bin: str = os.environ.get("CODEX_BIN", "npx --yes @openai/codex")
     codex_flags: str = os.environ.get("CODEX_FLAGS", "")

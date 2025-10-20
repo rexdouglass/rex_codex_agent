@@ -29,6 +29,8 @@ const state = {
   query: '',
   componentPlans: {},
   codingStrategies: {},
+  featureCards: [],
+  featureCardIndex: {},
   selectedPlan: null
 };
 
@@ -168,6 +170,14 @@ function renderSummary(s) {
 
   if (els.planCard) {
     state.componentPlans = s.componentPlans || {};
+    state.featureCards = Array.isArray(s.featureCards) ? s.featureCards : [];
+    const featureIndex = {};
+    state.featureCards.forEach((card) => {
+      if (card && typeof card.slug === 'string' && card.slug) {
+        featureIndex[card.slug] = card;
+      }
+    });
+    state.featureCardIndex = featureIndex;
     const summaryStrategies = s.codingStrategies || {};
     Object.entries(summaryStrategies).forEach(([slug, bucket]) => {
       if (!slug || !bucket) return;
@@ -350,7 +360,12 @@ function renderPlanner() {
   if (!els.planCard || !els.planSelect || !els.planTree) {
     return;
   }
-  const slugs = Object.keys(state.componentPlans || {}).sort();
+  const planSlugs = Object.keys(state.componentPlans || {});
+  const cardSlugs = Array.isArray(state.featureCards)
+    ? state.featureCards.map((card) => card && card.slug).filter(Boolean)
+    : [];
+  const slugSet = new Set([...planSlugs, ...cardSlugs]);
+  const slugs = Array.from(slugSet).sort();
   if (!slugs.length) {
     els.planCard.style.display = 'none';
     return;
@@ -388,8 +403,19 @@ function renderPlanner() {
   const strategies = getStrategyMap(state.selectedPlan);
   const rows = collectPlanRows(plan);
   updatePlanTopbar(plan, rows, strategies);
-  const table = buildPlanTable(rows, strategies);
   els.planTree.innerHTML = '';
+  if (!rows.length) {
+    const message = document.createElement('p');
+    message.className = 'plan-empty';
+    const meta = state.featureCardIndex[state.selectedPlan] || {};
+    const title = typeof plan.title === 'string' && plan.title ? plan.title : meta.title;
+    message.textContent = title
+      ? `No planner data captured yet for "${title}". Run the generator to populate this view.`
+      : 'No planner data captured yet. Run the generator to populate this view.';
+    els.planTree.appendChild(message);
+    return;
+  }
+  const table = buildPlanTable(rows, strategies);
   els.planTree.appendChild(table);
 }
 
@@ -969,7 +995,12 @@ function updatePlanTopbar(plan, rows, strategies) {
 
   const slug = state.selectedPlan || '';
   const humanSlug = slug ? slug.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : '—';
-  els.planFeature.textContent = humanSlug;
+  const meta = state.featureCardIndex[slug] || {};
+  const displayName =
+    (plan && typeof plan.title === 'string' && plan.title) ||
+    (typeof meta.title === 'string' && meta.title) ||
+    humanSlug;
+  els.planFeature.textContent = displayName;
 
   const statusEl = els.planStatus;
   statusEl.className = 'plan-status';
@@ -979,7 +1010,7 @@ function updatePlanTopbar(plan, rows, strategies) {
     statusClass = 'plan-status-unknown';
     statusLabel = 'UNKNOWN';
   } else {
-    const status = (plan.status || 'in_progress').toLowerCase();
+    const status = (plan.status || meta.status || 'in_progress').toLowerCase();
     if (status === 'completed') {
       statusClass = 'plan-status-completed';
       statusLabel = 'COMPLETED';

@@ -21,6 +21,7 @@ const REPO_ROOT =
     : path.resolve(LOG_DIR, '..', '..');
 const STATIC_DIR = path.join(__dirname, 'public');
 const COMPONENT_PLAN_DIR = path.join(REPO_ROOT, '.codex_ci');
+const FEATURE_CARD_DIR = path.join(REPO_ROOT, 'documents', 'feature_cards');
 
 const PORT_ENV = process.env.MONITOR_PORT || process.env.PORT || 4321;
 const OPEN_BROWSER = (process.env.OPEN_BROWSER || 'false').toLowerCase() === 'true';
@@ -67,7 +68,8 @@ const summary = {
   tasks: {}, // { [taskName]: { lastStatus, progress, count, lastAt } }
   lastErrors: [], // up to 20
   componentPlans: {}, // { [slug]: plan }
-  codingStrategies: {} // { [slug]: { tests: { [testId]: entry } } }
+  codingStrategies: {}, // { [slug]: { tests: { [testId]: entry } } }
+  featureCards: [] // [{ slug, title, status, path }]
 };
 
 // ====== Utilities ======
@@ -76,6 +78,59 @@ function ensureDirSync(p) {
 }
 function ensureFileSync(p) {
   if (!fs.existsSync(p)) fs.writeFileSync(p, '');
+}
+
+function parseFeatureCard(pathname) {
+  const slug = path.basename(pathname, path.extname(pathname));
+  if (!slug || slug.toLowerCase() === 'readme') return null;
+  const absolute = path.join(FEATURE_CARD_DIR, pathname);
+  let title = slug.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  let status = 'unknown';
+  try {
+    const raw = fs.readFileSync(absolute, 'utf8');
+    const lines = raw.split(/\r?\n/);
+    for (const line of lines) {
+      if (line.startsWith('# ')) {
+        const candidate = line.slice(2).trim();
+        if (candidate) title = candidate;
+        break;
+      }
+    }
+    for (const line of lines) {
+      const match = line.match(/^status\s*:\s*(.+)$/i);
+      if (match && match[1]) {
+        status = match[1].trim().toLowerCase() || status;
+        break;
+      }
+    }
+  } catch {
+    // ignore unreadable cards
+  }
+  return {
+    slug,
+    title,
+    status,
+    path: path.relative(REPO_ROOT, absolute)
+  };
+}
+
+function listFeatureCards() {
+  let entries = [];
+  try {
+    entries = fs.readdirSync(FEATURE_CARD_DIR);
+  } catch {
+    return [];
+  }
+  const cards = [];
+  for (const entry of entries) {
+    if (!entry.toLowerCase().endsWith('.md')) continue;
+    const meta = parseFeatureCard(entry);
+    if (!meta) continue;
+    cards.push(meta);
+  }
+  cards.sort((a, b) => a.slug.localeCompare(b.slug));
+  summary.featureCards = cards;
+  return cards;
 }
 
 const AGENT_STATE_PATH = path.join(REPO_ROOT, 'rex-agent.json');
@@ -1047,6 +1102,34 @@ function getSummaryDTO() {
   } catch {
     // ignore bootstrap errors while composing summary
   }
+  const featureCards = listFeatureCards();
+  const componentPlans = JSON.parse(JSON.stringify(summary.componentPlans));
+  featureCards.forEach((card) => {
+    const existing = componentPlans[card.slug];
+    if (existing) {
+      if (typeof existing.title !== 'string' || !existing.title) {
+        existing.title = card.title;
+      }
+      if (typeof existing.status !== 'string' || !existing.status) {
+        existing.status = card.status;
+      }
+      if (!existing.card_path) {
+        existing.card_path = card.path;
+      }
+      if (!Array.isArray(existing.components)) {
+        existing.components = [];
+      }
+    } else {
+      componentPlans[card.slug] = {
+        title: card.title,
+        status: card.status,
+        card_path: card.path,
+        generated_at: null,
+        components: []
+      };
+    }
+  });
+
   return {
     startedAt: summary.startedAt,
     lastEventAt: summary.lastEventAt,
@@ -1054,8 +1137,9 @@ function getSummaryDTO() {
     tasks: summary.tasks,
     lastErrors: summary.lastErrors,
     eventsPerMinute: eventsPerMinute(),
-    componentPlans: JSON.parse(JSON.stringify(summary.componentPlans)),
+    componentPlans,
     codingStrategies: JSON.parse(JSON.stringify(summary.codingStrategies)),
+    featureCards,
     agent: summariseAgentState(),
   };
 }

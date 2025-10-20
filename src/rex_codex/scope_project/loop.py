@@ -603,7 +603,7 @@ class LoopOptions:
     run_feature: bool = True
     run_global: bool = True
     run_oracles: bool = True
-    each_features: bool = False
+    each_features: bool = True
     perform_self_update: bool = True
     explain: bool = False
     verbose: bool = True
