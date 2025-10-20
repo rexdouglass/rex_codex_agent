@@ -10,9 +10,12 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 
-const REPO_ROOT = process.cwd();
-const MONITOR_ROOT = path.join(REPO_ROOT, 'monitor');
-const LOG_DIR = process.env.LOG_DIR || path.join(REPO_ROOT, '.agent', 'logs');
+const SOURCE_ROOT = process.cwd();
+const TARGET_ROOT = process.env.REPO_ROOT
+  ? path.resolve(process.env.REPO_ROOT)
+  : SOURCE_ROOT;
+const MONITOR_ROOT = path.join(SOURCE_ROOT, 'monitor');
+const LOG_DIR = process.env.LOG_DIR || path.join(TARGET_ROOT, '.agent', 'logs');
 const PORT_FILE = path.join(LOG_DIR, 'monitor.port');
 
 (async function main() {

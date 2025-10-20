@@ -9,6 +9,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field, replace
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -19,6 +20,8 @@ from .generator import GeneratorOptions, run_generator
 from .logs import show_latest_logs
 from .loop_state import cleanup_loop_processes
 from .monitoring import ensure_monitor_server
+from . import oracles as oracle_runner
+from .scaffold import auto_scaffold_for_slug
 from .self_update import self_update
 from .utils import (
     RexContext,
@@ -38,12 +41,18 @@ GENERATOR_EXIT_MESSAGES = {
     5: "Critic returned empty guidance",
     6: "Max passes reached without DONE",
     7: "Guardrail rejection (card edit or hermetic failure)",
+    8: "Missing Codex configuration",
+    9: "Codex CLI timeout",
 }
 
 DISCRIMINATOR_EXIT_MESSAGES = {
     0: "Ladder passed",
     1: "Stage failure (see summary above)",
     2: "LLM disabled or patch rejected",
+}
+
+ORACLES_EXIT_MESSAGES = {
+    0: "All declared oracles passed",
 }
 
 _PRE_LOOP_CLEANUP_NOTES: list[str] = []
@@ -157,15 +166,25 @@ def _describe_discriminator_exit(code: int | None) -> tuple[str, str]:
     return "fail", message
 
 
+def _describe_oracles_exit(code: int | None) -> tuple[str, str]:
+    if code is None:
+        return "skipped", "Skipped (no manifest or flagged off)"
+    if code == 0:
+        return "pass", ORACLES_EXIT_MESSAGES.get(code, "Oracles passed")
+    return "fail", f"Oracles failed (exit {code})"
+
+
 def _render_loop_summary(
     *,
     generator_code: int | None,
     discriminator_code: int | None,
+    oracles_code: int | None,
     notes: list[str] | None = None,
 ) -> None:
     palette = _ansi_palette()
     gen_state, gen_message = _describe_generator_exit(generator_code)
     disc_state, disc_message = _describe_discriminator_exit(discriminator_code)
+    oracle_state, oracle_message = _describe_oracles_exit(oracles_code)
 
     def _format(state: str, label: str) -> str:
         if state == "pass":
@@ -185,6 +204,9 @@ def _render_loop_summary(
     print(
         f"{palette.label}Discriminator{palette.reset}: {_format(disc_state, disc_state.upper())} — {disc_message}"
     )
+    print(
+        f"{palette.label}Oracles{palette.reset}: {_format(oracle_state, oracle_state.upper())} — {oracle_message}"
+    )
     if notes:
         for note in notes:
             print(f"  - {note}")
@@ -194,13 +216,16 @@ def _render_loop_summary(
 def _collect_summary_lines(
     generator_code: int | None,
     discriminator_code: int | None,
+    oracles_code: int | None,
     notes: list[str] | None = None,
 ) -> list[str]:
     lines: list[str] = []
     gen_state, gen_message = _describe_generator_exit(generator_code)
-    lines.append(f"Generator: {gen_state.upper()} — {gen_message}")
     disc_state, disc_message = _describe_discriminator_exit(discriminator_code)
+    oracle_state, oracle_message = _describe_oracles_exit(oracles_code)
+    lines.append(f"Generator: {gen_state.upper()} — {gen_message}")
     lines.append(f"Discriminator: {disc_state.upper()} — {disc_message}")
+    lines.append(f"Oracles: {oracle_state.upper()} — {oracle_message}")
     if notes:
         lines.extend(notes)
     return lines
@@ -533,7 +558,7 @@ def _print_batch_summary(entries: list[dict[str, int | None]]) -> None:
         return
     palette = _ansi_palette()
     print("\n=== Loop Batch Summary =======================================")
-    print(f"{'Slug':<24} {'Generator':<16} {'Discriminator':<16}")
+    print(f"{'Slug':<24} {'Generator':<16} {'Discriminator':<16} {'Oracles':<16}")
 
     def format_status(code: int | None) -> str:
         if code is None:
@@ -546,7 +571,8 @@ def _print_batch_summary(entries: list[dict[str, int | None]]) -> None:
         slug = entry.get("slug", "")
         gen = format_status(entry.get("generator"))
         disc = format_status(entry.get("discriminator"))
-        print(f"{slug:<24} {gen:<16} {disc:<16}")
+        oracle = format_status(entry.get("oracles"))
+        print(f"{slug:<24} {gen:<16} {disc:<16} {oracle:<16}")
     print("==============================================================")
 
 
@@ -556,10 +582,13 @@ def _batch_summary_lines(entries: list[dict[str, int | None]]) -> list[str]:
         slug = entry.get("slug", "")
         gen = entry.get("generator")
         disc = entry.get("discriminator")
+        oracle = entry.get("oracles")
         gen_state, gen_message = _describe_generator_exit(gen)
         disc_state, disc_message = _describe_discriminator_exit(disc)
+        oracle_state, oracle_message = _describe_oracles_exit(oracle)
         lines.append(f"{slug}: Generator {gen_state.upper()} — {gen_message}")
         lines.append(f"{slug}: Discriminator {disc_state.upper()} — {disc_message}")
+        lines.append(f"{slug}: Oracles {oracle_state.upper()} — {oracle_message}")
     return lines
 
 
@@ -573,12 +602,16 @@ class LoopOptions:
     run_discriminator: bool = True
     run_feature: bool = True
     run_global: bool = True
+    run_oracles: bool = True
     each_features: bool = False
     perform_self_update: bool = True
     explain: bool = False
     verbose: bool = True
     tail_lines: int = 0
     continue_on_fail: bool = False
+    oracle_names: list[str] = field(default_factory=list)
+    oracle_manifest: Path | None = None
+    oracle_fail_fast: bool | None = None
 
 
 def run_loop(options: LoopOptions, *, context: RexContext | None = None) -> int:
@@ -599,7 +632,7 @@ def run_loop(options: LoopOptions, *, context: RexContext | None = None) -> int:
         options.discriminator_options.verbose = options.verbose
         lock_path = context.codex_ci_dir / "rex.lock"
         with lock_file(lock_path):
-            run_doctor()
+            run_doctor(context=context)
             missing_tools = _missing_tooling(context)
             if missing_tools:
                 roster = ", ".join(missing_tools)
@@ -607,9 +640,32 @@ def run_loop(options: LoopOptions, *, context: RexContext | None = None) -> int:
                 print(
                     "[loop] Run `./rex-codex init` to install the development toolchain."
                 )
-                summary_lines = _collect_summary_lines(None, None, [f"Missing tooling: {roster}"])
+                summary_lines = _collect_summary_lines(None, None, None, [f"Missing tooling: {roster}"])
                 _perform_audit(context, summary_lines)
                 return 1
+            if options.run_oracles:
+                try:
+                    oracle_manifest = oracle_runner.load_manifest(
+                        context,
+                        options.oracle_manifest,
+                    )
+                except oracle_runner.OracleError as exc:
+                    message = f"Oracle manifest error: {exc}"
+                    print(f"[loop] {message}")
+                    summary_lines = _collect_summary_lines(None, None, None, [message])
+                    _perform_audit(context, summary_lines)
+                    return 1
+                if oracle_manifest is None:
+                    if options.oracle_manifest is not None:
+                        message = f"Oracle manifest not found: {options.oracle_manifest}"
+                        print(f"[loop] {message}")
+                        summary_lines = _collect_summary_lines(None, None, None, [message])
+                        _perform_audit(context, summary_lines)
+                        return 1
+                    print("[loop] Oracle manifest not found; skipping oracle stage.")
+                    options.run_oracles = False
+                else:
+                    setattr(options, "_oracle_manifest", oracle_manifest)
             if options.each_features:
                 return _run_each(options, context)
             return _run_single(options, context)
@@ -658,6 +714,23 @@ def _describe_plan(options: LoopOptions, context: RexContext) -> list[str]:
             lines.append(f"  queued cards: {preview}")
         else:
             lines.append("  queued cards: none")
+    lines.append(f"Oracles stage: {'enabled' if options.run_oracles else 'skipped'}")
+    if options.run_oracles:
+        manifest = getattr(options, "_oracle_manifest", None)
+        if options.oracle_manifest is not None:
+            lines.append(f"  manifest: {options.oracle_manifest}")
+        elif manifest is not None:
+            lines.append(
+                f"  manifest: {oracle_runner.DEFAULT_MANIFEST_PATH.as_posix()}"
+            )
+        if options.oracle_names:
+            lines.append(f"  selected: {', '.join(options.oracle_names)}")
+        fail_fast_display = (
+            options.oracle_fail_fast
+            if options.oracle_fail_fast is not None
+            else (manifest.default_fail_fast if manifest else True)
+        )
+        lines.append(f"  fail-fast: {'yes' if fail_fast_display else 'no'}")
     return lines
 
 
@@ -666,7 +739,12 @@ def _run_each(options: LoopOptions, context: RexContext) -> int:
     if not cards:
         statuses = ", ".join(options.generator_options.statuses)
         print(f"[loop] No Feature Cards with statuses: {statuses}")
-        summary_lines = _collect_summary_lines(None, None, [f"No Feature Cards with statuses: {statuses}"])
+        summary_lines = _collect_summary_lines(
+            None,
+            None,
+            None,
+            [f"No Feature Cards with statuses: {statuses}"],
+        )
         _perform_audit(context, summary_lines)
         return 1
 
@@ -682,6 +760,7 @@ def _run_each(options: LoopOptions, context: RexContext) -> int:
 
         generator_exit: int | None = None
         discriminator_exit: int | None = None
+        oracle_exit: int | None = None
 
         if options.run_generator:
             generator_opts = replace(options.generator_options, card_path=card.path)
@@ -697,6 +776,7 @@ def _run_each(options: LoopOptions, context: RexContext) -> int:
                                 "slug": card.slug,
                                 "generator": result,
                                 "discriminator": None,
+                                "oracles": None,
                             }
                         ]
                     )
@@ -704,9 +784,22 @@ def _run_each(options: LoopOptions, context: RexContext) -> int:
                     return result
                 final_exit = final_exit or result
                 batch_results.append(
-                    {"slug": card.slug, "generator": result, "discriminator": None}
+                    {
+                        "slug": card.slug,
+                        "generator": result,
+                        "discriminator": None,
+                        "oracles": None,
+                    }
                 )
                 continue
+            scaffold = auto_scaffold_for_slug(
+                card.slug, context=context, verbose=options.verbose
+            )
+            if scaffold and scaffold.created and options.verbose:
+                created = ", ".join(scaffold.created_rel)
+                print(
+                    f"[loop] Auto-scaffolded {scaffold.module} for {card.slug}: {created}"
+                )
             if options.verbose:
                 _announce_log(context, "generator_response.log")
         else:
@@ -733,20 +826,57 @@ def _run_each(options: LoopOptions, context: RexContext) -> int:
                                 "slug": card.slug,
                                 "generator": generator_exit,
                                 "discriminator": exit_code,
+                                "oracles": None,
                             }
                         ]
                     )
                     _perform_audit(context, summary_lines)
                     return exit_code
                 final_exit = final_exit or exit_code
+                batch_results.append(
+                    {
+                        "slug": card.slug,
+                        "generator": generator_exit,
+                        "discriminator": exit_code,
+                        "oracles": None,
+                    }
+                )
+                continue
         else:
             print("[loop] Discriminator skipped.")
+
+        if options.run_oracles and (
+            generator_exit in (None, 0, 1)
+            and (not options.run_discriminator or discriminator_exit in (None, 0))
+        ):
+            oracle_exit, _, oracle_notes = _execute_oracles(options, context)
+            for note in oracle_notes:
+                palette = _ansi_palette()
+                print(f"{palette.warning}[loop] WARNING:{palette.reset} {note}")
+            if oracle_exit not in (0, None):
+                if not options.continue_on_fail:
+                    summary_lines = _batch_summary_lines(
+                        [
+                            {
+                                "slug": card.slug,
+                                "generator": generator_exit,
+                                "discriminator": discriminator_exit,
+                                "oracles": oracle_exit,
+                            }
+                        ]
+                    )
+                    _perform_audit(context, summary_lines)
+                    return oracle_exit
+                final_exit = final_exit or oracle_exit
+        else:
+            oracle_exit = None
 
         batch_results.append(
             {
                 "slug": card.slug,
                 "generator": generator_exit,
                 "discriminator": discriminator_exit,
+                "oracles": oracle_exit,
             }
         )
 
@@ -777,10 +907,21 @@ def _run_single(options: LoopOptions, context: RexContext) -> int:
     note_warning(_card_drift_message(context, slug_hint))
 
     generator_code: int | None = None
+    oracle_code: int | None = None
     if options.run_generator:
         print("=== rex-codex loop: generator phase ===")
         generator_code = run_generator(options.generator_options, context=context)
         if generator_code == 0:
+            scaffold_slug = _discover_active_slug(context) or slug_hint
+            scaffold = auto_scaffold_for_slug(
+                scaffold_slug, context=context, verbose=options.verbose
+            )
+            if scaffold and scaffold.created and options.verbose:
+                created = ", ".join(scaffold.created_rel)
+                target_slug = scaffold_slug or "unknown"
+                print(
+                    f"[loop] Auto-scaffolded {scaffold.module} for {target_slug}: {created}"
+                )
             print("[loop] Generator produced new specs; running discriminator…")
             if options.verbose:
                 _announce_log(context, "generator_response.log")
@@ -791,8 +932,15 @@ def _run_single(options: LoopOptions, context: RexContext) -> int:
         else:
             print(f"[loop] Generator failed (exit {generator_code}); aborting.")
             _maybe_tail_logs("generator", options.tail_lines, context)
-            _render_loop_summary(generator_code=generator_code, discriminator_code=None)
-            summary_lines = _collect_summary_lines(generator_code, None, summary_notes)
+            _render_loop_summary(
+                generator_code=generator_code,
+                discriminator_code=None,
+                oracles_code=None,
+                notes=summary_notes,
+            )
+            summary_lines = _collect_summary_lines(
+                generator_code, None, None, summary_notes
+            )
             _perform_audit(context, summary_lines)
             return generator_code
     else:
@@ -822,13 +970,27 @@ def _run_single(options: LoopOptions, context: RexContext) -> int:
         print("[loop] Discriminator skipped; generator phase complete.")
         exit_code = generator_code if generator_code not in (None, 0, 1) else 0
 
+    if (
+        options.run_oracles
+        and (generator_code in (None, 0, 1))
+        and (not options.run_discriminator or discriminator_code in (None, 0))
+    ):
+        oracle_code, _, oracle_notes = _execute_oracles(options, context)
+        for note in oracle_notes:
+            note_warning(note)
+        if oracle_code not in (0, None):
+            exit_code = oracle_code
+    else:
+        oracle_code = None
+
     _render_loop_summary(
         generator_code=generator_code,
         discriminator_code=discriminator_code,
+        oracles_code=oracle_code,
         notes=summary_notes,
     )
     summary_lines = _collect_summary_lines(
-        generator_code, discriminator_code, summary_notes
+        generator_code, discriminator_code, oracle_code, summary_notes
     )
     _perform_audit(context, summary_lines)
     return exit_code
@@ -860,6 +1022,35 @@ def _run_discriminator_phases(
         return result
     print("[loop] Global discriminator run skipped by flag.")
     return 0
+
+
+def _execute_oracles(
+    options: LoopOptions, context: RexContext
+) -> tuple[int | None, list[oracle_runner.OracleResult], list[str]]:
+    if not options.run_oracles:
+        return None, [], []
+    manifest = getattr(options, "_oracle_manifest", None)
+    if manifest is None:
+        return None, [], []
+    names = options.oracle_names or None
+    exit_code, results = oracle_runner.run_oracles(
+        manifest,
+        context=context,
+        names=names,
+        fail_fast=options.oracle_fail_fast,
+        verbose=options.verbose,
+    )
+    notes: list[str] = []
+    if options.verbose and results:
+        table = oracle_runner.format_results_table(results)
+        if table:
+            print(table)
+    if not results and not getattr(options, "_oracle_empty_announced", False):
+        notes.append("Oracle manifest contains no runnable entries.")
+        setattr(options, "_oracle_empty_announced", True)
+    if exit_code not in (0, None):
+        notes.append(f"Oracle stage failed (exit {exit_code})")
+    return exit_code, results, notes
 
 
 def _discover_active_slug(context: RexContext) -> str | None:

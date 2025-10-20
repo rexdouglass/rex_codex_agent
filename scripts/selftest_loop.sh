@@ -132,10 +132,26 @@ PY
 }
 
 ensure_monitor_deps() {
-  if [[ -d "$repo_root/monitor/node_modules" ]]; then
-    return
+  local monitor_root="$repo_root/monitor"
+  local node_modules="$monitor_root/node_modules"
+  local lock_path="$monitor_root/package-lock.json"
+  local stamp_path="$node_modules/.rex_lock"
+  local current_hash=""
+  local recorded_hash=""
+
+  if [[ -f "$lock_path" ]]; then
+    current_hash="$(sha256sum "$lock_path" 2>/dev/null | awk '{print $1}')"
   fi
-  (cd "$repo_root" && npm --prefix monitor install --no-fund --no-audit >/dev/null 2>&1)
+  if [[ -f "$stamp_path" ]]; then
+    recorded_hash="$(cat "$stamp_path" 2>/dev/null)"
+  fi
+
+  if [[ ! -d "$node_modules" ]] || [[ -n "$current_hash" && "$current_hash" != "$recorded_hash" ]]; then
+    (cd "$repo_root" && npm --prefix monitor install --no-fund --no-audit >/dev/null 2>&1)
+    if [[ -n "$current_hash" ]]; then
+      printf '%s' "$current_hash" >"$stamp_path"
+    fi
+  fi
 }
 
 start_monitor() {

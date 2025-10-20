@@ -1,4 +1,48 @@
 {
+  "doctor": {
+    "checks": [
+      {
+        "message": "Python 3.13.6",
+        "name": "python3",
+        "path": "/home/linuxbrew/.linuxbrew/bin/python3",
+        "status": "ok"
+      },
+      {
+        "message": "GNU bash, version 5.2.37(1)-release (x86_64-pc-linux-gnu)",
+        "name": "bash",
+        "path": "/home/linuxbrew/.linuxbrew/bin/bash",
+        "status": "ok"
+      },
+      {
+        "message": "v24.6.0",
+        "name": "node",
+        "path": "/home/linuxbrew/.linuxbrew/bin/node",
+        "status": "ok"
+      },
+      {
+        "message": "11.5.1",
+        "name": "npx",
+        "path": "/home/linuxbrew/.linuxbrew/bin/npx",
+        "status": "ok"
+      },
+      {
+        "message": "using npx --yes @openai/codex",
+        "name": "codex",
+        "path": "/home/linuxbrew/.linuxbrew/bin/npx",
+        "status": "ok"
+      },
+      {
+        "message": "Docker version 25.0.2, build 29cf629",
+        "name": "docker",
+        "path": "/usr/bin/docker",
+        "status": "ok"
+      }
+    ],
+    "errors": [],
+    "last_run": "2025-10-20T00:09:57Z",
+    "status": "ok",
+    "warnings": []
+  },
   "feature": {
     "active_card": "documents/feature_cards/README.md",
     "active_slug": "readme",
@@ -6,8 +50,25 @@
   },
   "llm": {
     "bin": "npx --yes @openai/codex",
-    "flags": "--yolo",
-    "model": ""
+    "flags": "",
+    "model": "",
+    "model_explicit": false,
+    "model_source": null,
+    "config_overrides": [],
+    "parameters": {},
+    "parameter_sources": {},
+    "updated_at": null
+  },
+  "preflight": {
+    "codex_hello": {
+      "status": "unknown",
+      "timestamp": null,
+      "model": "",
+      "stdout": ""
+    }
+  },
+  "scaffolding": {
+    "records": []
   },
   "stages": [
     "sanity",

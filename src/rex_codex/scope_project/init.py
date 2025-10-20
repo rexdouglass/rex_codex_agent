@@ -79,6 +79,14 @@ def run_init(
             ledger_readme, root / "documents" / "assumption_ledgers" / "README.md"
         )
 
+    oracle_dir = template_root / "documents" / "oracles"
+    if oracle_dir.exists():
+        for item in oracle_dir.glob("**/*"):
+            if item.is_file():
+                rel = item.relative_to(oracle_dir)
+                dest = root / "documents" / "oracles" / rel
+                _copy_if_missing(item, dest)
+
     enforcement_dir = template_root / "tests" / "enforcement"
     if enforcement_dir.exists():
         for item in enforcement_dir.glob("**/*"):
@@ -116,7 +124,35 @@ def run_init(
             "unit",
             "style",
         ],
-        "llm": {"bin": "npx --yes @openai/codex", "flags": "--yolo", "model": ""},
+        "llm": {
+            "bin": "npx --yes @openai/codex",
+            "flags": "",
+            "model": "",
+            "model_explicit": False,
+            "model_source": None,
+            "config_overrides": [],
+            "parameters": {},
+            "parameter_sources": {},
+            "updated_at": None,
+        },
+        "doctor": {
+            "status": "unknown",
+            "last_run": None,
+            "errors": [],
+            "warnings": [],
+            "checks": [],
+        },
+        "preflight": {
+            "codex_hello": {
+                "status": "unknown",
+                "timestamp": None,
+                "model": "",
+                "stdout": "",
+            }
+        },
+        "scaffolding": {
+            "records": [],
+        },
         "feature": {
             "active_card": None,
             "active_slug": None,

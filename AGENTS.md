@@ -56,7 +56,11 @@ Treat each scope as a separately versioned surface: upgrade the global shim with
    ```bash
    ./rex-codex generator            # loops with a critic until DONE (use --single-pass to exit early)
    ```
+  Export `MODEL=<codex-model-id>` before invoking the generator and ensure the Codex CLI session is logged in (`npx @openai/codex login`). If the generator detects a logged-out state in an interactive shell it will launch the login flow for you. API-key authentication is disabled for this project. Optional environment knobs (`CODEX_TEMPERATURE`, `CODEX_TOP_P`, `CODEX_MAX_OUTPUT_TOKENS`, `CODEX_SEED`, `CODEX_REASONING_EFFORT`) are captured in `rex-agent.json` and surfaced by the monitor so runs stay reproducible—set them explicitly when you need deterministic sampling.
    The generator:
+   - Performs a Codex preflight guard; `./rex-codex doctor` must report `status: OK` and `MODEL` must be set or the run aborts before contacting Codex.
+   - Suggests matching runtime scaffolding for brand-new specs. Use `./rex-codex scaffold <slug>` to materialise the runtime skeleton before handing control to the discriminator.
+   - Executes a "Hello World" Codex CLI probe so we have fresh evidence that the CLI answers prompts before any card-specific requests.
    - Keeps diffs under `tests/feature_specs/<slug>/...` (tests only) and appends links/trace in the card.
    - Prints a dashboard summarising the Feature Card (acceptance criteria, existing specs) and previews the diff with new/updated tests before applying patches so operators can follow along in one screen.
    - Enforces patch-size limits (default 6 files / 300 lines).
@@ -128,6 +132,7 @@ Need the latest frame without attaching to TTY? Call the single-shot helpers-or 
 | `generator` | Keep prompt guardrails aligned with code filters. Never relax hermetic checks without updating docs/templates. |
 | `discriminator` | Maintain stage banners, logging, and optional gate envs. Default LLM usage must stay disabled (`DISABLE_LLM=1`). |
 | `loop` | Orchestrates generator -> discriminator. Ensure flag passthrough stays consistent with docs. |
+| `oracle` | Discover and execute declarative oracles declared in `documents/oracles/oracles.yaml`. |
 | `card` | CLI helper for card creation/listing/validation-keep prompts aligned with template README. |
 | `status` / `logs` | Surface rex-agent.json metadata and `.codex_ci` tails; `logs` supports `--generator/--discriminator/--lines`. |
 | `doctor` | Emit versions/paths for python/node/docker; add tooling here before relying on it elsewhere. |
@@ -141,11 +146,13 @@ Need the latest frame without attaching to TTY? Call the single-shot helpers-or 
 
 - `./rex-codex init` - seed guardrails and tooling (idempotent).
 - `./rex-codex card new` - scaffold a Feature Card; `card list` / `card validate` keep hygiene tight.
+- `./rex-codex scaffold <slug>` - generate the runtime skeleton matching freshly generated specs.
 - `./rex-codex install --force` - refresh the agent sources in-place and automatically rerun `init`/`doctor` (use `--skip-init` / `--skip-doctor` to opt out).
 - `curl -fsSL https://raw.githubusercontent.com/rexdouglass/rex_codex_agent/main/packaging/install.sh | bash -s -- --force --channel main` - reinstall the latest agent snapshot from anywhere.
 - `./rex-codex generator --tail 120` - replay Codex diffs and tail logs when the generator fails (add `--quiet` to silence).
 - `./rex-codex discriminator --feature-only` / `--global` - run the shard or full ladder; add `--tail 120` (and `--quiet` if you want silence) during debug sessions.
 - `./rex-codex loop --tail 120` - generator -> feature shard -> global sweep with inline diff previews (use `--quiet` to suppress diff chatter).
+- `./rex-codex oracle --list` - review configured BDD/property/contract/metamorphic oracles; omit `--list` to execute them (respects `documents/oracles/oracles.yaml`).
 - `./rex-codex logs --generator --lines 200` - dump the latest generator response/patch without hunting for files.
 - `GENERATOR_PROGRESS_SECONDS=5 ./rex-codex loop` - tighten the Codex heartbeat interval (default 15s) for long generator passes.
 - `./rex-codex status` - inspect the active slug/card and last discriminator success metadata.
@@ -154,6 +161,7 @@ Need the latest frame without attaching to TTY? Call the single-shot helpers-or 
 - `scripts/selftest_loop.sh` - fast two-card selftest that uses the live Codex CLI, resets `.selftest_workspace/`, exercises the `hello_greet` and `hello_cli` Feature Cards, and appends logs/status/spec listings to the latest audit file (`SELFTEST_KEEP=1` preserves the workspace).
 - `scripts/smoke_e2e.sh` - run the self-development loop end-to-end with the live Codex CLI; export `KEEP=1` to keep the temp repo when investigating failures.
 - `./rex-codex generator --prompt-file prompts/foo.txt --apply-target tests/feature_specs/hello_cli/test_cli.py` - run a headless, one-shot Codex prompt and ensure the returned diff touches the intended file.
+- `./rex-codex release --dry-run` - print the release checklist; omit `--dry-run` to capture it under `documents/release_plan/`.
 
 ## Documentation Duties
 
@@ -168,6 +176,7 @@ Need the latest frame without attaching to TTY? Call the single-shot helpers-or 
 - Ensure `bin/rex-codex --help` matches documented commands.
 - Include `.codex_ci/` logs (or summaries) in PRs/notes for traceability.
 - Verify templates (`templates/AGENTS.md`, `templates/documents/feature_cards/README.md`, enforcement tests) reflect new behaviour before cutting a release.
+- Run `./rex-codex release` to generate a dated checklist and confirm the self-test loops pass before tagging.
 
 Keep the guardrails tight, prefer explicit documentation, and remember every change should reduce ambiguity for future Codex audits.***
 
@@ -176,6 +185,25 @@ Keep the guardrails tight, prefer explicit documentation, and remember every cha
 This playbook is implemented in `rex_codex.playbook` and drives the automated
 conversion of Feature Cards into traceable, deterministic specs. Treat it as a
 contract for how Codex plans, measures, and evolves tests.
+
+### Oracle Portfolio: Ticket → Tests → Code
+
+Every repo now carries `documents/oracles/oracles.yaml`, and `./rex-codex oracle`
+executes the declared stages after the generator/discriminator loop. Populate the
+manifest with the following oracle types (the template ships examples for each):
+
+1. **Acceptance-criteria oracles (BDD/Gherkin).** Use Behave feature files to turn Feature Cards into executable scenarios (`features/`). Each scenario feeds the oracle stage via the `acceptance-bdd` entry.
+2. **Property-based testing oracles.** Hypothesis suites (e.g. `tests/property/`) exercise algorithmic invariants; the manifest’s `property-tests` entry runs them.
+3. **Metamorphic testing oracles.** Relational checks over multiple executions (`tests/metamorphic/`) catch oracle-hard domains such as search or ML outputs.
+4. **Contract testing oracles.** Schemathesis fuzzing plus Dredd-style example validation ensure OpenAPI/GraphQL specs stay truthful (`contracts/api.yaml`).
+5. **Differential testing oracles.** Back-to-back comparisons keep regressions visible when refactors land (`tests/differential/`).
+6. **Runtime & temporal oracles.** LTL/state-machine monitors assert ordering and timing guarantees (`tests/monitors/`).
+7. **Invariant mining oracles.** Re-run mined predicates (Daikon, Texada exports) to lock-in emergent behaviour (`tests/invariants/`).
+8. **Concurrency/distributed oracles.** Elle/Knossos style workloads validate linearizability or transactional isolation (`tests/concurrency/`).
+9. **LLM-assisted oracles.** Capture and audit model-suggested assertions or metamorphic relations; track them in the manifest for reproducibility.
+10. **Mutation testing gate.** `mutmut` enforces a non-trivial mutation score before we trust the suite (`mutation-barrier` entry).
+
+Each oracle can declare `required_paths`, `required_commands`, and `required_modules` so the stage skips gracefully when the supporting harness is absent. Use `./rex-codex oracle --list` to review what will run before committing.
 
 ### 0) Objectives & Non-Negotiables
 

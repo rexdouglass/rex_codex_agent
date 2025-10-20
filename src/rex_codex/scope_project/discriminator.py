@@ -43,6 +43,7 @@ from .utils import (
     load_json,
     lock_file,
     run,
+    update_llm_settings,
 )
 
 _FAILED_TEST_RE = re.compile(r"FAILED\s+([\w./:-]+)")
@@ -56,7 +57,7 @@ class DiscriminatorOptions:
     max_passes: int = int(os.environ.get("DISCRIMINATOR_MAX_PASSES", "25"))
     disable_llm: bool = os.environ.get("DISABLE_LLM", "1") == "1"
     codex_bin: str = os.environ.get("CODEX_BIN", "npx --yes @openai/codex")
-    codex_flags: str = os.environ.get("CODEX_FLAGS", "--yolo")
+    codex_flags: str = os.environ.get("CODEX_FLAGS", "")
     codex_model: str = os.environ.get("MODEL", "")
     verbose: bool = True
     stage_timeout: int | None = None
@@ -127,6 +128,12 @@ def _run_locked(options: DiscriminatorOptions, context: RexContext) -> int:
     ensure_python(context, quiet=True)
     requirements_template = AGENT_SRC / "templates" / "requirements-dev.txt"
     ensure_requirements_installed(context, requirements_template)
+    update_llm_settings(
+        context,
+        codex_bin=options.codex_bin,
+        codex_flags=options.codex_flags,
+        codex_model=options.codex_model,
+    )
     env = activate_venv(context)
     env.setdefault("PYTHONHASHSEED", "0")
     if "COVERAGE_TARGETS" not in env and (context.root / "src").exists():

@@ -454,6 +454,19 @@ EXTENSION_LANG_MAP = {
     ".php": "php",
 }
 
+INVENTORY_SKIP_PARTS = {
+    ".venv",
+    ".git",
+    ".rex_agent",
+    "node_modules",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".tox",
+    "build",
+    "dist",
+}
+
 
 @dataclass
 class RepositoryInventory:
@@ -501,8 +514,13 @@ def inventory_repository(context: RexContext) -> RepositoryInventory:
 
     search_extensions = {".py", ".js", ".ts", ".tsx", ".jsx", ".md"}
 
+    def _should_skip(path: Path) -> bool:
+        return any(part.lower() in INVENTORY_SKIP_PARTS for part in path.parts)
+
     for path in root.rglob("*"):
         if path.is_dir():
+            continue
+        if _should_skip(path):
             continue
         suffix = path.suffix.lower()
         language = EXTENSION_LANG_MAP.get(suffix)
@@ -544,10 +562,14 @@ def inventory_repository(context: RexContext) -> RepositoryInventory:
 
     api_schemas: list[str] = []
     for candidate in root.rglob("*.yaml"):
+        if _should_skip(candidate):
+            continue
         name = candidate.name.lower()
         if "openapi" in name or "swagger" in name:
             api_schemas.append(context.relative(candidate))
     for candidate in root.rglob("*.graphql"):
+        if _should_skip(candidate):
+            continue
         api_schemas.append(context.relative(candidate))
 
     important_paths = {

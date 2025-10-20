@@ -49,7 +49,9 @@ def test_guard_card_edits_allows_links_append(card_path: Path) -> None:
         encoding="utf-8",
     )
 
-    assert _guard_card_edits("demo", card_path.parents[2], baseline)
+    ok, sanitized = _guard_card_edits("demo", card_path.parents[2], baseline)
+    assert ok is True
+    assert sanitized is False
 
 
 def test_guard_card_edits_rejects_status_change(card_path: Path) -> None:
@@ -79,7 +81,9 @@ def test_guard_card_edits_rejects_status_change(card_path: Path) -> None:
         baseline.replace("status: proposed", "status: accepted"), encoding="utf-8"
     )
 
-    assert not _guard_card_edits("demo", card_path.parents[2], baseline)
+    ok, sanitized = _guard_card_edits("demo", card_path.parents[2], baseline)
+    assert ok is False
+    assert sanitized is False
 
 
 def test_guard_card_edits_rejects_non_allowed_section(card_path: Path) -> None:
@@ -113,4 +117,6 @@ def test_guard_card_edits_rejects_non_allowed_section(card_path: Path) -> None:
         encoding="utf-8",
     )
 
-    assert not _guard_card_edits("demo", card_path.parents[2], baseline)
+    ok, sanitized = _guard_card_edits("demo", card_path.parents[2], baseline)
+    assert ok is False
+    assert sanitized is False

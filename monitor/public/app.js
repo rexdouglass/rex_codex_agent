@@ -20,7 +20,8 @@ const els = {
   planProgressBar: document.getElementById('planProgressBar'),
   planProgressLabel: document.getElementById('planProgressLabel'),
   planInfo: document.getElementById('planInfo'),
-  planTree: document.getElementById('planTree')
+  planTree: document.getElementById('planTree'),
+  llmStatus: document.getElementById('llmStatus')
 };
 
 const state = {
@@ -88,6 +89,82 @@ function renderSummary(s) {
   els.totErr.textContent = s.totals.error || 0;
   els.totTask.textContent = s.totals.task || 0;
   els.lastEvent.textContent = 'Last event: ' + (s.lastEventAt ? new Date(s.lastEventAt).toLocaleString() : '—');
+  if (els.llmStatus) {
+    const agent = s.agent || {};
+    const llm = agent.llm || {};
+    const doctor = agent.doctor || {};
+    const assumptions = agent.assumptions || {};
+    const preflight = agent.preflight || {};
+    const hello = preflight.codex_hello || {};
+    const assumptionCount = typeof assumptions.count === 'number' ? assumptions.count : 0;
+    const model = typeof llm.model === 'string' && llm.model.trim() ? llm.model.trim() : 'unset';
+    const doctorStatus = typeof doctor.status === 'string' && doctor.status
+      ? doctor.status.toLowerCase()
+      : 'unknown';
+    const textParts = [`LLM: ${model}`];
+    if (llm.model_source) {
+      textParts.push(`source: ${llm.model_source}`);
+    }
+    const params = llm.parameters || {};
+    if (typeof params.temperature === 'number') {
+      textParts.push(`temp=${params.temperature}`);
+    }
+    if (typeof params.top_p === 'number') {
+      textParts.push(`top_p=${params.top_p}`);
+    }
+    if (typeof params.seed === 'number') {
+      textParts.push(`seed=${params.seed}`);
+    }
+    if (assumptionCount > 0) {
+      textParts.push(`Assumptions: ${assumptionCount}`);
+    }
+    if (hello && typeof hello.status === 'string') {
+      textParts.push(`Probe: ${hello.status}`);
+    }
+    els.llmStatus.textContent = textParts.join(' · ');
+    els.llmStatus.dataset.status = doctorStatus;
+    const details = [];
+    if (llm.bin) details.push(`bin: ${llm.bin}`);
+    if (typeof llm.model_source === 'string' && llm.model_source) {
+      details.push(`model source: ${llm.model_source}`);
+    }
+    if (llm.flags) details.push(`flags: ${llm.flags}`);
+    if (Array.isArray(llm.config_overrides) && llm.config_overrides.length) {
+      const overrides = llm.config_overrides
+        .map((entry) => `${entry.key}=${entry.value}`)
+        .join(', ');
+      details.push(`config overrides: ${overrides}`);
+    }
+    if (params && Object.keys(params).length) {
+      const paramPairs = Object.entries(params).map(([k, v]) => `${k}=${v}`);
+      details.push(`parameters: ${paramPairs.join(', ')}`);
+    }
+    const paramSources = llm.parameter_sources || {};
+    if (paramSources && Object.keys(paramSources).length) {
+      const srcPairs = Object.entries(paramSources).map(([k, v]) => `${k}←${v}`);
+      details.push(`parameter sources: ${srcPairs.join(', ')}`);
+    }
+    if (llm.updated_at) {
+      details.push(`llm updated: ${llm.updated_at}`);
+    }
+    details.push(`doctor: ${doctorStatus}`);
+    if (doctor.last_run) details.push(`doctor last run: ${doctor.last_run}`);
+    if (Array.isArray(doctor.errors) && doctor.errors.length) {
+      details.push(`doctor errors: ${doctor.errors.join(', ')}`);
+    }
+    if (agent.assumptions && typeof agent.assumptions.count === 'number') {
+      details.push(`assumptions tracked: ${agent.assumptions.count}`);
+    }
+    if (hello && typeof hello.timestamp === 'string') {
+      details.push(`hello probe @ ${hello.timestamp}`);
+      if (hello.stdout) details.push(`probe stdout: ${hello.stdout}`);
+      if (hello.model) details.push(`probe model: ${hello.model}`);
+      if (typeof hello.returncode !== 'undefined') {
+        details.push(`probe exit: ${hello.returncode}`);
+      }
+    }
+    els.llmStatus.title = details.join('\n');
+  }
 
   if (els.planCard) {
     state.componentPlans = s.componentPlans || {};
@@ -144,18 +221,129 @@ function renderTasks() {
 }
 
 function renderErrors(errs) {
+  els.errors.innerHTML = '';
+  if (!errs || !errs.length) {
+    const empty = document.createElement('div');
+    empty.className = 'err-empty';
+    empty.textContent = 'No recent errors.';
+    els.errors.appendChild(empty);
+    return;
+  }
+
   const frag = document.createDocumentFragment();
-  for (const e of errs.slice().reverse()) {
+  const items = errs.slice().reverse();
+  for (const entry of items) {
     const div = document.createElement('div');
     div.className = 'err';
+    const ts = entry.ts ? new Date(entry.ts).toLocaleTimeString() : '';
+    const headerParts = [];
+    if (ts) headerParts.push(`<span class="err-time">${escapeHtml(ts)}</span>`);
+    if (entry.task) headerParts.push(`<span class="err-task">${escapeHtml(entry.task)}</span>`);
+    else if (entry.slug) headerParts.push(`<span class="err-task">${escapeHtml(entry.slug)}</span>`);
+    if (entry.status) headerParts.push(`<span class="err-status">${escapeHtml(String(entry.status).toUpperCase())}</span>`);
+
+    const headline = entry.reason || entry.message || 'Generator error';
+    const details = [];
+    if (entry.message && entry.reason && entry.message !== entry.reason) {
+      details.push(`<div class="err-detail">${escapeHtml(entry.message)}</div>`);
+    }
+    const missingItems = Array.isArray(entry.missing) ? entry.missing : [];
+    const violationItems = Array.isArray(entry.violations) ? entry.violations : [];
+    if (missingItems.length) {
+      const list = missingItems.map((item) => `<li>${escapeHtml(item)}</li>`).join('');
+      details.push(`<div class="err-list-title">Required</div><ul class="err-list">${list}</ul>`);
+    }
+    if (violationItems.length) {
+      const list = violationItems.map((item) => `<li>${escapeHtml(item)}</li>`).join('');
+      details.push(`<div class="err-list-title">Action Needed</div><ul class="err-list err-list-warn">${list}</ul>`);
+    }
+    if (entry.hint) {
+      details.push(`<div class="err-hint">${escapeHtml(entry.hint)}</div>`);
+    }
+
+    const metaParts = [];
+    if (entry.exitCode != null) {
+      metaParts.push(`<span class="err-code">exit ${escapeHtml(entry.exitCode)}</span>`);
+    }
+    if (entry.iteration != null && entry.iteration > 0) {
+      metaParts.push(`<span class="err-iter">iteration ${escapeHtml(entry.iteration)}</span>`);
+    }
+    if (entry.loginAttempted) {
+      metaParts.push('<span class="err-login">login prompted</span>');
+    }
+
     div.innerHTML = `
-      <div class="t">${e.task ? '[' + escapeHtml(e.task) + '] ' : ''}${new Date(e.ts).toLocaleTimeString()}</div>
-      <div class="m">${escapeHtml(e.message || '')}</div>
+      <div class="err-head">${headerParts.join(' ')}</div>
+      <div class="err-body">
+        <div class="err-title">${escapeHtml(headline)}</div>
+        ${details.join('')}
+      </div>
+      ${metaParts.length ? `<div class="err-meta">${metaParts.join(' · ')}</div>` : ''}
     `;
+    if (Array.isArray(entry.actions) && entry.actions.length) {
+      const actionsWrap = document.createElement('div');
+      actionsWrap.className = 'err-actions';
+      entry.actions.forEach((action) => {
+        if (!action || typeof action.action !== 'string') return;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'err-action-btn';
+        btn.textContent = action.label || action.action;
+        btn.addEventListener('click', () => triggerAction(btn, action));
+        actionsWrap.appendChild(btn);
+      });
+      if (actionsWrap.childNodes.length) {
+        div.appendChild(actionsWrap);
+      }
+    }
     frag.appendChild(div);
   }
-  els.errors.innerHTML = '';
   els.errors.appendChild(frag);
+}
+
+async function triggerAction(button, action) {
+  if (!action || button.dataset.state === 'pending') return;
+  const original = button.textContent;
+  button.disabled = true;
+  button.dataset.state = 'pending';
+  button.textContent = 'Running…';
+  try {
+    const res = await fetch('/api/actions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(action)
+    });
+    let payload = {};
+    try {
+      payload = await res.json();
+    } catch {
+      payload = {};
+    }
+    if (!res.ok || !payload || payload.error) {
+      const message = payload && payload.error ? payload.error : `Action failed (${res.status})`;
+      throw new Error(message);
+    }
+    if (payload.stdout) {
+      button.title = payload.stdout.slice(-280);
+    } else if (payload.stderr) {
+      button.title = payload.stderr.slice(-280);
+    }
+    button.dataset.state = payload.ok ? 'success' : 'warn';
+    button.textContent = payload.ok ? 'Done' : 'Check logs';
+  } catch (err) {
+    console.error(err);
+    button.dataset.state = 'error';
+    button.textContent = 'Failed';
+    if (err && err.message) {
+      button.title = err.message;
+    }
+  } finally {
+    setTimeout(() => {
+      button.dataset.state = '';
+      button.textContent = original;
+      button.disabled = false;
+    }, 3200);
+  }
 }
 
 function renderPlanner() {
@@ -1038,6 +1226,8 @@ function formatRichText(text) {
 }
 
 function renderLog() {
+  if (!els.log) return;
+  const atBottom = els.log.scrollTop + els.log.clientHeight >= els.log.scrollHeight - 12;
   const frag = document.createDocumentFragment();
   const q = state.query;
   for (const e of logItems) {
@@ -1057,7 +1247,9 @@ function renderLog() {
   }
   els.log.innerHTML = '';
   els.log.appendChild(frag);
-  els.log.scrollTop = els.log.scrollHeight;
+  if (atBottom) {
+    els.log.scrollTop = els.log.scrollHeight;
+  }
 }
 
 async function init() {

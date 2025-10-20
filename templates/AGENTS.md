@@ -19,6 +19,10 @@ This repository follows a staged automation ladder that keeps default runs fast,
 - Sleeping, random jitter, and network access are prohibited in tests unless explicitly allowed by fixtures.
 - Enforcement tests ensure tests fail fast if network/time-based calls slip in.
 
+## Oracle Manifest & CLI
+- `./rex-codex init` seeds `documents/oracles/oracles.yaml`; customise it to wire BDD acceptance checks, Hypothesis properties, metamorphic relations, contract fuzzers, differential harnesses, runtime monitors, invariant replays, concurrency workloads, LLM-assisted assertions, and the `mutmut` gate.
+- Run `./rex-codex oracle --list` to inspect the configured stages; omit `--list` to execute them on demand. `./rex-codex loop` runs the manifest automatically once the discriminator ladder completes.
+
 ## Staged Automation Ladder (Green Default Run)
 Runs execute in order. Each stage emits a `Question -> Command -> PASS/FAIL` triple.
 

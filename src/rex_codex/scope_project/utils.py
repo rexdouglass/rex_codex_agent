@@ -190,6 +190,194 @@ class RexContext:
         return all(item.exists() for item in other_sentinels)
 
 
+def _codex_flags_tokens(flags: str) -> list[str]:
+    if not flags or not flags.strip():
+        return []
+    try:
+        return shlex.split(flags)
+    except ValueError:
+        return flags.split()
+
+
+def _parse_codex_config_value(raw: str) -> object:
+    value = raw.strip()
+    if not value:
+        return ""
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        lowered = value.lower()
+        if lowered in {"true", "false"}:
+            return lowered == "true"
+        if lowered in {"null", "none"}:
+            return None
+        try:
+            if "." in value:
+                return float(value)
+            return int(value)
+        except ValueError:
+            return value
+
+
+def parse_codex_config_overrides(
+    flags: str,
+) -> tuple[list[dict[str, object]], dict[str, dict[str, object]]]:
+    tokens = _codex_flags_tokens(flags)
+    entries: list[dict[str, object]] = []
+    mapping: dict[str, dict[str, object]] = {}
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        payload: str | None = None
+        source: str | None = None
+        if token in {"-c", "--config"}:
+            index += 1
+            if index < len(tokens):
+                payload = tokens[index]
+                source = token
+        elif token.startswith("--config="):
+            payload = token[len("--config=") :]
+            source = "--config"
+        elif token.startswith("-c") and token not in {"-c", "--config"}:
+            payload = token[2:]
+            source = "-c"
+        if payload is None:
+            index += 1
+            continue
+        if "=" not in payload:
+            index += 1
+            continue
+        key, raw_value = payload.split("=", 1)
+        key = key.strip()
+        raw_value = raw_value.strip()
+        if not key:
+            index += 1
+            continue
+        parsed_value = _parse_codex_config_value(raw_value)
+        entry: dict[str, object] = {
+            "key": key,
+            "value": raw_value,
+            "source": source or "",
+        }
+        if parsed_value != raw_value:
+            entry["parsed"] = parsed_value
+        entries.append(entry)
+        mapping[key] = entry
+        index += 1
+    return entries, mapping
+
+
+def _extract_model_from_flags(flags: str) -> tuple[str | None, str | None]:
+    tokens = _codex_flags_tokens(flags)
+    for idx, token in enumerate(tokens):
+        if token in {"--model", "-m"}:
+            if idx + 1 < len(tokens):
+                return tokens[idx + 1], token
+            continue
+        if token.startswith("--model="):
+            return token.split("=", 1)[1], "--model"
+        if token.startswith("-m") and len(token) > 2:
+            return token[2:], "-m"
+    return None, None
+
+
+def _collect_llm_env_parameters() -> tuple[dict[str, object], dict[str, str]]:
+    values: dict[str, object] = {}
+    sources: dict[str, str] = {}
+
+    def capture(env_var: str, key: str, parser: type) -> None:
+        raw = os.environ.get(env_var)
+        if raw is None:
+            return
+        text = raw.strip()
+        if not text:
+            return
+        try:
+            if parser is float:
+                value = float(text)
+            elif parser is int:
+                value = int(text)
+            else:
+                value = text
+        except (TypeError, ValueError):
+            return
+        values[key] = value
+        sources[key] = f"env:{env_var}"
+
+    capture("CODEX_TEMPERATURE", "temperature", float)
+    capture("CODEX_TOP_P", "top_p", float)
+    capture("CODEX_MAX_OUTPUT_TOKENS", "max_output_tokens", int)
+    capture("CODEX_SEED", "seed", int)
+    effort = os.environ.get("CODEX_REASONING_EFFORT")
+    if effort and effort.strip():
+        values["reasoning_effort"] = effort.strip()
+        sources["reasoning_effort"] = "env:CODEX_REASONING_EFFORT"
+    return values, sources
+
+
+def build_llm_settings(
+    *,
+    codex_bin: str,
+    codex_flags: str,
+    codex_model: str,
+) -> dict[str, object]:
+    overrides, mapping = parse_codex_config_overrides(codex_flags)
+    model = (codex_model or "").strip()
+    model_source: str | None = None
+    if model:
+        model_source = "env:MODEL"
+    else:
+        flagged_model, flag_source = _extract_model_from_flags(codex_flags)
+        if flagged_model:
+            model = flagged_model
+            model_source = f"flag:{flag_source}"
+        elif "model" in mapping:
+            entry = mapping["model"]
+            parsed = entry.get("parsed")
+            value = parsed if parsed is not None else entry.get("value", "")
+            model = str(value).strip()
+            if model:
+                model_source = "config:model"
+    parameters, parameter_sources = _collect_llm_env_parameters()
+    settings: dict[str, object] = {
+        "bin": codex_bin,
+        "flags": codex_flags,
+        "model": model,
+        "model_explicit": bool(model),
+    }
+    if model_source:
+        settings["model_source"] = model_source
+    if overrides:
+        settings["config_overrides"] = overrides
+    if parameters:
+        settings["parameters"] = parameters
+    if parameter_sources:
+        settings["parameter_sources"] = parameter_sources
+    return settings
+
+
+def update_llm_settings(
+    context: RexContext,
+    *,
+    codex_bin: str,
+    codex_flags: str,
+    codex_model: str,
+) -> dict[str, object]:
+    payload = build_llm_settings(
+        codex_bin=codex_bin,
+        codex_flags=codex_flags,
+        codex_model=codex_model,
+    )
+    snapshot = load_json(context.rex_agent_file)
+    llm_state = dict(payload)
+    llm_state["updated_at"] = (
+        datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+    )
+    snapshot["llm"] = llm_state
+    dump_json(context.rex_agent_file, snapshot)
+    return payload
+
+
 class FileLock:
     """Simple advisory file lock using fcntl."""
 

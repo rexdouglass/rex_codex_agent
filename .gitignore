@@ -207,3 +207,7 @@ __marimo__/
 .selftest_workspace/
 tui/node_modules/
 tui/dist/
+
+# Generated monitor/event logs
+.agent/logs/events.jsonl
+.codex_ci/events.jsonl

@@ -13,6 +13,7 @@
       <span class="brand-title">Agent Monitor</span>
       <span class="brand-subtitle">Live build activity and plan traceability</span>
       <span id="eventsPerMin" class="epm">0 evt/min</span>
+      <span id="llmStatus" class="llm-status" aria-live="polite">LLM: —</span>
     </div>
     <div class="hdr-right">
       <div class="hdr-feature">
@@ -80,7 +81,7 @@
   </main>
 
   <footer class="ftr">
-    <div>Monitoring <code>.agent/logs/events.jsonl</code>. This UI is read-only.</div>
+    <div>Monitoring <code>.agent/logs/events.jsonl</code>. Actions trigger <code>./rex-codex</code> commands in this workspace.</div>
   </footer>
 
   <script src="/app.js"></script>

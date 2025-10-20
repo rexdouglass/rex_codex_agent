@@ -7,3 +7,8 @@ isort==5.13.2
 ruff==0.14.1
 flake8==7.3.0
 mypy==1.10.0
+behave==1.2.6
+hypothesis==6.112.0
+mutmut==2.4.4
+PyYAML==6.0.2
+schemathesis==3.39.6

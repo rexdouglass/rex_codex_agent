@@ -8,9 +8,10 @@ import re
 import shlex
 import subprocess
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Sequence
 
-from .utils import which
+from .utils import RexContext, dump_json, load_json, which
 
 
 @dataclass(frozen=True)
@@ -34,7 +35,13 @@ class DoctorCheck:
         return payload
 
 
-def run_doctor(*, output: str = "text") -> list[DoctorCheck]:
+def run_doctor(
+    *,
+    output: str = "text",
+    context: RexContext | None = None,
+    persist: bool = True,
+) -> list[DoctorCheck]:
+    context = context or RexContext.discover()
     results = gather_diagnostics()
     if output == "json":
         print(json.dumps([check.to_dict() for check in results], indent=2))
@@ -46,6 +53,8 @@ def run_doctor(*, output: str = "text") -> list[DoctorCheck]:
             print(line)
             if check.hint:
                 print(f"          hint: {check.hint}")
+    if persist and context:
+        _record_results(context, results)
     return results
 
 
@@ -197,3 +206,29 @@ def _extract_version_tuple(text: str) -> tuple[int, ...] | None:
     while parts and parts[-1] == 0:
         parts.pop()
     return tuple(parts)
+
+
+def _record_results(context: RexContext, results: list[DoctorCheck]) -> None:
+    snapshot = load_json(context.rex_agent_file)
+    doctor_state = snapshot.setdefault("doctor", {})
+    status = "ok"
+    errors = [check.name for check in results if check.status == "error"]
+    warnings = [check.name for check in results if check.status == "warn"]
+    if errors:
+        status = "error"
+    elif warnings:
+        status = "warn"
+    doctor_state.update(
+        {
+            "last_run": _utc_now(),
+            "status": status,
+            "errors": errors,
+            "warnings": warnings,
+            "checks": [check.to_dict() for check in results],
+        }
+    )
+    dump_json(context.rex_agent_file, snapshot)
+
+
+def _utc_now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")

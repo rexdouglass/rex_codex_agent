@@ -15,9 +15,9 @@ from typing import Any
 from .cards import FeatureCard
 from .events import emit_event
 from .llm import resolve_llm_provider
-from .utils import RexContext, dump_json
+from .utils import RexContext, build_llm_settings, dump_json
 
-COMPONENT_PLAN_SCHEMA_VERSION = "component-plan.v2"
+COMPONENT_PLAN_SCHEMA_VERSION = "component-plan.v3"
 
 
 @dataclass
@@ -64,6 +64,12 @@ def ensure_component_plan(
         card_path=str(card_path),
     )
 
+    llm_settings = build_llm_settings(
+        codex_bin=codex_bin,
+        codex_flags=codex_flags,
+        codex_model=codex_model,
+    )
+
     base_plan: dict[str, Any] = {
         "schema_version": COMPONENT_PLAN_SCHEMA_VERSION,
         "card_path": str(card_path),
@@ -71,6 +77,7 @@ def ensure_component_plan(
         "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "status": "in_progress",
         "components": [],
+        "llm_settings": llm_settings,
     }
 
     playbook_json = context.codex_ci_dir / f"playbook_{slug}.json"

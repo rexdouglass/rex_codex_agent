@@ -8,9 +8,10 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const http = require('node:http');
+const { spawn } = require('node:child_process');
 const express = require('express');
 const compression = require('compression');
-const cors = require('cors');
+const helmet = require('helmet');
 
 const LOG_DIR = process.env.LOG_DIR || path.join(process.cwd(), '.agent', 'logs');
 const EVENTS_FILE = process.env.EVENTS_FILE || path.join(LOG_DIR, 'events.jsonl');
@@ -31,8 +32,27 @@ ensureFileSync(EVENTS_FILE);
 
 const app = express();
 app.disable('x-powered-by');
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      useDefaults: true,
+      directives: {
+        "default-src": ["'self'"],
+        "script-src": ["'self'"],
+        "style-src": ["'self'", "'unsafe-inline'"],
+        "connect-src": ["'self'"],
+        "img-src": ["'self'", "data:"],
+        "font-src": ["'self'"],
+      }
+    },
+    referrerPolicy: { policy: 'no-referrer' },
+    crossOriginEmbedderPolicy: false,
+    crossOriginOpenerPolicy: { policy: 'same-origin' },
+    crossOriginResourcePolicy: { policy: 'same-origin' }
+  })
+);
 app.use(compression());
-app.use(cors());
+app.use(express.json({ limit: '64kb' }));
 app.use(express.static(STATIC_DIR, { fallthrough: true }));
 
 // ====== In-memory state ======
@@ -57,6 +77,159 @@ function ensureDirSync(p) {
 function ensureFileSync(p) {
   if (!fs.existsSync(p)) fs.writeFileSync(p, '');
 }
+
+const AGENT_STATE_PATH = path.join(REPO_ROOT, 'rex-agent.json');
+const COMMAND_TIMEOUT_MS = Number(process.env.REX_MONITOR_ACTION_TIMEOUT || '300000');
+
+function readAgentState() {
+  try {
+    const raw = fs.readFileSync(AGENT_STATE_PATH, 'utf8');
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+function summariseAgentState() {
+  const snapshot = readAgentState();
+  const llm = snapshot && typeof snapshot.llm === 'object' ? snapshot.llm : null;
+  const doctor = snapshot && typeof snapshot.doctor === 'object' ? snapshot.doctor : null;
+  const scaffolding = snapshot && typeof snapshot.scaffolding === 'object' ? snapshot.scaffolding : null;
+  const preflight = snapshot && typeof snapshot.preflight === 'object' ? snapshot.preflight : null;
+  const hello = preflight && typeof preflight.codex_hello === 'object' ? preflight.codex_hello : null;
+  const scaffoldCount =
+    scaffolding && Array.isArray(scaffolding.records) ? scaffolding.records.length : 0;
+  const ledgerDir = path.join(REPO_ROOT, 'documents', 'assumption_ledgers');
+  let assumptionFiles = [];
+  try {
+    assumptionFiles = fs
+      .readdirSync(ledgerDir)
+      .filter((name) =>
+        /\.(md|markdown|txt)$/i.test(name) && name.toLowerCase() !== 'readme.md'
+      );
+  } catch {
+    assumptionFiles = [];
+  }
+  return {
+    llm,
+    doctor,
+    scaffolding: {
+      records: scaffoldCount,
+    },
+    assumptions: {
+      count: assumptionFiles.length,
+      files: assumptionFiles,
+    },
+    preflight: {
+      codex_hello: hello || null,
+    },
+  };
+}
+
+function sanitizeSlug(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const normalized = trimmed.replace(/\.md$/i, '');
+  if (!/^[A-Za-z0-9_-]+$/.test(normalized)) return null;
+  return normalized;
+}
+
+function featureCardPath(slug) {
+  const safe = sanitizeSlug(slug);
+  if (!safe) return null;
+  const candidate = path.join(REPO_ROOT, 'documents', 'feature_cards', `${safe}.md`);
+  return fs.existsSync(candidate) ? candidate : null;
+}
+
+function runRexCommand(args, { timeoutMs = COMMAND_TIMEOUT_MS } = {}) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn('./rex-codex', args, {
+      cwd: REPO_ROOT,
+      env: process.env,
+    });
+
+    let stdout = '';
+    let stderr = '';
+    let killed = false;
+    const limit = 20000;
+    const append = (buffer, chunk) => {
+      const next = buffer + chunk;
+      return next.length > limit ? next.slice(next.length - limit) : next;
+    };
+
+    const timer =
+      timeoutMs > 0
+        ? setTimeout(() => {
+            killed = true;
+            proc.kill('SIGTERM');
+          }, timeoutMs)
+        : null;
+
+    proc.stdout?.on('data', (chunk) => {
+      stdout = append(stdout, chunk.toString());
+    });
+    proc.stderr?.on('data', (chunk) => {
+      stderr = append(stderr, chunk.toString());
+    });
+    proc.on('error', (err) => {
+      if (timer) clearTimeout(timer);
+      reject(err);
+    });
+    proc.on('close', (code) => {
+      if (timer) clearTimeout(timer);
+      resolve({ code, stdout, stderr, killed });
+    });
+  });
+}
+
+const ACTION_HANDLERS = {
+  'run-doctor': async () => runRexCommand(['doctor']),
+  'rerun-generator': async ({ slug }) => {
+    const safe = sanitizeSlug(slug);
+    if (!safe) {
+      throw Object.assign(new Error('Invalid slug for generator run'), { statusCode: 400 });
+    }
+    const card = featureCardPath(safe);
+    if (!card) {
+      throw Object.assign(new Error(`Feature Card not found for slug ${safe}`), { statusCode: 404 });
+    }
+    return runRexCommand(['generator', card, '--single-pass']);
+  },
+  scaffold: async ({ slug, force }) => {
+    const safe = sanitizeSlug(slug);
+    if (!safe) {
+      throw Object.assign(new Error('Invalid slug for scaffolding'), { statusCode: 400 });
+    }
+    const args = ['scaffold', safe];
+    if (force) args.push('--force');
+    return runRexCommand(args);
+  },
+};
+
+async function executeAction(payload) {
+  const { action, ...rest } = payload || {};
+  if (typeof action !== 'string') {
+    throw Object.assign(new Error('Missing action type'), { statusCode: 400 });
+  }
+  const handler = ACTION_HANDLERS[action];
+  if (!handler) {
+    throw Object.assign(new Error(`Unknown action: ${action}`), { statusCode: 400 });
+  }
+  const result = await handler(rest);
+  broadcastSSE('summary', getSummaryDTO());
+  console.log(
+    `[monitor] action ${action} → exit ${result.code}`
+  );
+  return {
+    ok: result.code === 0,
+    code: result.code,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    killed: result.killed,
+  };
+}
+
 function safeJSON(line) {
   try {
     return JSON.parse(line);
@@ -123,10 +296,63 @@ function updateSummary(e) {
 
   // errors
   if (e.level === 'error' || e.status === 'failed') {
+    const meta = e.meta && typeof e.meta === 'object' ? e.meta : {};
+    const rawExit =
+      meta.exit_code ??
+      meta.exitCode ??
+      meta.returncode ??
+      meta.returnCode ??
+      null;
+    const exitCode = rawExit !== null && rawExit !== undefined && rawExit !== ''
+      ? Number(rawExit)
+      : null;
+    const rawIter = meta.iteration ?? meta.pass ?? meta.generation_pass ?? null;
+    const iteration = rawIter !== null && rawIter !== undefined && rawIter !== ''
+      ? Number(rawIter)
+      : null;
+    const missing = Array.isArray(meta.missing)
+      ? meta.missing.slice(0, 6)
+      : undefined;
+    const violations = Array.isArray(meta.violations)
+      ? meta.violations.slice(0, 6)
+      : undefined;
+    const reason = typeof meta.reason === 'string'
+      ? meta.reason
+      : typeof meta.failure_reason === 'string'
+        ? meta.failure_reason
+        : undefined;
+    const hint = typeof meta.hint === 'string'
+      ? meta.hint
+      : typeof meta.guidance === 'string'
+        ? meta.guidance
+        : undefined;
+    const statusLabel = e.status || meta.status || null;
+    const slug = typeof meta.slug === 'string' && meta.slug
+      ? meta.slug
+      : typeof e.slug === 'string' && e.slug
+        ? e.slug
+        : null;
+    const actions = computeErrorActions({
+      exitCode: Number.isFinite(exitCode) ? exitCode : null,
+      slug,
+      missing,
+      violations,
+      reason,
+    });
     summary.lastErrors.push({
       ts: e.ts,
       message: e.message,
-      task: e.task || null
+      task: e.task || slug,
+      status: typeof statusLabel === 'string' ? statusLabel : null,
+      reason: reason || null,
+      hint: hint || null,
+      exitCode: Number.isFinite(exitCode) ? exitCode : null,
+      iteration: Number.isFinite(iteration) ? iteration : null,
+      slug,
+      missing,
+      violations,
+      actions,
+      loginAttempted: Boolean(meta.login_attempted)
     });
     if (summary.lastErrors.length > 20) summary.lastErrors.shift();
   }
@@ -150,11 +376,12 @@ function updateSummary(e) {
 }
 
 function addEvent(e, broadcast = true) {
-  eventsBuffer.push(e);
+  const logEvent = sanitizeEventForLog(e);
+  eventsBuffer.push(logEvent);
   if (eventsBuffer.length > MAX_BUFFER) eventsBuffer.shift();
   updateSummary(e);
   ingestComponentPlan(e);
-  if (broadcast) broadcastSSE('log', e);
+  if (broadcast) broadcastSSE('log', logEvent);
 }
 
 function eventsPerMinute() {
@@ -166,6 +393,68 @@ function eventsPerMinute() {
     else break;
   }
   return count;
+}
+
+function computeErrorActions(meta) {
+  const actions = [];
+  const dedupe = new Set();
+  const add = (action) => {
+    const key = JSON.stringify(action);
+    if (!dedupe.has(key)) {
+      dedupe.add(key);
+      actions.push(action);
+    }
+  };
+  if (meta && meta.slug) {
+    add({
+      action: 'scaffold',
+      slug: meta.slug,
+      label: `Scaffold ${meta.slug}`,
+    });
+    add({
+      action: 'rerun-generator',
+      slug: meta.slug,
+      label: 'Re-run generator',
+    });
+  }
+  const doctorHint =
+    (meta && meta.exitCode === 8) ||
+    (Array.isArray(meta?.missing) &&
+      meta.missing.some((item) => typeof item === 'string' && item.includes('rex-codex doctor'))) ||
+    (typeof meta?.reason === 'string' &&
+      meta.reason.toLowerCase().includes('doctor'));
+  if (doctorHint) {
+    add({ action: 'run-doctor', label: 'Run ./rex-codex doctor' });
+  }
+  return actions;
+}
+
+function sanitizeEventForLog(e) {
+  if (!e || typeof e !== 'object') return e;
+  const copy = {
+    ts: e.ts,
+    level: e.level,
+    message: e.message,
+    task: e.task,
+    status: e.status,
+    progress: e.progress,
+    slug: e.slug,
+    phase: e.phase,
+    type: e.type,
+  };
+  if (e.meta && typeof e.meta === 'object') {
+    const meta = { ...e.meta };
+    delete meta.plan;
+    delete meta.playbook_snapshot;
+    delete meta.repository_inventory;
+    delete meta.components;
+    delete meta.tests;
+    delete meta.paths;
+    if (Object.keys(meta).length > 0) {
+      copy.meta = meta;
+    }
+  }
+  return copy;
 }
 
 function broadcastSSE(eventName, data) {
@@ -766,13 +1055,39 @@ function getSummaryDTO() {
     lastErrors: summary.lastErrors,
     eventsPerMinute: eventsPerMinute(),
     componentPlans: JSON.parse(JSON.stringify(summary.componentPlans)),
-    codingStrategies: JSON.parse(JSON.stringify(summary.codingStrategies))
+    codingStrategies: JSON.parse(JSON.stringify(summary.codingStrategies)),
+    agent: summariseAgentState(),
   };
 }
 
 // ====== API ======
+app.post('/api/actions', async (req, res) => {
+  try {
+    const result = await executeAction(req.body || {});
+    res.json(result);
+  } catch (err) {
+    const status = err && typeof err.statusCode === 'number' ? err.statusCode : 500;
+    const message =
+      err && typeof err.message === 'string' && err.message
+        ? err.message
+        : 'Action failed';
+    res.status(status).json({ error: message });
+  }
+});
+
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, startedAt: summary.startedAt, file: EVENTS_FILE });
+  const agent = summariseAgentState();
+  const doctorStatus = agent && agent.doctor && agent.doctor.status;
+  const ok = typeof doctorStatus === 'string' ? doctorStatus.toLowerCase() !== 'error' : true;
+  res.json({
+    ok,
+    startedAt: summary.startedAt,
+    lastEventAt: summary.lastEventAt,
+    eventsPerMinute: eventsPerMinute(),
+    totals: summary.totals,
+    file: EVENTS_FILE,
+    agent,
+  });
 });
 
 app.get('/api/summary', (_req, res) => {

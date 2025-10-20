@@ -1,0 +1,57 @@
+schema_version: oracle-manifest.v1
+default_fail_fast: false
+notes:
+  - >
+    Populate the commands below with project-specific entry points.  The agent
+    skips any oracle whose required paths, commands, or modules are missing, so
+    you can enable checks incrementally.
+oracles:
+  - name: acceptance-bdd
+    kind: bdd
+    description: Run Behave scenarios that encode the Feature Card acceptance criteria.
+    command: behave --stop
+    required_commands: [behave]
+    required_paths: [features]
+  - name: property-tests
+    kind: property
+    description: Property-based tests powered by Hypothesis.
+    command: pytest tests/property -q
+    required_modules: [hypothesis]
+    required_paths: [tests/property]
+  - name: metamorphic-relations
+    kind: metamorphic
+    description: Metamorphic regression suite asserting relations between executions.
+    command: pytest tests/metamorphic -q
+    required_paths: [tests/metamorphic]
+  - name: api-contract
+    kind: contract
+    description: Schemathesis fuzzing + Dredd contract verification for OpenAPI specs.
+    command: schemathesis run --checks all contracts/api.yaml --app-url=${ORACLE_SCHEMATHESIS_URL:-http://localhost:5000}
+    required_commands: [schemathesis]
+    required_paths: [contracts/api.yaml]
+    continue_on_error: false
+  - name: differential-regression
+    kind: differential
+    description: Back-to-back comparison between legacy and refactored implementations.
+    command: pytest tests/differential -q
+    required_paths: [tests/differential]
+  - name: runtime-monitors
+    kind: runtime
+    description: Runtime verification monitors expressed in temporal logic.
+    command: pytest tests/monitors -q
+    required_paths: [tests/monitors]
+  - name: invariant-mining
+    kind: invariants
+    description: Validate mined invariants (Daikon, Texada exports) against the current code.
+    command: pytest tests/invariants -q
+    required_paths: [tests/invariants]
+  - name: concurrency-checks
+    kind: concurrency
+    description: Elle/Knossos style consistency checks for transactional workloads.
+    command: pytest tests/concurrency -q
+    required_paths: [tests/concurrency]
+  - name: mutation-barrier
+    kind: mutation
+    description: Mutation testing quality gate (mutmut).
+    command: mutmut run --paths-to-mutate src
+    required_commands: [mutmut]

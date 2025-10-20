@@ -10,6 +10,7 @@ Codex-first automation scaffold for **Python projects on Linux**. Drop the wrapp
 - Capture logs, JUnit, and state in-repo so every pass is auditable.
 - Auto-start the monitor UI, fall back to the next free port when 4321 is busy, and stream progress/heartbeat events so you always know what stage is running.
 - Dogfood itself with deterministic **self-development loops** (`scripts/selftest_loop.sh` and `scripts/smoke_e2e.sh`) so every change proves the generator → discriminator pipeline still works in a fresh repo using the live Codex CLI.
+- Execute declarative **oracle suites** (BDD, property-based, metamorphic, contract, mutation) defined in `documents/oracles/oracles.yaml` via `./rex-codex oracle` or automatically at the end of `./rex-codex loop`.
 
 > 🛠️ The agent intentionally targets **Linux shells (Bash 4+)**, **Python tooling**, and **OpenAI Codex** via `npx @openai/codex`. Windows support is via WSL; other ecosystems are out-of-scope.
 
@@ -39,6 +40,7 @@ the global shim and sandbox continue evolving.
 
 - Linux (or WSL) with Bash 4+, `git`, and GNU `timeout` (Python handles advisory locks via `fcntl`).
 - `python3` on PATH (the agent bootstraps a `.venv` with pytest/ruff/black/isort/flake8/mypy/pytest-cov).
+- BDD/property/contract tooling ships via the pinned requirements (`behave`, `hypothesis`, `schemathesis`, `mutmut`, `PyYAML`); `./rex-codex init` installs them alongside the core test stack.
 - `node` 18+ if you want LLM-assisted generator/discriminator flows (the discriminator runs offline by default via `DISABLE_LLM=1`).
 - Outbound network is optional: self-update now defaults **off** (`REX_AGENT_NO_UPDATE=1`). Flip to `0` to pull newer agent versions.
 - For dogfooding, ensure `npx @openai/codex` is installed and run `scripts/selftest_loop.sh` (fast two-card loop) plus `scripts/smoke_e2e.sh` regularly—these harnesses prove the agent can install itself into a clean repo and go green against the live service.
@@ -80,12 +82,32 @@ All release artifacts ship with SHA256 manifests so enterprise mirrors can enfor
   ```
 - The helper script `node monitor/agent/launch-monitor.js --background` starts the server detached and records the port in `.agent/logs/monitor.port`; use this from your agent boot sequence.
 - Logging helpers are provided for both Node (`monitor/agent/logger-node.js`) and Python (`monitor/agent/logger-python.py`) to emit JSONL events.
-- The UI stays read-only: it streams Server-Sent Events (SSE) to render task summaries, recent errors, and the live log feed.
+- The UI now surfaces actionable fixes (rerun doctor/generator, scaffold missing runtime files) and displays Codex/doctor status in the header. Actions invoke `./rex-codex …` commands locally—watch the terminal for prompts or follow-up logs.
 - Set `LOG_DIR`, `EVENTS_FILE`, or `MONITOR_PORT` env vars to customise paths/ports; the default log file is `.agent/logs/events.jsonl`.
 - The launcher exports `REPO_ROOT` so the server can surface `.codex_ci/component_plan_<slug>.json`; override if you run the monitor separately.
 - The Python launcher blocks until `/api/health` responds and will automatically probe higher ports if the default is occupied—check `.agent/logs/monitor.port` for the current assignment.
 - `./rex-codex init` now runs `npm install` inside `monitor/` when dependencies are missing, so the UI is ready post-install. Use `REX_DISABLE_MONITOR_UI=1` to skip launching.
 - `./rex-codex loop`, `generator`, and `discriminator` automatically launch the monitor and open your browser; the landing view now includes a Feature Planner tab that breaks cards into components → subcomponents → test proposals. The legacy terminal HUD stays disabled unless you explicitly re-enable it (set `GENERATOR_UI_POPOUT=1` if you need the old popout).
+
+## Oracle Manifest & CLI
+
+- The agent seeds `documents/oracles/oracles.yaml`; each entry declares an oracle command plus required paths/modules/commands.
+- `./rex-codex oracle --list` shows the configured suites. Omit `--list` to run them on demand; `./rex-codex loop` executes the manifest automatically after the discriminator phase.
+- Supported categories include BDD acceptance checks (Behave), Hypothesis property suites, metamorphic relations, Schemathesis/Dredd contract fuzzing, differential regressions, runtime/LTL monitors, invariant replays, concurrency consistency checks, LLM-assisted assertions, and a mutmut mutation gate. See `AGENTS.md` for the full playbook.
+- Each oracle entry can skip itself when prerequisites are missing, so teams can adopt the portfolio incrementally.
+
+---
+
+## Release Checklist
+
+Generate a dated release checklist with:
+
+```bash
+./rex-codex release          # capture to documents/release_plan/
+./rex-codex release --dry-run # preview the steps without writing a file
+```
+
+The wizard confirms the current/target version, suggests re-running the self-test loops, prompts for changelog updates, and reminds you to build artefacts before tagging and publishing.
 
 ---
 
@@ -120,6 +142,8 @@ All release artifacts ship with SHA256 manifests so enterprise mirrors can enfor
    ./rex-codex loop
    ```
    - **Generator** converts the card into deterministic pytest specs under `tests/feature_specs/<slug>/`.
+   - New spec shards ship with `./rex-codex scaffold <slug>` so you can generate the matching runtime skeleton before handing control to the discriminator.
+   - A Codex preflight now runs a "Hello World" prompt so you can see in `rex-agent.json` / monitor logs that the CLI responded before any card-specific calls.
    - Each generator pass opens with a dashboard summarising the Feature Card (title, acceptance criteria, existing specs) and previews the proposed diff with per-test highlights before patches land.
 - **Discriminator** executes the staged ladder (health, smoke/unit, coverage ≥80%, optional pip-audit/bandit/build, style/type).
   - Run just the feature shard: `./rex-codex discriminator --feature-only`

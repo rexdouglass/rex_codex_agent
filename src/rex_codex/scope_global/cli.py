@@ -17,12 +17,15 @@ from ..scope_project.cards import (
     discover_cards,
     fix_cards,
     lint_all_cards,
+    load_rex_agent,
     prune_spec_directories,
     rename_card,
     sanitise_slug,
     spec_directory,
     split_card,
 )
+from ..scope_project.scaffold import list_known_scaffolds, scaffold_feature
+from ..scope_project.release import run_release
 from ..scope_project.status import render_status
 from ..scope_project.utils import RexContext, prompt
 from .install import run_install
@@ -45,6 +48,12 @@ def _normalise_for_json(value):
 def _dataclass_summary(instance) -> dict[str, object]:
     data = asdict(instance)
     return {key: _normalise_for_json(val) for key, val in data.items()}
+
+
+def _parse_csv(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    return [token.strip() for token in raw.split(",") if token.strip()]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -261,8 +270,10 @@ def build_parser() -> argparse.ArgumentParser:
     loop_parser.add_argument("--discriminator-only", action="store_true")
     loop_parser.add_argument("--skip-feature", action="store_true")
     loop_parser.add_argument("--skip-global", action="store_true")
+    loop_parser.add_argument("--skip-oracles", action="store_true")
     loop_parser.add_argument("--feature-only", action="store_true")
     loop_parser.add_argument("--global-only", action="store_true")
+    loop_parser.add_argument("--oracles-only", action="store_true")
     loop_parser.add_argument("--include-accepted", action="store_true")
     loop_parser.add_argument("--status", dest="statuses", default=None)
     loop_parser.add_argument(
@@ -344,10 +355,112 @@ def build_parser() -> argparse.ArgumentParser:
         help="Process remaining Feature Cards even if one fails",
     )
     loop_parser.add_argument(
+        "--oracles",
+        dest="oracle_names",
+        default=None,
+        help="Comma-separated oracle names to run (defaults to all)",
+    )
+    loop_parser.add_argument(
+        "--oracles-manifest",
+        dest="oracle_manifest",
+        default=None,
+        help="Override oracle manifest path",
+    )
+    loop_parser.add_argument(
+        "--oracles-fail-fast",
+        dest="oracle_fail_fast",
+        action="store_true",
+        help="Stop after the first failing oracle (overrides manifest default)",
+    )
+    loop_parser.add_argument(
+        "--no-oracles-fail-fast",
+        dest="oracle_fail_fast",
+        action="store_false",
+        help="Do not stop after failing oracles (overrides manifest default)",
+    )
+    loop_parser.set_defaults(oracle_fail_fast=None)
+    loop_parser.add_argument(
         "--output",
         choices=["text", "json"],
         default="text",
         help="Emit a JSON summary instead of human-readable output",
+    )
+
+    oracle_parser = sub.add_parser("oracle", help="Run declarative oracle suites")
+    oracle_parser.add_argument(
+        "--manifest",
+        default=None,
+        help="Path to the oracle manifest (default: documents/oracles/oracles.yaml)",
+    )
+    oracle_parser.add_argument(
+        "--names",
+        default=None,
+        help="Comma-separated oracle names to run (defaults to all)",
+    )
+    oracle_parser.add_argument(
+        "--list",
+        action="store_true",
+        help="List configured oracles without executing them",
+    )
+    oracle_parser.add_argument(
+        "--fail-fast",
+        dest="fail_fast",
+        action="store_true",
+        help="Stop after the first failing oracle (overrides manifest default)",
+    )
+    oracle_parser.add_argument(
+        "--no-fail-fast",
+        dest="fail_fast",
+        action="store_false",
+        help="Never stop early when oracles fail (overrides manifest default)",
+    )
+    oracle_parser.set_defaults(fail_fast=None)
+    oracle_parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="Suppress command banner output for oracle runs",
+    )
+    oracle_parser.add_argument(
+        "--output",
+        choices=["text", "json"],
+        default="text",
+        help="Emit a JSON summary instead of human-readable output",
+    )
+
+    scaffold_parser = sub.add_parser(
+        "scaffold", help="Generate runtime scaffolding aligned with specs"
+    )
+    scaffold_parser.add_argument(
+        "slug",
+        nargs="?",
+        help="Feature Card slug or path (defaults to the active slug)",
+    )
+    scaffold_parser.add_argument(
+        "--module", help="Override the inferred module/package name"
+    )
+    scaffold_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing files when regenerating scaffolding",
+    )
+    scaffold_parser.add_argument(
+        "--list",
+        action="store_true",
+        help="List recorded scaffolds and exit",
+    )
+
+    release_parser = sub.add_parser(
+        "release", help="Generate a release checklist"
+    )
+    release_parser.add_argument(
+        "--version",
+        dest="target_version",
+        help="Override the target version (defaults to patch bump)",
+    )
+    release_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the checklist without writing a plan file",
     )
 
     # card commands
@@ -566,6 +679,73 @@ def main(argv: list[str] | None = None) -> int:
         run_init(context=context, perform_self_update=not args.no_self_update)
         return 0
 
+    if args.command == "oracle":
+        from ..scope_project import oracles as oracle_module
+
+        manifest_path = Path(args.manifest) if args.manifest else None
+        try:
+            manifest = oracle_module.load_manifest(context, manifest_path)
+        except oracle_module.OracleError as exc:  # pragma: no cover - defensive
+            print(f"[oracle] {exc}")
+            return 2
+        if manifest is None:
+            print("[oracle] No oracle manifest found (documents/oracles/oracles.yaml).")
+            return 0
+        if args.list:
+            if manifest.notes:
+                for note in manifest.notes:
+                    print(f"[oracle] note: {note}")
+            if not manifest.oracles:
+                print("[oracle] No oracles declared in manifest.")
+                return 0
+            for definition in manifest.oracles:
+                description = f" — {definition.description}" if definition.description else ""
+                tags = f" [{', '.join(definition.tags)}]" if definition.tags else ""
+                print(
+                    f"- {definition.name} ({definition.kind}{tags}){description}"
+                )
+            return 0
+
+        selected_names = _parse_csv(args.names)
+        exit_code, results = oracle_module.run_oracles(
+            manifest,
+            context=context,
+            names=selected_names,
+            fail_fast=args.fail_fast,
+            verbose=not args.quiet,
+        )
+        if args.output == "json":
+            summary = oracle_module.summarize_results(results)
+            summary.update(
+                {
+                    "command": "oracle",
+                    "exit_code": exit_code,
+                    "manifest": str(manifest.path) if manifest.path else None,
+                    "selected": selected_names,
+                    "fail_fast": args.fail_fast
+                    if args.fail_fast is not None
+                    else manifest.default_fail_fast,
+                    "notes": manifest.notes,
+                }
+            )
+            print(json.dumps(summary, indent=2))
+        else:
+            if manifest.notes and not args.quiet:
+                for note in manifest.notes:
+                    print(f"[oracle] note: {note}")
+            if results:
+                table = oracle_module.format_results_table(results)
+                if table:
+                    print(table)
+            else:
+                print("[oracle] No oracles declared in manifest.")
+            if exit_code != 0:
+                print(
+                    f"[oracle] {exit_code} oracle command failure"
+                    f"{'s' if exit_code != 1 else ''}."
+                )
+        return exit_code
+
     if args.command == "generator":
         options = GeneratorOptions()
         output_mode = getattr(args, "output", "text")
@@ -661,16 +841,28 @@ def main(argv: list[str] | None = None) -> int:
             loop_opts.run_discriminator = False
         if args.discriminator_only:
             loop_opts.run_generator = False
+        if args.skip_oracles:
+            loop_opts.run_oracles = False
         if args.skip_feature:
             loop_opts.run_feature = False
         if args.skip_global:
             loop_opts.run_global = False
+        if args.oracles_only:
+            loop_opts.run_generator = False
+            loop_opts.run_discriminator = False
+            loop_opts.run_oracles = True
         if args.feature_only:
             loop_opts.run_feature = True
             loop_opts.run_global = False
         if args.global_only:
             loop_opts.run_feature = False
             loop_opts.run_global = True
+        if args.oracle_manifest:
+            loop_opts.oracle_manifest = Path(args.oracle_manifest)
+        if args.oracle_fail_fast is not None:
+            loop_opts.oracle_fail_fast = args.oracle_fail_fast
+        if args.oracle_names:
+            loop_opts.oracle_names = _parse_csv(args.oracle_names)
         if args.statuses:
             loop_opts.generator_options.statuses = parse_statuses(args.statuses)
         elif args.include_accepted:
@@ -723,10 +915,85 @@ def main(argv: list[str] | None = None) -> int:
                     "discriminator_options": _dataclass_summary(
                         loop_opts.discriminator_options
                     ),
+                    "oracle_options": {
+                        "enabled": loop_opts.run_oracles,
+                        "names": loop_opts.oracle_names,
+                        "manifest": str(loop_opts.oracle_manifest)
+                        if loop_opts.oracle_manifest
+                        else None,
+                        "fail_fast": loop_opts.oracle_fail_fast,
+                    },
                 },
             }
             print(json.dumps(summary, indent=2))
         return exit_code
+
+    if args.command == "scaffold":
+        if args.list:
+            records = list_known_scaffolds(context)
+            if not records:
+                print("[scaffold] No scaffolds recorded.")
+                return 0
+            for record in records:
+                slug = record.get("slug", "unknown")
+                module = record.get("module", "unknown")
+                created = ", ".join(record.get("created", [])) or "—"
+                skipped = ", ".join(record.get("skipped", [])) or "—"
+                mode = "auto" if record.get("auto") else "manual"
+                stamp = record.get("created_at") or "unknown"
+                print(
+                    f"{slug} → {module} ({mode}) [{stamp}] "
+                    f"created: {created} skipped: {skipped}"
+                )
+            return 0
+
+        slug_arg = getattr(args, "slug", None)
+        slug: str | None = None
+        if slug_arg:
+            candidate = Path(slug_arg)
+            if candidate.suffix.lower() == ".md":
+                slug = candidate.stem
+            else:
+                slug = candidate.name
+                if slug.endswith(".md"):
+                    slug = slug[:-3]
+        if not slug:
+            agent_state = load_rex_agent(context)
+            if isinstance(agent_state, dict):
+                slug = agent_state.get("feature", {}).get("active_slug")
+        if not slug:
+            cards = discover_cards(statuses=["proposed"], context=context)
+            slug = cards[0].slug if cards else None
+        if not slug:
+            print(
+                "[scaffold] Provide a Feature Card slug or ensure a proposed card exists."
+            )
+            return 1
+
+        result = scaffold_feature(
+            slug=slug,
+            context=context,
+            module=getattr(args, "module", None),
+            force=getattr(args, "force", False),
+        )
+        if result.created:
+            created = ", ".join(result.created_rel)
+            print(
+                f"[scaffold] Created {created} for module {result.module}."
+            )
+        if result.skipped:
+            skipped = ", ".join(result.skipped_rel)
+            print(f"[scaffold] Skipped existing files: {skipped}.")
+        if not result.created and not result.skipped:
+            print(f"[scaffold] No files generated for {result.module}.")
+        return 0
+
+    if args.command == "release":
+        return run_release(
+            context=context,
+            target_version=getattr(args, "target_version", None),
+            dry_run=getattr(args, "dry_run", False),
+        )
 
     if args.command == "card":
         if args.card_command == "new":
@@ -846,8 +1113,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "doctor":
-        run_doctor(output=getattr(args, "output", "text"))
-        return 0
+        checks = run_doctor(
+            output=getattr(args, "output", "text"),
+            context=context,
+        )
+        exit_code = 0 if all(check.status != "error" for check in checks) else 1
+        return exit_code
 
     if args.command == "hud":
         from .hud import render_hud

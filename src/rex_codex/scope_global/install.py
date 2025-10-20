@@ -43,4 +43,4 @@ def run_install(
     if run_init_after:
         run_init(context=context, perform_self_update=False)
     if run_doctor_after:
-        run_doctor()
+        run_doctor(context=context)

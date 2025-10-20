@@ -16,6 +16,7 @@ import time
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -42,11 +43,37 @@ from .utils import (
     repo_root,
     run,
     shlex_join,
+    update_llm_settings,
     which,
 )
 
 PROGRESS_INTERVAL_SECONDS = max(
     5, int(os.environ.get("GENERATOR_PROGRESS_SECONDS", "15"))
+)
+
+GENERATOR_EXIT_CONFIG_ERROR = 8
+GENERATOR_EXIT_TIMEOUT = 9
+
+GENERATOR_EXIT_REASONS = {
+    0: "Specs updated",
+    1: "No matching Feature Cards",
+    2: "Codex CLI error (see generator logs)",
+    3: "Diff rejected by guardrail",
+    4: "Diff failed to apply cleanly",
+    5: "Critic returned empty guidance",
+    6: "Max passes reached without DONE",
+    7: "Guardrail rejection (card edit or hermetic failure)",
+    GENERATOR_EXIT_CONFIG_ERROR: "Missing Codex configuration",
+    GENERATOR_EXIT_TIMEOUT: "Codex CLI timeout",
+}
+
+GENERATOR_EXIT_HINTS = {
+    GENERATOR_EXIT_CONFIG_ERROR: "Run `npx @openai/codex login` with your GPT5-Pro account and set MODEL=<codex-model-id> before rerunning.",
+    GENERATOR_EXIT_TIMEOUT: "Increase CODEX_TIMEOUT_SECONDS or retry after verifying network connectivity.",
+}
+
+CODEX_HELLO_PREFLIGHT_TTL_SECONDS = max(
+    60, int(os.environ.get("CODEX_HELLO_PREFLIGHT_TTL", "1800"))
 )
 
 
@@ -723,7 +750,7 @@ class GeneratorOptions:
     iterate_all: bool = False
     statuses: list[str] = field(default_factory=lambda: ["proposed"])
     codex_bin: str = os.environ.get("CODEX_BIN", "npx --yes @openai/codex")
-    codex_flags: str = os.environ.get("CODEX_FLAGS", "--yolo")
+    codex_flags: str = os.environ.get("CODEX_FLAGS", "")
     codex_model: str = os.environ.get("MODEL", "")
     verbose: bool = True
     tail_lines: int = 0
@@ -744,6 +771,8 @@ class _CodexResult:
     stdout: str
     stderr: str
     elapsed_seconds: int
+    timeout: bool = False
+    limit_seconds: int | None = None
 
 
 def parse_statuses(raw: str | None) -> list[str]:
@@ -900,6 +929,323 @@ def _should_scrub_specs(context: RexContext, option: bool | None) -> bool:
     return context.root.name == "rex_codex_agent"
 
 
+def _is_interactive_session() -> bool:
+    try:
+        return sys.stdin.isatty() and sys.stdout.isatty()
+    except Exception:
+        return False
+
+
+def _codex_login_status_ok(result: subprocess.CompletedProcess[str]) -> bool:
+    if result.returncode != 0:
+        return False
+    text_parts: list[str] = []
+    if isinstance(result.stdout, str):
+        text_parts.append(result.stdout)
+    if isinstance(result.stderr, str):
+        text_parts.append(result.stderr)
+    combined = " ".join(text_parts)
+    return "logged in" in combined.lower()
+
+
+def _env_truthy(raw: str | None) -> bool:
+    if raw is None:
+        return False
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _parse_iso_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        if value.endswith("Z"):
+            value = value[:-1] + "+00:00"
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _codex_hello_probe(
+    *,
+    slug: str,
+    options: GeneratorOptions,
+    context: RexContext,
+    base_cmd: list[str],
+) -> dict[str, object] | None:
+    if _env_truthy(os.environ.get("REX_SKIP_HELLO_PREFLIGHT")):
+        return None
+    if not options.codex_model.strip():
+        return None
+
+    snapshot = load_json(context.rex_agent_file)
+    preflight = snapshot.setdefault("preflight", {})
+    state = preflight.get("codex_hello") or {}
+
+    ttl_seconds = CODEX_HELLO_PREFLIGHT_TTL_SECONDS
+    if ttl_seconds > 0 and state.get("status") == "ok":
+        if state.get("model") == options.codex_model:
+            last_run = _parse_iso_timestamp(state.get("timestamp"))
+            if last_run and datetime.now(UTC) - last_run < timedelta(seconds=ttl_seconds):
+                return {"ok": True, "cached": True}
+
+    cmd = base_cmd + ["exec"]
+    if options.codex_flags.strip():
+        cmd += _split_command(options.codex_flags)
+    if options.codex_model:
+        cmd += ["--model", options.codex_model]
+    prompt = os.environ.get(
+        "CODEX_HELLO_PREFLIGHT_PROMPT",
+        "Return exactly the text 'Hello World' and nothing else.",
+    )
+    cmd += ["--cd", str(context.root), "--", prompt]
+
+    try:
+        result = run(
+            cmd,
+            cwd=context.root,
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+    except OSError as exc:
+        message = f"Codex CLI preflight failed: {exc}"
+        record = {
+            "status": "error",
+            "timestamp": _utc_now_iso(),
+            "model": options.codex_model,
+            "stdout": "",
+            "stderr": str(exc),
+        }
+        preflight["codex_hello"] = record
+        dump_json(context.rex_agent_file, snapshot)
+        return {"ok": False, "message": message, "exit_code": GENERATOR_EXIT_CONFIG_ERROR}
+
+    stdout = (result.stdout or "").strip()
+    stderr = (result.stderr or "").strip()
+    ok = result.returncode == 0 and stdout == "Hello World"
+
+    record = {
+        "status": "ok" if ok else "error",
+        "timestamp": _utc_now_iso(),
+        "model": options.codex_model,
+        "returncode": result.returncode,
+        "stdout": stdout,
+    }
+    if stderr:
+        record["stderr"] = stderr
+    record["bin"] = options.codex_bin
+    record["flags"] = options.codex_flags
+    preflight["codex_hello"] = record
+    dump_json(context.rex_agent_file, snapshot)
+
+    if ok:
+        emit_event(
+            "generator",
+            "codex_preflight_hello",
+            slug=slug,
+            level="info",
+            status="ok",
+            cached=False,
+            stdout=stdout,
+        )
+        return {"ok": True, "cached": False}
+
+    emit_event(
+        "generator",
+        "codex_preflight_hello",
+        slug=slug,
+        level="error",
+        status="error",
+        cached=False,
+        stdout=stdout[:200],
+        stderr=stderr[:200],
+        exit_code=result.returncode,
+    )
+    message = (
+        "Codex CLI preflight failed: expected 'Hello World' but got "
+        f"{stdout or '<empty>'!r} (exit {result.returncode})"
+    )
+    return {
+        "ok": False,
+        "message": message,
+        "exit_code": result.returncode,
+        "stderr": stderr,
+    }
+
+
+def _codex_preflight(
+    *,
+    slug: str,
+    options: GeneratorOptions,
+    context: RexContext,
+) -> dict[str, object] | None:
+    if _env_truthy(os.environ.get("REX_SKIP_LLM_PRECHECK")):
+        return None
+
+    missing: list[str] = []
+    violations: list[str] = []
+    agent_state = load_json(context.rex_agent_file)
+    if isinstance(agent_state, dict):
+        doctor_state = agent_state.get("doctor")
+    else:
+        doctor_state = None
+    if isinstance(doctor_state, dict):
+        doctor_status = str(doctor_state.get("status", "") or "").lower()
+        last_run = doctor_state.get("last_run")
+        if not last_run:
+            missing.append("Run `./rex-codex doctor` to verify the environment.")
+        elif doctor_status == "error":
+            failing = doctor_state.get("errors") or []
+            roster = ", ".join(str(item) for item in failing[:3] if item)
+            detail = (
+                f"Resolve ./rex-codex doctor failures ({roster})"
+                if roster
+                else "Resolve ./rex-codex doctor errors"
+            )
+            violations.append(detail)
+        elif doctor_status == "warn":
+            warnings = doctor_state.get("warnings") or []
+            roster = ", ".join(str(item) for item in warnings[:3] if item)
+            message = "Address ./rex-codex doctor warnings"
+            if roster:
+                message += f" ({roster})"
+            missing.append(message)
+    else:
+        missing.append("Run `./rex-codex doctor` to seed diagnostics.")
+    login_attempted = False
+
+    forbidden_envs = [
+        var for var in ("OPENAI_API_KEY", "CODEX_API_KEY") if os.environ.get(var)
+    ]
+    for var in forbidden_envs:
+        violations.append(f"Unset {var}; interactive Codex login is required.")
+
+    model_present = bool(options.codex_model.strip())
+    if not model_present and options.codex_flags:
+        tokens = _split_command(options.codex_flags)
+        for idx, token in enumerate(tokens):
+            if token.startswith("--model="):
+                model_present = True
+                break
+            if token == "--model" and idx + 1 < len(tokens):
+                model_present = True
+                break
+    if not model_present:
+        missing.append("MODEL (Codex model identifier)")
+
+    base_cmd = _split_command(options.codex_bin)
+    status_cmd = base_cmd + ["login", "status"]
+    status = run(
+        status_cmd,
+        cwd=context.root,
+        capture_output=True,
+        check=False,
+    )
+    logged_in = _codex_login_status_ok(status)
+    interactive_allowed = (
+        _is_interactive_session()
+        and not _env_truthy(os.environ.get("REX_SKIP_CODEX_LOGIN_PROMPT"))
+        and not forbidden_envs
+    )
+    if not logged_in and interactive_allowed:
+        palette = _ansi_palette()
+        print(
+            f"{palette.warning}[generator] Codex CLI login required. Launching `npx @openai/codex login`…{palette.reset}"
+        )
+        login_cmd = base_cmd + ["login"]
+        try:
+            subprocess.run(login_cmd, cwd=context.root, check=False)
+            login_attempted = True
+        except OSError as exc:
+            print(
+                f"{palette.error}[generator] Failed to start Codex login: {exc}{palette.reset}"
+            )
+        status = run(
+            status_cmd,
+            cwd=context.root,
+            capture_output=True,
+            check=False,
+        )
+        logged_in = _codex_login_status_ok(status)
+    if not logged_in:
+        missing.append("Codex CLI login (run `npx @openai/codex login`)")
+
+    hello_probe: dict[str, object] | None = None
+    hello_exit_code: int | None = None
+    if not missing and not violations:
+        hello_probe = _codex_hello_probe(
+            slug=slug,
+            options=options,
+            context=context,
+            base_cmd=base_cmd,
+        )
+        if hello_probe and not hello_probe.get("ok"):
+            violations.append(
+                hello_probe.get(
+                    "message",
+                    "Codex CLI preflight failed to echo 'Hello World'.",
+                )
+            )
+            hello_exit_code = hello_probe.get("exit_code")
+
+    if not missing and not violations:
+        return None
+
+    palette = _ansi_palette()
+    print(
+        f"{palette.error}[generator] Preflight failed: Codex configuration is incomplete.{palette.reset}"
+    )
+    for item in missing:
+        print(f"{palette.error}  - missing {item}{palette.reset}")
+    for issue in violations:
+        print(f"{palette.error}  - {issue}{palette.reset}")
+
+    guidance_parts: list[str] = []
+    if any("Codex CLI login" in item for item in missing):
+        guidance_parts.append("Run `npx @openai/codex login` with your GPT5-Pro account.")
+    if any("MODEL" in item for item in missing):
+        guidance_parts.append("Export MODEL=<codex-model-id> before rerunning.")
+    if any("./rex-codex doctor" in item for item in missing):
+        guidance_parts.append("Run `./rex-codex doctor` and fix reported issues.")
+    if hello_probe and not hello_probe.get("ok"):
+        guidance_parts.append(
+            "Verify the Codex CLI by running `npx --yes @openai/codex exec --model \"$MODEL\" -- \"Return exactly the text 'Hello World' and nothing else.\"`."
+        )
+    for var in forbidden_envs:
+        guidance_parts.append(f"Unset {var}; API key auth is disabled.")
+    if login_attempted and not logged_in:
+        guidance_parts.append(
+            "Login attempt ended without authentication; rerun and complete the Codex login prompt."
+        )
+    hint = " ".join(guidance_parts) or GENERATOR_EXIT_HINTS[GENERATOR_EXIT_CONFIG_ERROR]
+
+    emit_event(
+        "generator",
+        "preflight_failed",
+        slug=slug,
+        level="error",
+        exit_code=hello_exit_code or GENERATOR_EXIT_CONFIG_ERROR,
+        reason="missing_codex_configuration",
+        missing=missing,
+        violations=violations,
+        hint=hint,
+        login_attempted=login_attempted,
+        hello_exit_code=hello_exit_code,
+    )
+    return {
+        "exit_code": hello_exit_code or GENERATOR_EXIT_CONFIG_ERROR,
+        "hint": hint,
+        "missing": missing,
+        "violations": violations,
+        "login_attempted": login_attempted,
+        "hello_exit_code": hello_exit_code,
+    }
+
+
 def _scrub_spec_directory(slug: str, context: RexContext) -> None:
     specs_dir = context.root / "tests" / "feature_specs" / slug
     if not specs_dir.exists():
@@ -1035,6 +1381,8 @@ def _run_codex_with_progress(
                         stdout=stdout_combined,
                         stderr=stderr_combined,
                         elapsed_seconds=elapsed_total,
+                        timeout=True,
+                        limit_seconds=max_seconds or None,
                     )
     finally:
         unregister_loop_process(process.pid, context=context)
@@ -1054,6 +1402,8 @@ def _run_codex_with_progress(
         stdout=stdout_combined,
         stderr=stderr_combined,
         elapsed_seconds=elapsed_total,
+        timeout=False,
+        limit_seconds=max_seconds or None,
     )
 
 
@@ -1069,11 +1419,46 @@ def _run_card_with_ui(
         options.spawn_popout = True
     options.ui_mode = ui_mode
 
+    update_llm_settings(
+        context,
+        codex_bin=options.codex_bin,
+        codex_flags=options.codex_flags,
+        codex_model=options.codex_model,
+    )
+
     if options.reconcile_only:
         return _process_card(card, options, context)
 
     if _should_scrub_specs(context, options.scrub_specs):
         _scrub_spec_directory(card.slug, context)
+
+    preflight = _codex_preflight(slug=card.slug, options=options, context=context)
+    if preflight is not None:
+        exit_code = int(preflight.get("exit_code", GENERATOR_EXIT_CONFIG_ERROR))
+        hint = str(preflight.get("hint", "") or "")
+        reason = GENERATOR_EXIT_REASONS.get(
+            exit_code, "Generator preflight failure"
+        )
+        missing = preflight.get("missing") or []
+        violations = preflight.get("violations") or []
+        login_attempted = bool(preflight.get("login_attempted"))
+        emit_event(
+            "generator",
+            "feature_failed",
+            slug=card.slug,
+            iteration=0,
+            exit_code=exit_code,
+            reason=reason,
+            hint=hint or None,
+            missing=missing,
+            violations=violations,
+            login_attempted=login_attempted,
+        )
+        palette = _ansi_palette()
+        print(f"{palette.error}[generator] Aborting before Codex invocation.{palette.reset}")
+        if hint:
+            print(f"{palette.dim}{hint}{palette.reset}")
+        return exit_code
 
     events_file = events_path()
     if ui_mode != "off":
@@ -1459,13 +1844,24 @@ def _process_card(
             metrics=metrics_payload,
         )
         if exit_code != 0:
-            emit_event(
-                "generator",
-                "feature_failed",
-                slug=slug,
-                iteration=iteration,
-                exit_code=exit_code,
-            )
+            reason = GENERATOR_EXIT_REASONS.get(exit_code, "Generator failure")
+            payload = {
+                "slug": slug,
+                "iteration": iteration,
+                "exit_code": exit_code,
+                "reason": reason,
+            }
+            hint = GENERATOR_EXIT_HINTS.get(exit_code)
+            if hint:
+                payload["hint"] = hint
+            emit_event("generator", "feature_failed", **payload)
+            if exit_code not in {GENERATOR_EXIT_TIMEOUT}:
+                palette = _ansi_palette()
+                print(
+                    f"{palette.error}[generator] Iteration {iteration} failed: {reason} (exit {exit_code}).{palette.reset}"
+                )
+                if hint:
+                    print(f"{palette.dim}{hint}{palette.reset}")
             return exit_code
 
         _run_pytest_snapshot(slug, context)
@@ -1617,6 +2013,26 @@ def _run_once(
     )
     if options.verbose:
         print(f"[generator] Codex CLI finished in {completed.elapsed_seconds}s.")
+    if completed.timeout:
+        limit = completed.limit_seconds or 0
+        palette = _ansi_palette()
+        limit_text = f"{limit}s" if limit else "configured limit"
+        print(
+            f"{palette.error}[generator] Codex CLI timed out after {completed.elapsed_seconds}s (limit {limit_text}).{palette.reset}"
+        )
+        hint = GENERATOR_EXIT_HINTS[GENERATOR_EXIT_TIMEOUT]
+        print(f"{palette.dim}{hint}{palette.reset}")
+        emit_event(
+            "generator",
+            "codex_timeout_summary",
+            slug=slug,
+            level="error",
+            exit_code=GENERATOR_EXIT_TIMEOUT,
+            elapsed_seconds=completed.elapsed_seconds,
+            limit_seconds=completed.limit_seconds,
+            hint=hint,
+        )
+        return GENERATOR_EXIT_TIMEOUT, None
     if completed.returncode != 0:
         stderr = completed.stderr or ""
         response_path.write_text(
@@ -2005,6 +2421,14 @@ def _extract_diff(response_path: Path, slug: str | None) -> str:
                     print(
                         "[generator] Dropped forbidden Feature Card edits (status line)."
                     )
+                    if slug:
+                        emit_event(
+                            "generator",
+                            "card_guardrail_partial_accept",
+                            slug=slug,
+                            path=allowed_doc,
+                            reason="protected_header",
+                        )
                 if sanitized_block:
                     segments.append(sanitized_block)
                 continue
