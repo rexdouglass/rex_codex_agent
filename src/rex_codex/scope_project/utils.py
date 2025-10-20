@@ -724,7 +724,9 @@ def create_audit_snapshot(
             for title, lines in extra_sections:
                 fh.write(f"\n## {title}\n\n")
                 for line in lines:
-                    fh.write(f"- {line}\n")
+                    if line is None:
+                        continue
+                    fh.write(f"{line}\n")
     print(f"[audit] Snapshot written to {audit_path}")
     if context.is_agent_repo() and not _env_flag("REX_AGENT_FORCE_BUILD"):
         if auto_commit:

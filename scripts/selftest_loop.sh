@@ -252,16 +252,7 @@ finalize() {
   fi
   finalized=1
   set +e
-
-  local audit_dir="$repo_root/for_external_GPT5_pro_audit"
-  mkdir -p "$audit_dir"
-  local timestamp
-  timestamp="$(date -u +%Y%m%d%H%M%S)"
-  local latest_audit="$audit_dir/audit_${timestamp}_selftest.md"
-  : >"$latest_audit"
-  local audit_label="${latest_audit#$repo_root/}"
-  emit_monitor_event "selftest" "stage" "Updating audit snapshot ${audit_label}" "running" "0.95" "" "selftest_loop"
-
+  emit_monitor_event "selftest" "stage" "Aggregating self-test artifacts" "running" "0.90" "" "selftest_loop"
   local status_output=""
   if [[ -x "$workspace/rex-codex" ]]; then
     status_output="$(cd "$workspace" && ./rex-codex status 2>&1 || true)"
@@ -279,15 +270,19 @@ finalize() {
     monitor_summary="$(curl -fsSL "${monitor_url%/}/api/summary" 2>&1 || true)"
   fi
 
+  local report_file
+  report_file="$(mktemp)"
   {
-    printf '\n## Local Selftest Loop (%s UTC)\n\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    printf -- '- Workspace: %s\n' "$workspace"
-    printf -- '- Features exercised: %s\n' "${SLUGS[*]:-n/a}"
+    printf 'Local Selftest Loop (%s UTC)\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf '\n'
+    printf 'Workspace: %s\n' "$workspace"
+    printf 'Features exercised: %s\n' "${SLUGS[*]:-n/a}"
     if [[ -n "${global_status:-}" ]]; then
-      printf -- '- Global discriminator exit code: %s\n' "$global_status"
+      printf 'Global discriminator exit code: %s\n' "$global_status"
     fi
-    printf -- '- Last command exit code: %s\n' "${last_status:-n/a}"
-    printf -- '- Script exit code: %s\n\n' "$exit_status"
+    printf 'Last command exit code: %s\n' "${last_status:-n/a}"
+    printf 'Script exit code: %s\n' "$exit_status"
+    printf '\n'
     if [[ -n "$status_output" ]]; then
       printf '### rex-codex status\n\n```\n%s\n```\n' "$status_output"
     fi
@@ -325,7 +320,48 @@ finalize() {
       cat "$workspace/src/hello/__main__.py"
       printf '```\n'
     fi
-  } >>"$latest_audit"
+  } >"$report_file"
+
+  emit_monitor_event "selftest" "stage" "Writing consolidated audit snapshot" "running" "0.95" "" "selftest_loop"
+
+  local audit_path=""
+  local audit_status=0
+  audit_path="$(
+    ROOT="$repo_root" \
+    PYTHONPATH="$repo_root/src:${PYTHONPATH:-}" \
+    SELFTEST_REPORT="$report_file" \
+    python3 - <<'PY'
+import contextlib
+import io
+import os
+from pathlib import Path
+from rex_codex.scope_project.utils import RexContext, create_audit_snapshot
+
+report_path = Path(os.environ["SELFTEST_REPORT"])
+with report_path.open("r", encoding="utf-8") as handle:
+    report_lines = [line.rstrip("\n") for line in handle]
+
+sections = [("Self-Test Loop", report_lines)]
+context = RexContext.discover()
+stdout_buffer = io.StringIO()
+with contextlib.redirect_stdout(stdout_buffer):
+    snapshot_path = create_audit_snapshot(
+        context,
+        extra_sections=sections,
+        auto_commit=False,
+    )
+print(snapshot_path)
+PY
+  )" || audit_status=$?
+  local audit_label
+  if (( audit_status != 0 )) || [[ -z "$audit_path" ]]; then
+    audit_label="audit generation failed"
+    echo "[!] Failed to generate consolidated audit snapshot." >&2
+  else
+    audit_label="${audit_path#$repo_root/}"
+    echo "[i] Self-test audit snapshot recorded at $audit_path"
+  fi
+  rm -f "$report_file"
 
   if (( exit_status == 0 )); then
     emit_monitor_event "selftest" "completed" "Self-test loop completed (audit ${audit_label})" "succeeded" "1.0" "" "selftest_loop"
