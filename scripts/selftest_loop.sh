@@ -96,6 +96,44 @@ set_progress_plan() {
   progress_step=0
 }
 
+ensure_codex_model() {
+  if [[ -n "${MODEL:-}" ]]; then
+    return
+  fi
+  local detected_model=""
+  detected_model="$(python3 - <<'PY' 2>/dev/null
+import tomllib
+from pathlib import Path
+
+paths = [
+    Path.home() / ".codex" / "config.toml",
+    Path.home() / ".config" / "@openai" / "codex" / "config.toml",
+]
+model = ""
+for cfg in paths:
+    if not cfg.exists():
+        continue
+    try:
+        data = tomllib.loads(cfg.read_text(encoding="utf-8"))
+    except Exception:
+        continue
+    candidate = (data.get("model") or "").strip()
+    if candidate:
+        model = candidate
+        break
+if model:
+    print(model)
+PY
+)"
+  if [[ -n "$detected_model" ]]; then
+    export MODEL="$detected_model"
+    echo "[i] Using Codex model from CLI config: $MODEL" | tee -a "$log_file"
+    return
+  fi
+  echo "[!] Codex CLI is not logged in. Run 'npx --yes @openai/codex login' in this repository and rerun the self-test. You may also export MODEL=<codex-model-id> manually." | tee -a "$log_file"
+  exit 8
+}
+
 read_monitor_metadata() {
   if [[ ! -f "$monitor_port_file" ]]; then
     return 1
@@ -370,7 +408,8 @@ PY
   fi
 
   cd "$repo_root" 2>/dev/null || true
-  if [[ "${SELFTEST_KEEP:-0}" == "1" ]]; then
+  local keep_flag="${SELFTEST_KEEP:-1}"
+  if [[ "$keep_flag" == "1" ]]; then
     echo "[i] Preserved workspace at $workspace"
   else
     rm -rf "$workspace"
@@ -467,6 +506,8 @@ export PYTHON=python3
 export PYENV_VERSION="${PYENV_VERSION:-3.11.8}"
 export GENERATOR_PROGRESS_SECONDS="${GENERATOR_PROGRESS_SECONDS:-5}"
 export DISCRIMINATOR_PROGRESS_SECONDS="${DISCRIMINATOR_PROGRESS_SECONDS:-5}"
+
+ensure_codex_model
 
 for slug in "${SLUGS[@]}"; do
   emit_monitor_event "generator" "run_started" "Generator starting for ${slug}" "running" "" "" "$slug"
